@@ -127,10 +127,12 @@ export function formatForWeb(
     content_type: content.content_type,
     headline: content.headline,
     clinical_summary: content.clinical_summary,
-    return_to_play_timeline: content.return_to_play.timeline,
-    return_to_play_probability: content.return_to_play.probability,
-    return_to_play_factors: content.return_to_play.factors,
-    source_url: content.source_url ?? null,
+    return_to_play_estimate: {
+      timeline: content.return_to_play.timeline,
+      probability: content.return_to_play.probability,
+      factors: content.return_to_play.factors,
+    },
+    ...(content.source_url !== undefined && { source_url: content.source_url }),
     confidence: content.confidence,
     status,
   };

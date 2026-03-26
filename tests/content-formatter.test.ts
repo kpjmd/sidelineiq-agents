@@ -8,7 +8,7 @@ function makeContent(overrides: Partial<InjuryPostContent> = {}): InjuryPostCont
     sport: 'NFL',
     team: 'Kansas City Chiefs',
     injury_type: 'High ankle sprain',
-    injury_severity: 'MODERATE',
+    injury_severity: 'MODERATE' as const,
     content_type: 'BREAKING',
     headline: 'Patrick Mahomes suffers high ankle sprain in Week 12',
     clinical_summary:
@@ -112,13 +112,15 @@ describe('formatForWeb', () => {
       sport: 'NFL',
       team: 'Kansas City Chiefs',
       injury_type: 'High ankle sprain',
-      injury_severity: 'MODERATE',
+      injury_severity: 'MODERATE' as const,
       content_type: 'BREAKING',
       headline: 'Patrick Mahomes suffers high ankle sprain in Week 12',
       clinical_summary: expect.any(String),
-      return_to_play_timeline: '4-6 weeks',
-      return_to_play_probability: 0.85,
-      return_to_play_factors: ['Grade of sprain', 'Player age', 'Rehabilitation protocol'],
+      return_to_play_estimate: {
+        timeline: '4-6 weeks',
+        probability: 0.85,
+        factors: ['Grade of sprain', 'Player age', 'Rehabilitation protocol'],
+      },
       source_url: 'https://example.com/mahomes-injury',
       confidence: 0.92,
       status: 'PUBLISHED',
@@ -130,8 +132,8 @@ describe('formatForWeb', () => {
     expect(result.status).toBe('PENDING_REVIEW');
   });
 
-  it('sets source_url to null when not provided', () => {
+  it('omits source_url when not provided', () => {
     const result = formatForWeb(makeContent({ source_url: undefined }));
-    expect(result.source_url).toBeNull();
+    expect(result).not.toHaveProperty('source_url');
   });
 });

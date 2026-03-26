@@ -23,7 +23,7 @@ app.post('/test/publish', async (_req, res) => {
     sport: 'NFL',
     team: 'Test Team',
     injury_type: 'Ankle sprain',
-    injury_severity: 'MILD',
+    injury_severity: 'MINOR',
     content_type: 'BREAKING',
     headline: '[E2E TEST] Mock athlete reports mild ankle sprain in practice',
     clinical_summary:

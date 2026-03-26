@@ -2,7 +2,7 @@ export type MCPServerName = 'farcaster' | 'twitter' | 'web';
 
 export type ContentType = 'BREAKING' | 'TRACKING' | 'DEEP_DIVE';
 
-export type InjurySeverity = 'MILD' | 'MODERATE' | 'SEVERE';
+export type InjurySeverity = 'MINOR' | 'MODERATE' | 'SEVERE' | 'UNKNOWN';
 
 export interface ReturnToPlayEstimate {
   timeline: string;

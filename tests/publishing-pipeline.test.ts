@@ -19,7 +19,7 @@ function makeContent(overrides: Partial<InjuryPostContent> = {}): InjuryPostCont
     sport: 'NFL',
     team: 'Kansas City Chiefs',
     injury_type: 'High ankle sprain',
-    injury_severity: 'MODERATE',
+    injury_severity: 'MODERATE' as const,
     content_type: 'BREAKING',
     headline: 'Patrick Mahomes suffers high ankle sprain in Week 12',
     clinical_summary: 'MRI confirms Grade 2 high ankle sprain.',
@@ -77,7 +77,7 @@ describe('publishInjuryPost', () => {
 
   it('routes to MD review when severity is SEVERE', async () => {
     const result = await publishInjuryPost(
-      makeContent({ injury_severity: 'SEVERE', confidence: 0.95 })
+      makeContent({ injury_severity: 'SEVERE' as const, confidence: 0.95 })
     );
 
     expect(result.status).toBe('pending_review');
