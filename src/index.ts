@@ -46,12 +46,12 @@ app.post('/test/publish', async (_req, res) => {
 });
 
 async function start(): Promise<void> {
-  console.log('[Server] Initializing MCP clients...');
-  await initializeMCPClients();
-
   app.listen(PORT, () => {
     console.log(`[Server] SidelineIQ Agents running on port ${PORT}`);
   });
+
+  console.log('[Server] Initializing MCP clients...');
+  await initializeMCPClients();
 }
 
 function shutdown(): void {

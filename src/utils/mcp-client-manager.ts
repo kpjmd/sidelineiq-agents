@@ -12,6 +12,7 @@ const clients = new Map<MCPServerName, Client>();
 
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 1000;
+const CONNECT_TIMEOUT_MS = 10_000;
 
 async function connectWithRetry(
   name: MCPServerName,
@@ -22,7 +23,8 @@ async function connectWithRetry(
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const transport = new StreamableHTTPClientTransport(new URL(url));
+      const abort = AbortSignal.timeout(CONNECT_TIMEOUT_MS);
+      const transport = new StreamableHTTPClientTransport(new URL(url), { requestInit: { signal: abort } });
       const client = new Client({ name: 'sidelineiq-agents', version: '1.0.0' });
       await client.connect(transport);
       return client;
