@@ -29,9 +29,12 @@ app.post('/test/publish', async (_req, res) => {
     clinical_summary:
       'This is an automated end-to-end test post from sidelineiq-agents. A Grade 1 lateral ankle sprain was reported during practice. ATFL involvement suspected. Ice, compression, and rest recommended.',
     return_to_play: {
-      timeline: '1-2 weeks',
-      probability: 0.95,
-      factors: ['Grade 1 sprain', 'No structural damage', 'Good prior conditioning'],
+      min_weeks: 1,
+      max_weeks: 2,
+      probability_week_2: 0.90,
+      probability_week_4: 0.98,
+      probability_week_8: 0.99,
+      confidence: 0.90,
     },
     confidence: 0.90,
   };

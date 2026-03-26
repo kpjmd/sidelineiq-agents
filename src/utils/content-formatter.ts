@@ -30,7 +30,8 @@ function splitIntoChunks(text: string, maxLen: number): string[] {
 }
 
 function buildBreakingCast(content: InjuryPostContent, charLimit: number): string {
-  const rtpLine = `RTP: ${content.return_to_play.timeline} (${Math.round(content.return_to_play.probability * 100)}%)`;
+  const rtp = content.return_to_play;
+  const rtpLine = `RTP: ${rtp.min_weeks}-${rtp.max_weeks} weeks (${Math.round(rtp.probability_week_4 * 100)}% by wk 4)`;
   const parts = [
     `🚨 ${content.headline}`,
     '',
@@ -42,7 +43,8 @@ function buildBreakingCast(content: InjuryPostContent, charLimit: number): strin
 }
 
 function buildTrackingCast(content: InjuryPostContent, charLimit: number): string {
-  const rtpLine = `RTP: ${content.return_to_play.timeline} (${Math.round(content.return_to_play.probability * 100)}%)`;
+  const rtp = content.return_to_play;
+  const rtpLine = `RTP: ${rtp.min_weeks}-${rtp.max_weeks} weeks (${Math.round(rtp.probability_week_4 * 100)}% by wk 4)`;
   const parts = [
     `📋 UPDATE: ${content.headline}`,
     '',
@@ -69,9 +71,9 @@ function buildDeepDiveThread(content: InjuryPostContent, charLimit: number): str
   }
 
   // Cast 4: RTP breakdown
-  const rtpFactors = content.return_to_play.factors.join(', ');
+  const rtp = content.return_to_play;
   casts.push(truncateWithEllipsis(
-    `⏱️ Return to Play: ${content.return_to_play.timeline}\nProbability: ${Math.round(content.return_to_play.probability * 100)}%\nKey factors: ${rtpFactors}`,
+    `⏱️ Return to Play: ${rtp.min_weeks}-${rtp.max_weeks} weeks\nWk 2: ${Math.round(rtp.probability_week_2 * 100)}% | Wk 4: ${Math.round(rtp.probability_week_4 * 100)}% | Wk 8: ${Math.round(rtp.probability_week_8 * 100)}%`,
     charLimit
   ));
 
@@ -127,11 +129,7 @@ export function formatForWeb(
     content_type: content.content_type,
     headline: content.headline,
     clinical_summary: content.clinical_summary,
-    return_to_play_estimate: {
-      timeline: content.return_to_play.timeline,
-      probability: content.return_to_play.probability,
-      factors: content.return_to_play.factors,
-    },
+    return_to_play_estimate: { ...content.return_to_play },
     ...(content.source_url !== undefined && { source_url: content.source_url }),
     confidence: content.confidence,
     status,

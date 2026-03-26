@@ -5,9 +5,12 @@ export type ContentType = 'BREAKING' | 'TRACKING' | 'DEEP_DIVE';
 export type InjurySeverity = 'MINOR' | 'MODERATE' | 'SEVERE' | 'UNKNOWN';
 
 export interface ReturnToPlayEstimate {
-  timeline: string;
-  probability: number;
-  factors: string[];
+  min_weeks: number;
+  max_weeks: number;
+  probability_week_2: number;
+  probability_week_4: number;
+  probability_week_8: number;
+  confidence: number;
 }
 
 export interface InjuryPostContent {
