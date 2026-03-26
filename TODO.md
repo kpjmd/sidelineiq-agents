@@ -1,15 +1,16 @@
 # SidelineIQ Agents — Build Tracker
 
 ## Prerequisites
-- [ ] sidelineiq-mcp-servers deployed to Railway
-- [ ] MCP server URLs available as env vars
+- [x] sidelineiq-mcp-servers deployed to Railway
+- [x] MCP server URLs available as env vars
 
-## Session 1 — MCP Integration (Current)
-- [ ] MCP Client Manager
-- [ ] Content Formatter (BREAKING/TRACKING/DEEP_DIVE x 3 platforms)
-- [ ] Publishing Pipeline with deduplication and MD review routing
-- [ ] Integration tests
-- [ ] .env.example complete
+## Session 1 — MCP Integration ✅
+- [x] MCP Client Manager
+- [x] Content Formatter (BREAKING/TRACKING/DEEP_DIVE x 3 platforms)
+- [x] Publishing Pipeline with deduplication and MD review routing
+- [x] Integration tests
+- [x] .env.example complete
+- [x] E2E test endpoint (POST /test/publish) — Farcaster confirmed working
 
 ## Session 2 — Injury Intelligence Agent
 - [ ] Research Agent transplanted from orthoiq-agents
