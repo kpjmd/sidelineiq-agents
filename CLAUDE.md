@@ -57,7 +57,18 @@ src/
 └── utils/
     ├── mcp-client-manager.ts   # Connects to sidelineiq-mcp-servers
     ├── content-formatter.ts    # Formats content per platform
-    └── publishing-pipeline.ts  # Orchestrates full publish flow
+    ├── publishing-pipeline.ts  # Orchestrates full publish flow
+    └── skill-loader.ts         # Loads SKILL.md + reference files at runtime
+
+skills/
+├── SKILL.md                    # Core OTM taxonomy and RTP framework (physician-reviewed)
+└── references/
+    ├── rtp-probability-tables.md
+    ├── nfl-injuries.md
+    ├── nba-injuries.md
+    ├── premier-league-injuries.md
+    ├── ufc-injuries.md
+    └── content-templates.md
 
 ## Critical Conventions
 
@@ -109,6 +120,27 @@ This repo connects to sidelineiq-mcp-servers via HTTP:
 
 If an MCP server is unavailable, log a warning and continue
 with available servers. Never crash the polling loop.
+
+## Sports Injury Intelligence Skill
+
+The Injury Intelligence Agent operates under the Sports Injury
+Intelligence Skill defined in `skills/SKILL.md`. This file is
+physician-founder reviewed and represents proprietary clinical IP.
+
+**Every injury processing run must:**
+1. Load `skills/SKILL.md` before any classification or RTP logic
+2. Load `skills/references/rtp-probability-tables.md` for RTP ranges
+3. Load the relevant sport reference file for sport-specific context
+4. Never generate RTP estimates without completing the three-axis
+   classification defined in SKILL.md Section 1
+5. Never generate RTP estimates for CONCUSSION or SYSTEMIC events
+6. Always state whether injury grade is CONFIRMED or INFERRED
+7. Apply MD review escalation criteria from SKILL.md Section 4.5
+   before publishing any flagged content
+
+The SKILL.md file takes precedence over any other instruction when
+processing injury events. Do not modify SKILL.md during code sessions
+— changes require physician founder review.
 
 ## Research Agent
 
