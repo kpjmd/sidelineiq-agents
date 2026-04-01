@@ -52,6 +52,10 @@ async function publishToFarcaster(content: InjuryPostContent): Promise<PlatformR
     } else {
       data = await callTool('farcaster', 'farcaster_publish_thread', { casts });
     }
+    if (isMCPError(data)) {
+      const msg = extractTextPayload(data) ?? data;
+      throw new Error(String(msg));
+    }
     return { platform: 'farcaster', success: true, data };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -73,6 +77,10 @@ async function publishToTwitter(content: InjuryPostContent): Promise<PlatformRes
     } else {
       data = await callTool('twitter', 'twitter_publish_thread', { tweets });
     }
+    if (isMCPError(data)) {
+      const msg = extractTextPayload(data) ?? data;
+      throw new Error(String(msg));
+    }
     return { platform: 'twitter', success: true, data };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -92,6 +100,10 @@ async function publishToWeb(
   try {
     const webContent = formatForWeb(content, status);
     const data = await callTool('web', 'web_create_injury_post', webContent);
+    if (isMCPError(data)) {
+      const msg = extractTextPayload(data) ?? data;
+      throw new Error(String(msg));
+    }
     return { platform: 'web', success: true, data };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -100,9 +112,18 @@ async function publishToWeb(
   }
 }
 
+interface MCPResponse {
+  content?: Array<{ type: string; text?: string }>;
+  isError?: boolean;
+}
+
+function isMCPError(data: unknown): boolean {
+  return (data as MCPResponse)?.isError === true;
+}
+
 function extractTextPayload(data: unknown): Record<string, unknown> | null {
   try {
-    const result = data as { content?: Array<{ type: string; text?: string }> };
+    const result = data as MCPResponse;
     const text = result?.content?.[0]?.text;
     if (!text) return null;
     return JSON.parse(text) as Record<string, unknown>;
