@@ -13,7 +13,7 @@ import { publishInjuryPost } from '../src/utils/publishing-pipeline.js';
 const mockCallTool = vi.mocked(callTool);
 const mockIsServerAvailable = vi.mocked(isServerAvailable);
 
-const WEB_CREATE_RESPONSE = { content: [{ type: 'text', text: JSON.stringify({ id: 'post-abc-123' }) }] };
+const WEB_CREATE_RESPONSE = { content: [{ type: 'text', text: JSON.stringify({ post_id: 'post-abc-123', status: 'PUBLISHED' }) }] };
 const FARCASTER_RESPONSE = { content: [{ type: 'text', text: JSON.stringify({ hash: '0xdeadbeef', url: 'https://warpcast.com/~/conversations/0xdeadbeef' }) }] };
 const TWITTER_RESPONSE = { content: [{ type: 'text', text: JSON.stringify({ id: 'tweet-xyz-456' }) }] };
 

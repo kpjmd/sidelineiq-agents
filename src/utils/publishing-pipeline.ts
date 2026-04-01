@@ -113,7 +113,7 @@ function extractTextPayload(data: unknown): Record<string, unknown> | null {
 
 function extractWebPostId(data: unknown): string | null {
   const payload = extractTextPayload(data);
-  const id = payload?.id;
+  const id = payload?.post_id ?? payload?.id;
   return typeof id === 'string' ? id : null;
 }
 
