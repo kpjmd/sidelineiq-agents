@@ -5,6 +5,7 @@ const TWITTER_CHAR_LIMIT = 280;
 
 const ORTHOIQ_REFERRAL_URL = process.env.ORTHOIQ_REFERRAL_URL || 'https://orthoiq.com?ref=sidelineiq';
 const ORTHOIQ_CTA = `\n\nDealing with a similar injury? Get a personalized consultation at OrthoIQ. ${ORTHOIQ_REFERRAL_URL}`;
+const OTM_SIGNATURE = '— OrthoTriage Master | AI-generated analysis. Physician-founded.';
 
 function truncateWithEllipsis(text: string, maxLen: number): string {
   if (text.length <= maxLen) return text;
@@ -77,8 +78,8 @@ function buildDeepDiveThread(content: InjuryPostContent, charLimit: number): str
     charLimit
   ));
 
-  // Final cast: OrthoIQ reference
-  casts.push(truncateWithEllipsis(ORTHOIQ_CTA.trim(), charLimit));
+  // Final cast: OrthoIQ reference + OTM signature (required on DEEP_DIVE)
+  casts.push(truncateWithEllipsis(`${ORTHOIQ_CTA.trim()}\n\n${OTM_SIGNATURE}`, charLimit));
 
   // Ensure 3-5 casts
   while (casts.length < 3) {
@@ -94,19 +95,78 @@ function buildDeepDiveThread(content: InjuryPostContent, charLimit: number): str
   return casts;
 }
 
-function buildConflictCast(content: InjuryPostContent, charLimit: number): string {
-  const reason = content.conflict_reason ?? 'Conflicting reports from multiple sources';
+// CONFLICT_FLAG — Farcaster: single long-form cast with OTM 🚩 sections
+function buildConflictFarcasterCast(content: InjuryPostContent, charLimit: number): string {
   const rtp = content.return_to_play;
+  const teamLine = content.team_timeline_weeks != null
+    ? `Team timeline: ${content.team_timeline_weeks} weeks`
+    : 'Team timeline: not disclosed';
+  const otmLine = `OTM read: ${rtp.min_weeks}–${rtp.max_weeks} weeks`;
+  const deltaLine = content.team_timeline_weeks != null
+    ? `Delta: ${Math.abs(content.team_timeline_weeks - rtp.max_weeks)}+ weeks — conflict threshold met`
+    : 'Delta: exceeds 2-week conflict threshold';
+
   const parts = [
-    `⚠️ CONFLICT: ${content.headline}`,
+    `OTM 🚩 ${content.athlete_name}`,
     '',
-    reason,
+    `${content.team} says ${content.team_timeline_weeks != null ? `${content.team_timeline_weeks} weeks` : 'day-to-day'}. That's not what the biology says.`,
     '',
+    'THE INJURY',
     content.clinical_summary,
     '',
-    `RTP range: ${rtp.min_weeks}-${rtp.max_weeks} weeks (conflicting — monitor for updates)`,
+    'THE GAP',
+    teamLine,
+    otmLine,
+    deltaLine,
+    '',
+    'WHY IT MATTERS',
+    content.conflict_reason ?? 'OTM clinical estimate diverges from team disclosure.',
+    '',
+    OTM_SIGNATURE,
   ];
   return truncateWithEllipsis(parts.join('\n'), charLimit);
+}
+
+// CONFLICT_FLAG — Twitter: 5-post thread
+function buildConflictTwitterThread(content: InjuryPostContent, charLimit: number): string[] {
+  const rtp = content.return_to_play;
+  const teamWeeks = content.team_timeline_weeks;
+  const teamDisclosure = teamWeeks != null ? `${teamWeeks} weeks` : 'day-to-day';
+  const delta = teamWeeks != null ? Math.abs(teamWeeks - rtp.max_weeks) : null;
+
+  const posts: string[] = [
+    // Post 1: hook
+    truncateWithEllipsis(
+      `OTM 🚩 ${content.athlete_name} — ${content.team}'s timeline doesn't add up.\nThey're saying ${teamDisclosure}. The biology says something different. 🧵`,
+      charLimit
+    ),
+    // Post 2: the gap
+    truncateWithEllipsis(
+      [
+        `The injury: ${content.injury_type}`,
+        `Standard recovery: ${rtp.min_weeks}–${rtp.max_weeks} weeks`,
+        `Team disclosed: ${teamDisclosure}`,
+        delta != null ? `The gap: ${delta}+ weeks` : 'Gap: exceeds 2-week conflict threshold',
+      ].join('\n'),
+      charLimit
+    ),
+    // Post 3: clinical basis
+    truncateWithEllipsis(
+      `Here's why this matters:\n${content.conflict_reason ?? content.clinical_summary}`,
+      charLimit
+    ),
+    // Post 4: RTP + evidence
+    truncateWithEllipsis(
+      `OTM read: ${rtp.min_weeks}–${rtp.max_weeks} weeks\nWk 2: ${Math.round(rtp.probability_week_2 * 100)}% | Wk 4: ${Math.round(rtp.probability_week_4 * 100)}% | Wk 8: ${Math.round(rtp.probability_week_8 * 100)}%`,
+      charLimit
+    ),
+    // Post 5: watch + signature
+    truncateWithEllipsis(
+      `Watch for: the signal that resolves this — imaging update, practice shift, or a quiet timeline revision that validates OTM's flag.\n\n${OTM_SIGNATURE}`,
+      charLimit
+    ),
+  ];
+  return posts;
 }
 
 export function formatForFarcaster(content: InjuryPostContent): string[] {
@@ -118,7 +178,7 @@ export function formatForFarcaster(content: InjuryPostContent): string[] {
     case 'DEEP_DIVE':
       return buildDeepDiveThread(content, FARCASTER_CHAR_LIMIT);
     case 'CONFLICT_FLAG':
-      return [buildConflictCast(content, FARCASTER_CHAR_LIMIT)];
+      return [buildConflictFarcasterCast(content, FARCASTER_CHAR_LIMIT)];
   }
 }
 
@@ -131,7 +191,7 @@ export function formatForTwitter(content: InjuryPostContent): string[] {
     case 'DEEP_DIVE':
       return buildDeepDiveThread(content, TWITTER_CHAR_LIMIT);
     case 'CONFLICT_FLAG':
-      return [buildConflictCast(content, TWITTER_CHAR_LIMIT)];
+      return buildConflictTwitterThread(content, TWITTER_CHAR_LIMIT);
   }
 }
 
@@ -151,6 +211,7 @@ export function formatForWeb(
     return_to_play_estimate: { ...content.return_to_play },
     ...(content.source_url !== undefined && { source_url: content.source_url }),
     ...(content.conflict_reason !== undefined && { conflict_reason: content.conflict_reason }),
+    ...(content.team_timeline_weeks !== undefined && { team_timeline_weeks: content.team_timeline_weeks }),
     confidence: content.confidence,
     status,
   };

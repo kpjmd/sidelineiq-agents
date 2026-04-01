@@ -26,6 +26,7 @@ export interface InjuryPostContent {
   source_url?: string;
   confidence: number;
   conflict_reason?: string;
+  team_timeline_weeks?: number;
 }
 
 export interface PlatformResult {
