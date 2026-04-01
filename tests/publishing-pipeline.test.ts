@@ -13,6 +13,10 @@ import { publishInjuryPost } from '../src/utils/publishing-pipeline.js';
 const mockCallTool = vi.mocked(callTool);
 const mockIsServerAvailable = vi.mocked(isServerAvailable);
 
+const WEB_CREATE_RESPONSE = { content: [{ type: 'text', text: JSON.stringify({ id: 'post-abc-123' }) }] };
+const FARCASTER_RESPONSE = { content: [{ type: 'text', text: JSON.stringify({ hash: '0xdeadbeef', url: 'https://warpcast.com/~/conversations/0xdeadbeef' }) }] };
+const TWITTER_RESPONSE = { content: [{ type: 'text', text: JSON.stringify({ id: 'tweet-xyz-456' }) }] };
+
 function makeContent(overrides: Partial<InjuryPostContent> = {}): InjuryPostContent {
   return {
     athlete_name: 'Patrick Mahomes',
@@ -39,27 +43,36 @@ function makeContent(overrides: Partial<InjuryPostContent> = {}): InjuryPostCont
 beforeEach(() => {
   vi.clearAllMocks();
   mockIsServerAvailable.mockReturnValue(true);
-  // Default: no existing posts (no duplicates)
-  mockCallTool.mockImplementation(async (server, tool) => {
+  mockCallTool.mockImplementation(async (_server, tool) => {
     if (tool === 'web_list_posts') return [];
+    if (tool === 'web_create_injury_post') return WEB_CREATE_RESPONSE;
+    if (tool === 'farcaster_publish_cast') return FARCASTER_RESPONSE;
+    if (tool === 'farcaster_publish_thread') return FARCASTER_RESPONSE;
+    if (tool === 'twitter_publish_tweet') return TWITTER_RESPONSE;
+    if (tool === 'twitter_publish_thread') return TWITTER_RESPONSE;
     return { content: [{ type: 'text', text: 'ok' }] };
   });
 });
 
 describe('publishInjuryPost', () => {
-  it('publishes to all 3 platforms in parallel on BREAKING content', async () => {
+  it('publishes web first, then social, then writes hashes back', async () => {
     const result = await publishInjuryPost(makeContent());
 
     expect(result.status).toBe('published');
     expect(result.platform_results).toHaveLength(3);
     expect(result.platform_results.every((r) => r.success)).toBe(true);
 
-    // Dedup check + 3 publishes = 4 callTool calls
-    expect(mockCallTool).toHaveBeenCalledTimes(4);
+    // Sequence: dedup + web create + farcaster + twitter + web update = 5 calls
+    expect(mockCallTool).toHaveBeenCalledTimes(5);
     expect(mockCallTool).toHaveBeenCalledWith('web', 'web_list_posts', expect.any(Object));
+    expect(mockCallTool).toHaveBeenCalledWith('web', 'web_create_injury_post', expect.any(Object));
     expect(mockCallTool).toHaveBeenCalledWith('farcaster', 'farcaster_publish_cast', expect.any(Object));
     expect(mockCallTool).toHaveBeenCalledWith('twitter', 'twitter_publish_tweet', expect.any(Object));
-    expect(mockCallTool).toHaveBeenCalledWith('web', 'web_create_injury_post', expect.any(Object));
+    expect(mockCallTool).toHaveBeenCalledWith('web', 'web_update_injury_post', expect.objectContaining({
+      id: 'post-abc-123',
+      farcaster_hash: '0xdeadbeef',
+      twitter_id: 'tweet-xyz-456',
+    }));
   });
 
   it('routes to MD review when confidence is below threshold', async () => {
@@ -68,12 +81,10 @@ describe('publishInjuryPost', () => {
     expect(result.status).toBe('pending_review');
     expect(result.reason).toContain('confidence');
 
-    // Should NOT call farcaster or twitter publish
     const callArgs = mockCallTool.mock.calls.map((c) => `${c[0]}.${c[1]}`);
     expect(callArgs).not.toContain('farcaster.farcaster_publish_cast');
     expect(callArgs).not.toContain('twitter.twitter_publish_tweet');
 
-    // Should call web create with PENDING_REVIEW and flag for review
     expect(mockCallTool).toHaveBeenCalledWith('web', 'web_create_injury_post', expect.objectContaining({ status: 'PENDING_REVIEW' }));
     expect(mockCallTool).toHaveBeenCalledWith('web', 'web_flag_for_md_review', expect.any(Object));
   });
@@ -94,7 +105,7 @@ describe('publishInjuryPost', () => {
           {
             athlete_name: 'Patrick Mahomes',
             sport: 'NFL',
-            created_at: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(), // 6 hours ago
+            created_at: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
           },
         ];
       }
@@ -105,8 +116,28 @@ describe('publishInjuryPost', () => {
 
     expect(result.status).toBe('skipped');
     expect(result.reason).toBe('duplicate');
-    // Only the dedup check should have been called
     expect(mockCallTool).toHaveBeenCalledTimes(1);
+  });
+
+  it('still publishes to social when web post creation fails', async () => {
+    mockCallTool.mockImplementation(async (server, tool) => {
+      if (tool === 'web_list_posts') return [];
+      if (tool === 'web_create_injury_post') throw new Error('DB error');
+      if (tool === 'farcaster_publish_cast') return FARCASTER_RESPONSE;
+      if (tool === 'twitter_publish_tweet') return TWITTER_RESPONSE;
+      return { content: [{ type: 'text', text: 'ok' }] };
+    });
+
+    const result = await publishInjuryPost(makeContent());
+
+    expect(result.status).toBe('published');
+    const webResult = result.platform_results.find((r) => r.platform === 'web');
+    expect(webResult?.success).toBe(false);
+    const farcasterResult = result.platform_results.find((r) => r.platform === 'farcaster');
+    expect(farcasterResult?.success).toBe(true);
+    // No hash write-back since web create failed (no post ID)
+    const callTools = mockCallTool.mock.calls.map((c) => c[1]);
+    expect(callTools).not.toContain('web_update_injury_post');
   });
 
   it('continues publishing when one platform is unavailable', async () => {
@@ -121,15 +152,16 @@ describe('publishInjuryPost', () => {
 
     const farcasterResult = result.platform_results.find((r) => r.platform === 'farcaster');
     expect(farcasterResult?.success).toBe(true);
-
     const webResult = result.platform_results.find((r) => r.platform === 'web');
     expect(webResult?.success).toBe(true);
   });
 
-  it('gracefully handles MCP server error during publish', async () => {
+  it('gracefully handles MCP server error during social publish', async () => {
     mockCallTool.mockImplementation(async (server, tool) => {
       if (tool === 'web_list_posts') return [];
+      if (tool === 'web_create_injury_post') return WEB_CREATE_RESPONSE;
       if (server === 'farcaster') throw new Error('Farcaster timeout');
+      if (tool === 'twitter_publish_tweet') return TWITTER_RESPONSE;
       return { content: [{ type: 'text', text: 'ok' }] };
     });
 
@@ -139,9 +171,12 @@ describe('publishInjuryPost', () => {
     const farcasterResult = result.platform_results.find((r) => r.platform === 'farcaster');
     expect(farcasterResult?.success).toBe(false);
     expect(farcasterResult?.error).toContain('timeout');
-
-    // Other platforms should still succeed
     const twitterResult = result.platform_results.find((r) => r.platform === 'twitter');
     expect(twitterResult?.success).toBe(true);
+    // Hash write-back should still happen with twitter_id only
+    expect(mockCallTool).toHaveBeenCalledWith('web', 'web_update_injury_post', expect.objectContaining({
+      id: 'post-abc-123',
+      twitter_id: 'tweet-xyz-456',
+    }));
   });
 });

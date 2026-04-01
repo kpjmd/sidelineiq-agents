@@ -100,6 +100,35 @@ async function publishToWeb(
   }
 }
 
+function extractTextPayload(data: unknown): Record<string, unknown> | null {
+  try {
+    const result = data as { content?: Array<{ type: string; text?: string }> };
+    const text = result?.content?.[0]?.text;
+    if (!text) return null;
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function extractWebPostId(data: unknown): string | null {
+  const payload = extractTextPayload(data);
+  const id = payload?.id;
+  return typeof id === 'string' ? id : null;
+}
+
+function extractFarcasterHash(data: unknown): string | null {
+  const payload = extractTextPayload(data);
+  const hash = payload?.hash;
+  return typeof hash === 'string' ? hash : null;
+}
+
+function extractTwitterId(data: unknown): string | null {
+  const payload = extractTextPayload(data);
+  const id = payload?.id ?? payload?.tweet_id;
+  return typeof id === 'string' ? id : null;
+}
+
 export async function publishInjuryPost(content: InjuryPostContent): Promise<PublishResult> {
   const timestamp = new Date().toISOString();
   const context = `${content.athlete_name} (${content.sport}/${content.team})`;
@@ -152,19 +181,37 @@ export async function publishInjuryPost(content: InjuryPostContent): Promise<Pub
     };
   }
 
-  // Step 3: Publish to all platforms in parallel
-  const results = await Promise.allSettled([
+  // Step 3a: Create web post first to get the post ID for hash write-back
+  const webResult = await publishToWeb(content, 'PUBLISHED');
+  const webPostId = webResult.success ? extractWebPostId(webResult.data) : null;
+
+  // Step 3b: Publish to social platforms in parallel
+  const [farcasterResult, twitterResult] = await Promise.all([
     publishToFarcaster(content),
     publishToTwitter(content),
-    publishToWeb(content, 'PUBLISHED'),
   ]);
 
-  const platformResults: PlatformResult[] = results.map((r) =>
-    r.status === 'fulfilled'
-      ? r.value
-      : { platform: 'web' as const, success: false, error: String(r.reason) }
-  );
+  // Step 3c: Write social hashes back to web post (best-effort, non-blocking)
+  if (webPostId) {
+    const farcasterHash = farcasterResult.success ? extractFarcasterHash(farcasterResult.data) : null;
+    const twitterId = twitterResult.success ? extractTwitterId(twitterResult.data) : null;
 
+    if (farcasterHash || twitterId) {
+      try {
+        await callTool('web', 'web_update_injury_post', {
+          id: webPostId,
+          ...(farcasterHash && { farcaster_hash: farcasterHash }),
+          ...(twitterId && { twitter_id: twitterId }),
+        });
+        console.log(`[Pipeline] Wrote social hashes back to post ${webPostId} (farcaster: ${!!farcasterHash}, twitter: ${!!twitterId})`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`[Pipeline] Failed to write social hashes to post ${webPostId}: ${message}`);
+      }
+    }
+  }
+
+  const platformResults = [webResult, farcasterResult, twitterResult];
   const successCount = platformResults.filter((r) => r.success).length;
   console.log(
     `[Pipeline] Published ${context}: ${successCount}/${platformResults.length} platforms at ${timestamp} (confidence: ${content.confidence})`
