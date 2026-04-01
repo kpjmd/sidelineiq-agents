@@ -1,6 +1,6 @@
 export type MCPServerName = 'farcaster' | 'twitter' | 'web';
 
-export type ContentType = 'BREAKING' | 'TRACKING' | 'DEEP_DIVE';
+export type ContentType = 'BREAKING' | 'TRACKING' | 'DEEP_DIVE' | 'CONFLICT_FLAG';
 
 export type InjurySeverity = 'MINOR' | 'MODERATE' | 'SEVERE' | 'UNKNOWN';
 
@@ -25,6 +25,7 @@ export interface InjuryPostContent {
   return_to_play: ReturnToPlayEstimate;
   source_url?: string;
   confidence: number;
+  conflict_reason?: string;
 }
 
 export interface PlatformResult {

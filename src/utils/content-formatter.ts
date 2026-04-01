@@ -94,6 +94,21 @@ function buildDeepDiveThread(content: InjuryPostContent, charLimit: number): str
   return casts;
 }
 
+function buildConflictCast(content: InjuryPostContent, charLimit: number): string {
+  const reason = content.conflict_reason ?? 'Conflicting reports from multiple sources';
+  const rtp = content.return_to_play;
+  const parts = [
+    `⚠️ CONFLICT: ${content.headline}`,
+    '',
+    reason,
+    '',
+    content.clinical_summary,
+    '',
+    `RTP range: ${rtp.min_weeks}-${rtp.max_weeks} weeks (conflicting — monitor for updates)`,
+  ];
+  return truncateWithEllipsis(parts.join('\n'), charLimit);
+}
+
 export function formatForFarcaster(content: InjuryPostContent): string[] {
   switch (content.content_type) {
     case 'BREAKING':
@@ -102,6 +117,8 @@ export function formatForFarcaster(content: InjuryPostContent): string[] {
       return [buildTrackingCast(content, FARCASTER_CHAR_LIMIT)];
     case 'DEEP_DIVE':
       return buildDeepDiveThread(content, FARCASTER_CHAR_LIMIT);
+    case 'CONFLICT_FLAG':
+      return [buildConflictCast(content, FARCASTER_CHAR_LIMIT)];
   }
 }
 
@@ -113,6 +130,8 @@ export function formatForTwitter(content: InjuryPostContent): string[] {
       return [buildTrackingCast(content, TWITTER_CHAR_LIMIT)];
     case 'DEEP_DIVE':
       return buildDeepDiveThread(content, TWITTER_CHAR_LIMIT);
+    case 'CONFLICT_FLAG':
+      return [buildConflictCast(content, TWITTER_CHAR_LIMIT)];
   }
 }
 
@@ -131,6 +150,7 @@ export function formatForWeb(
     clinical_summary: content.clinical_summary,
     return_to_play_estimate: { ...content.return_to_play },
     ...(content.source_url !== undefined && { source_url: content.source_url }),
+    ...(content.conflict_reason !== undefined && { conflict_reason: content.conflict_reason }),
     confidence: content.confidence,
     status,
   };

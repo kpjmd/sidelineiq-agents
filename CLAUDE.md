@@ -93,6 +93,7 @@ skills/
 - BREAKING — injury just reported, publish immediately
 - TRACKING — recovery update on existing injury
 - DEEP_DIVE — educational deep dive on injury type, scheduled
+- CONFLICT_FLAG — conflicting reports from multiple sources on the same injury
 
 ### Sports Coverage (Launch Order)
 1. NFL (active now)
