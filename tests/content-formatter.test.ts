@@ -142,4 +142,14 @@ describe('formatForWeb', () => {
     const result = formatForWeb(makeContent({ source_url: undefined }));
     expect(result).not.toHaveProperty('source_url');
   });
+
+  it('includes parent_post_id when set', () => {
+    const result = formatForWeb(makeContent({ parent_post_id: 'post-uuid-123' }));
+    expect(result.parent_post_id).toBe('post-uuid-123');
+  });
+
+  it('omits parent_post_id when not provided', () => {
+    const result = formatForWeb(makeContent());
+    expect(result).not.toHaveProperty('parent_post_id');
+  });
 });
