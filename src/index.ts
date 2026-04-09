@@ -51,13 +51,18 @@ app.post('/test/publish', async (_req, res) => {
 function extractSeedPostId(data: unknown): string | null {
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const text = (data as any)?.content?.[0]?.text;
+    const raw = data as any;
+    if (raw?.isError === true) {
+      const errText = raw?.content?.[0]?.text ?? 'unknown MCP error';
+      throw new Error(`MCP error: ${errText}`);
+    }
+    const text = raw?.content?.[0]?.text;
     if (!text) return null;
     const payload = JSON.parse(text) as Record<string, unknown>;
     const id = payload?.post_id ?? payload?.id;
     return typeof id === 'string' ? id : null;
-  } catch {
-    return null;
+  } catch (err) {
+    throw err;
   }
 }
 
@@ -88,6 +93,14 @@ app.post('/seed/test-posts', async (_req, res) => {
         'Patrick Mahomes was seen favoring his right ankle during Wednesday\'s practice and exited early. ' +
         'Lateral ankle mechanism noted on video. Grade 1 ATFL sprain suspected. Ice and compression applied on-field. ' +
         'No imaging confirmed yet. Status officially listed as day-to-day.',
+      return_to_play_estimate: {
+        min_weeks: null,
+        max_weeks: null,
+        probability_week_2: null,
+        probability_week_4: null,
+        probability_week_8: null,
+        confidence: null,
+      },
       confidence: 0.88,
       status: 'PUBLISHED',
     });
@@ -107,6 +120,14 @@ app.post('/seed/test-posts', async (_req, res) => {
         'Patrick Mahomes returned to full practice two days after the initial ankle soreness report. ' +
         'Coaching staff confirmed no structural concern — ATFL stress reaction, not a full sprain. ' +
         'Game-day status upgraded from questionable to probable. Recovery trajectory consistent with OTM Grade 1 ATFL classification.',
+      return_to_play_estimate: {
+        min_weeks: null,
+        max_weeks: null,
+        probability_week_2: null,
+        probability_week_4: null,
+        probability_week_8: null,
+        confidence: null,
+      },
       parent_post_id: results.breaking_id ?? undefined,
       confidence: 0.91,
       status: 'PUBLISHED',
