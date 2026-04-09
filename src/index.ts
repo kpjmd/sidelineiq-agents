@@ -167,16 +167,19 @@ app.post('/seed/test-posts', async (_req, res) => {
     console.log(`[Seed] DEEP_DIVE created: ${results.deep_dive_id}`);
 
     // Flag the DEEP_DIVE for MD review
-    try {
-      await callTool('web', 'web_flag_for_md_review', {
-        athlete_name: '[SEED] Ja Morant',
-        sport: 'NBA',
-        reason: 'confidence 0.71 below threshold 0.75',
-      });
-      console.log('[Seed] DEEP_DIVE flagged for MD review');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.warn(`[Seed] MD review flag failed (non-fatal): ${message}`);
+    if (results.deep_dive_id) {
+      try {
+        await callTool('web', 'web_flag_for_md_review', {
+          post_id: results.deep_dive_id,
+          reason: 'confidence 0.71 below threshold 0.75',
+          confidence_score: 0.71,
+          flagged_by: 'seed-script',
+        });
+        console.log('[Seed] DEEP_DIVE flagged for MD review');
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`[Seed] MD review flag failed (non-fatal): ${message}`);
+      }
     }
 
     // Post 4 — CONFLICT_FLAG (team_timeline_weeks: 2 vs OTM min: 6, gap triggers conflict display)
