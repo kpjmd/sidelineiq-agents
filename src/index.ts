@@ -80,7 +80,7 @@ app.post('/seed/test-posts', async (_req, res) => {
   };
 
   try {
-    // Post 1 — BREAKING (minimal, no RTP)
+    // Post 1 — BREAKING
     const breakingData = await callTool('web', 'web_create_injury_post', {
       athlete_name: '[SEED] Patrick Mahomes',
       sport: 'NFL',
@@ -94,12 +94,12 @@ app.post('/seed/test-posts', async (_req, res) => {
         'Lateral ankle mechanism noted on video. Grade 1 ATFL sprain suspected. Ice and compression applied on-field. ' +
         'No imaging confirmed yet. Status officially listed as day-to-day.',
       return_to_play_estimate: {
-        min_weeks: null,
-        max_weeks: null,
-        probability_week_2: null,
-        probability_week_4: null,
-        probability_week_8: null,
-        confidence: null,
+        min_weeks: 1,
+        max_weeks: 2,
+        probability_week_2: 0.85,
+        probability_week_4: 0.97,
+        probability_week_8: 0.99,
+        confidence: 0.88,
       },
       confidence: 0.88,
       status: 'PUBLISHED',
@@ -121,12 +121,12 @@ app.post('/seed/test-posts', async (_req, res) => {
         'Coaching staff confirmed no structural concern — ATFL stress reaction, not a full sprain. ' +
         'Game-day status upgraded from questionable to probable. Recovery trajectory consistent with OTM Grade 1 ATFL classification.',
       return_to_play_estimate: {
-        min_weeks: null,
-        max_weeks: null,
-        probability_week_2: null,
-        probability_week_4: null,
-        probability_week_8: null,
-        confidence: null,
+        min_weeks: 1,
+        max_weeks: 2,
+        probability_week_2: 0.85,
+        probability_week_4: 0.97,
+        probability_week_8: 0.99,
+        confidence: 0.91,
       },
       parent_post_id: results.breaking_id ?? undefined,
       confidence: 0.91,
