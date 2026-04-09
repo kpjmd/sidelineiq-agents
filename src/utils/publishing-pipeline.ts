@@ -183,15 +183,19 @@ export async function publishInjuryPost(content: InjuryPostContent): Promise<Pub
 
     // Flag for MD review if web post succeeded
     if (webResult.success) {
-      try {
-        await callTool('web', 'web_flag_for_md_review', {
-          athlete_name: content.athlete_name,
-          sport: content.sport,
-          reason: review.reason,
-        });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.error(`[Pipeline] Failed to flag for MD review: ${message}`);
+      const webPostId = extractWebPostId(webResult.data);
+      if (webPostId) {
+        try {
+          await callTool('web', 'web_flag_for_md_review', {
+            post_id: webPostId,
+            reason: review.reason,
+            confidence_score: content.confidence,
+            flagged_by: 'injury-intelligence-agent',
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(`[Pipeline] Failed to flag for MD review: ${message}`);
+        }
       }
     }
 
