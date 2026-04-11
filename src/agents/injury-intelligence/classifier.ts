@@ -126,12 +126,20 @@ ${raw.is_update ? 'Marker: source flagged this as a status update.' : ''}`;
 
     const input = toolUse.input as Record<string, unknown>;
 
+    // Reject sport-league names returned as team (e.g., "NBA", "NFL") —
+    // Haiku sometimes hallucinates the league name when it can't identify the team.
+    const SPORT_LEAGUE_NAMES = new Set(['NFL', 'NBA', 'PREMIER_LEAGUE', 'UFC', 'MLB', 'NHL', 'MLS', 'WNBA']);
+    const classifiedTeam = String(input.team ?? '').trim();
+    const validTeam = classifiedTeam && !SPORT_LEAGUE_NAMES.has(classifiedTeam.toUpperCase())
+      ? classifiedTeam
+      : raw.team;
+
     return {
       is_injury_event: Boolean(input.is_injury_event),
       confidence: Number(input.confidence ?? 0),
       sport: (input.sport as SportKey) ?? raw.sport,
       athlete_name: String(input.athlete_name ?? raw.athlete_name),
-      team: String(input.team ?? raw.team),
+      team: validTeam,
       injury_description: String(input.injury_description ?? raw.injury_description),
       content_type: (input.content_type as ContentType) ?? 'BREAKING',
       is_new: Boolean(input.is_new ?? !raw.is_update),

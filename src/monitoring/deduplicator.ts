@@ -56,11 +56,10 @@ function parseListPostsResponse(raw: unknown): ExistingPost[] {
  * Checks whether a raw event is already covered by an existing post.
  *
  * Semantics:
- *   - If a post for the same athlete+sport was created within the last 24h
- *     AND the event is flagged as an update → returns the existing post_id
- *     so the pipeline can produce a TRACKING post.
- *   - If a post exists within 24h AND the event is not an update → returns
- *     isDuplicate: true so the poller skips it entirely.
+ *   - If a post for the same athlete+sport was created within the last 24h,
+ *     always returns isDuplicate:true regardless of is_update flag. The 24h
+ *     window is the dedup boundary — once it expires the next cycle will
+ *     produce a fresh post naturally.
  *   - If no recent post exists → returns isDuplicate: false.
  *
  * On any MCP failure the function returns isDuplicate:false so the pipeline
@@ -89,11 +88,9 @@ export async function checkForExisting(event: RawInjuryEvent): Promise<DedupResu
 
     if (!recent) return { isDuplicate: false };
 
-    const existingPostId = recent.post_id ?? recent.id;
-    if (event.is_update && existingPostId) {
-      return { isDuplicate: false, existingPostId };
-    }
-    return { isDuplicate: true, ...(existingPostId && { existingPostId }) };
+    // Any post within the 24h window = always skip.
+    // Re-publishing Q/DTD players every 15 minutes is flooding, not tracking.
+    return { isDuplicate: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(
