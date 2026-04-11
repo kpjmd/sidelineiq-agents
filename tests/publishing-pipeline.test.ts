@@ -68,11 +68,14 @@ describe('publishInjuryPost', () => {
     expect(mockCallTool).toHaveBeenCalledWith('web', 'web_create_injury_post', expect.any(Object));
     expect(mockCallTool).toHaveBeenCalledWith('farcaster', 'farcaster_publish_cast', expect.any(Object));
     expect(mockCallTool).toHaveBeenCalledWith('twitter', 'twitter_publish_tweet', expect.any(Object));
-    expect(mockCallTool).toHaveBeenCalledWith('web', 'web_update_injury_post', expect.objectContaining({
-      id: 'post-abc-123',
-      farcaster_hash: '0xdeadbeef',
-      twitter_id: 'tweet-xyz-456',
-    }));
+    expect(mockCallTool).toHaveBeenCalledWith('web', 'web_update_injury_post', {
+      post_id: 'post-abc-123',
+      updates: {
+        farcaster_hash: '0xdeadbeef',
+        twitter_id: 'tweet-xyz-456',
+      },
+      update_reason: 'Social platform hash writeback',
+    });
   });
 
   it('routes to MD review when confidence is below threshold', async () => {
@@ -174,9 +177,12 @@ describe('publishInjuryPost', () => {
     const twitterResult = result.platform_results.find((r) => r.platform === 'twitter');
     expect(twitterResult?.success).toBe(true);
     // Hash write-back should still happen with twitter_id only
-    expect(mockCallTool).toHaveBeenCalledWith('web', 'web_update_injury_post', expect.objectContaining({
-      id: 'post-abc-123',
-      twitter_id: 'tweet-xyz-456',
-    }));
+    expect(mockCallTool).toHaveBeenCalledWith('web', 'web_update_injury_post', {
+      post_id: 'post-abc-123',
+      updates: {
+        twitter_id: 'tweet-xyz-456',
+      },
+      update_reason: 'Social platform hash writeback',
+    });
   });
 });

@@ -2,7 +2,8 @@ import 'dotenv/config';
 import express from 'express';
 import { initializeMCPClients, disconnectAll, getServerStatus, callTool, isServerAvailable } from './utils/mcp-client-manager.js';
 import { publishInjuryPost } from './utils/publishing-pipeline.js';
-import type { InjuryPostContent } from './types.js';
+import { startPolling, stopPolling, pollSport } from './monitoring/poller.js';
+import type { InjuryPostContent, SportKey } from './types.js';
 
 const app = express();
 const PORT = process.env.PORT || 3100;
@@ -222,6 +223,27 @@ app.post('/seed/test-posts', async (_req, res) => {
   }
 });
 
+const VALID_SPORTS: SportKey[] = ['NFL', 'NBA', 'PREMIER_LEAGUE', 'UFC'];
+
+app.post('/poll/:sport', async (req, res) => {
+  const raw = (req.params.sport || '').toUpperCase().replace(/-/g, '_');
+  if (!VALID_SPORTS.includes(raw as SportKey)) {
+    res.status(400).json({
+      success: false,
+      error: `Invalid sport '${req.params.sport}'. Expected one of: ${VALID_SPORTS.join(', ')}`,
+    });
+    return;
+  }
+
+  try {
+    const summary = await pollSport(raw as SportKey);
+    res.json({ success: true, sport: raw, summary });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
 async function start(): Promise<void> {
   app.listen(PORT, () => {
     console.log(`[Server] SidelineIQ Agents running on port ${PORT}`);
@@ -229,10 +251,17 @@ async function start(): Promise<void> {
 
   console.log('[Server] Initializing MCP clients...');
   await initializeMCPClients();
+
+  if (process.env.POLLING_ENABLED !== 'false') {
+    startPolling();
+  } else {
+    console.log('[Server] POLLING_ENABLED=false — polling loop not started');
+  }
 }
 
 function shutdown(): void {
   console.log('[Server] Shutting down...');
+  stopPolling();
   disconnectAll()
     .then(() => process.exit(0))
     .catch(() => process.exit(1));

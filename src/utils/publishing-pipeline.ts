@@ -224,9 +224,12 @@ export async function publishInjuryPost(content: InjuryPostContent): Promise<Pub
     if (farcasterHash || twitterId) {
       try {
         await callTool('web', 'web_update_injury_post', {
-          id: webPostId,
-          ...(farcasterHash && { farcaster_hash: farcasterHash }),
-          ...(twitterId && { twitter_id: twitterId }),
+          post_id: webPostId,
+          updates: {
+            ...(farcasterHash && { farcaster_hash: farcasterHash }),
+            ...(twitterId && { twitter_id: twitterId }),
+          },
+          update_reason: 'Social platform hash writeback',
         });
         console.log(`[Pipeline] Wrote social hashes back to post ${webPostId} (farcaster: ${!!farcasterHash}, twitter: ${!!twitterId})`);
       } catch (err) {

@@ -54,3 +54,30 @@ export interface MCPToolResult {
   content: Array<{ type: string; text?: string }>;
   isError?: boolean;
 }
+
+// ── Monitoring / Polling types ──────────────────────────────────────
+
+export type SportKey = 'NFL' | 'NBA' | 'PREMIER_LEAGUE' | 'UFC';
+
+export interface RawInjuryEvent {
+  athlete_name: string;
+  sport: SportKey;
+  team: string;
+  injury_description: string;
+  source_url: string;
+  reported_at: Date;
+  team_timeline?: string;
+  is_update?: boolean;
+}
+
+export interface ClassificationResult {
+  is_injury_event: boolean;
+  confidence: number;
+  sport: SportKey;
+  athlete_name: string;
+  team: string;
+  injury_description: string;
+  content_type: ContentType;
+  is_new: boolean;
+  raw_event: RawInjuryEvent;
+}
