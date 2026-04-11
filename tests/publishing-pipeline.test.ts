@@ -66,8 +66,8 @@ describe('publishInjuryPost', () => {
     expect(mockCallTool).toHaveBeenCalledTimes(5);
     expect(mockCallTool).toHaveBeenCalledWith('web', 'web_list_posts', expect.any(Object));
     expect(mockCallTool).toHaveBeenCalledWith('web', 'web_create_injury_post', expect.any(Object));
-    expect(mockCallTool).toHaveBeenCalledWith('farcaster', 'farcaster_publish_cast', expect.any(Object));
-    expect(mockCallTool).toHaveBeenCalledWith('twitter', 'twitter_publish_tweet', expect.any(Object));
+    expect(mockCallTool).toHaveBeenCalledWith('farcaster', 'farcaster_publish_thread', expect.any(Object));
+    expect(mockCallTool).toHaveBeenCalledWith('twitter', 'twitter_publish_thread', expect.any(Object));
     expect(mockCallTool).toHaveBeenCalledWith('web', 'web_update_injury_post', {
       post_id: 'post-abc-123',
       updates: {
@@ -164,7 +164,7 @@ describe('publishInjuryPost', () => {
       if (tool === 'web_list_posts') return [];
       if (tool === 'web_create_injury_post') return WEB_CREATE_RESPONSE;
       if (server === 'farcaster') throw new Error('Farcaster timeout');
-      if (tool === 'twitter_publish_tweet') return TWITTER_RESPONSE;
+      if (tool === 'twitter_publish_thread') return TWITTER_RESPONSE;
       return { content: [{ type: 'text', text: 'ok' }] };
     });
 

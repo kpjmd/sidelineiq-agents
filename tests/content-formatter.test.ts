@@ -28,18 +28,19 @@ function makeContent(overrides: Partial<InjuryPostContent> = {}): InjuryPostCont
 }
 
 describe('formatForFarcaster', () => {
-  it('formats BREAKING as single cast within 320 chars', () => {
+  it('formats BREAKING as 2-cast thread within 320 chars each', () => {
     const result = formatForFarcaster(makeContent());
-    expect(result).toHaveLength(1);
-    expect(result[0].length).toBeLessThanOrEqual(320);
+    expect(result).toHaveLength(2);
+    result.forEach((cast) => expect(cast.length).toBeLessThanOrEqual(320));
     expect(result[0]).toContain('🚨');
     expect(result[0]).toContain('Mahomes');
+    expect(result[1]).toContain('RTP');
   });
 
-  it('formats TRACKING as single cast with UPDATE prefix', () => {
+  it('formats TRACKING as 2-cast thread with UPDATE prefix', () => {
     const result = formatForFarcaster(makeContent({ content_type: 'TRACKING' }));
-    expect(result).toHaveLength(1);
-    expect(result[0].length).toBeLessThanOrEqual(320);
+    expect(result).toHaveLength(2);
+    result.forEach((cast) => expect(cast.length).toBeLessThanOrEqual(320));
     expect(result[0]).toContain('UPDATE');
   });
 
@@ -85,10 +86,12 @@ describe('formatForFarcaster', () => {
 });
 
 describe('formatForTwitter', () => {
-  it('formats BREAKING within 280 chars', () => {
+  it('formats BREAKING as 2-tweet thread within 280 chars each', () => {
     const result = formatForTwitter(makeContent());
-    expect(result).toHaveLength(1);
-    expect(result[0].length).toBeLessThanOrEqual(280);
+    expect(result).toHaveLength(2);
+    result.forEach((tweet) => expect(tweet.length).toBeLessThanOrEqual(280));
+    expect(result[0]).toContain('🚨');
+    expect(result[1]).toContain('RTP');
   });
 
   it('formats DEEP_DIVE as thread within 280 char limit per tweet', () => {
@@ -99,11 +102,12 @@ describe('formatForTwitter', () => {
     });
   });
 
-  it('truncates long content with ellipsis', () => {
-    const longSummary = 'A'.repeat(500);
+  it('handles very long clinical summary without exceeding char limit', () => {
+    // Long summary should be truncated in post 2 but post 1 is always clean
+    const longSummary = 'A very detailed clinical note. '.repeat(20);
     const result = formatForTwitter(makeContent({ clinical_summary: longSummary }));
-    expect(result[0].length).toBeLessThanOrEqual(280);
-    expect(result[0]).toContain('...');
+    expect(result).toHaveLength(2);
+    result.forEach((tweet) => expect(tweet.length).toBeLessThanOrEqual(280));
   });
 });
 

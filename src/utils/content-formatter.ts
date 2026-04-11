@@ -30,30 +30,105 @@ function splitIntoChunks(text: string, maxLen: number): string[] {
   return chunks.map((c) => truncateWithEllipsis(c, maxLen));
 }
 
-function buildBreakingCast(content: InjuryPostContent, charLimit: number): string {
-  const rtp = content.return_to_play;
-  const rtpLine = `RTP: ${rtp.min_weeks}-${rtp.max_weeks} weeks (${Math.round(rtp.probability_week_4 * 100)}% by wk 4)`;
-  const parts = [
-    `🚨 ${content.headline}`,
-    '',
-    content.clinical_summary,
-    '',
-    rtpLine,
-  ];
-  return truncateWithEllipsis(parts.join('\n'), charLimit);
+/**
+ * Strips markdown formatting from text for social platform output.
+ * The agent generates rich web-format clinical summaries; social posts
+ * need plain text.
+ */
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/\*\*([^*]+)\*\*/g, '$1')       // **bold**
+    .replace(/\*([^*]+)\*/g, '$1')            // *italic*
+    .replace(/#{1,6}\s+/gm, '')               // ## headings
+    .replace(/^[-*+]\s+/gm, '')               // bullet points
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // [links](url)
+    .replace(/`([^`]+)`/g, '$1')             // `code`
+    .replace(/\n{3,}/g, '\n\n')              // collapse extra blank lines
+    .trim();
 }
 
-function buildTrackingCast(content: InjuryPostContent, charLimit: number): string {
+/**
+ * Extracts a short clinical anchor from the full summary.
+ * Finds the last complete sentence that fits within maxChars.
+ * Falls back to hard-truncation if no sentence boundary found.
+ */
+function shortClinicalAnchor(text: string, maxChars: number): string {
+  const plain = stripMarkdown(text);
+  if (plain.length <= maxChars) return plain;
+  const window = plain.slice(0, maxChars);
+  const lastEnd = Math.max(
+    window.lastIndexOf('. '),
+    window.lastIndexOf('! '),
+    window.lastIndexOf('? ')
+  );
+  if (lastEnd > maxChars * 0.4) return plain.slice(0, lastEnd + 1).trim();
+  return window.trimEnd() + '...';
+}
+
+/**
+ * BREAKING — 2-post thread.
+ *
+ * Post 1: headline + athlete/team/injury identity (the news hook)
+ * Post 2: OTM clinical anchor + RTP range + signature
+ *
+ * Splitting into a thread ensures the full message is never truncated.
+ * charLimit applies independently to each post so both fit within the
+ * platform limit (280 chars on X, 320 on Farcaster).
+ */
+function buildBreakingThread(content: InjuryPostContent, charLimit: number): string[] {
   const rtp = content.return_to_play;
-  const rtpLine = `RTP: ${rtp.min_weeks}-${rtp.max_weeks} weeks (${Math.round(rtp.probability_week_4 * 100)}% by wk 4)`;
-  const parts = [
-    `📋 UPDATE: ${content.headline}`,
-    '',
-    content.clinical_summary,
-    '',
-    rtpLine,
-  ];
-  return truncateWithEllipsis(parts.join('\n'), charLimit);
+
+  const post1 = truncateWithEllipsis(
+    [
+      `🚨 ${content.headline}`,
+      '',
+      `${content.athlete_name} (${content.team}) — ${content.injury_type}`,
+      `Severity: ${content.injury_severity}`,
+    ].join('\n'),
+    charLimit
+  );
+
+  // Reserve space for RTP line + signature + separating newlines (~90 chars)
+  const anchorBudget = charLimit - 90;
+  const anchor = shortClinicalAnchor(content.clinical_summary, anchorBudget);
+  const rtpLine = `RTP: ${rtp.min_weeks}–${rtp.max_weeks} weeks`;
+
+  const post2 = truncateWithEllipsis(
+    [anchor, '', rtpLine, '', OTM_SIGNATURE].join('\n'),
+    charLimit
+  );
+
+  return [post1, post2];
+}
+
+/**
+ * TRACKING — 2-post thread.
+ *
+ * Post 1: update headline + athlete
+ * Post 2: clinical update anchor + current RTP window + signature
+ */
+function buildTrackingThread(content: InjuryPostContent, charLimit: number): string[] {
+  const rtp = content.return_to_play;
+
+  const post1 = truncateWithEllipsis(
+    [
+      `📋 UPDATE: ${content.headline}`,
+      '',
+      `${content.athlete_name} (${content.team})`,
+    ].join('\n'),
+    charLimit
+  );
+
+  const anchorBudget = charLimit - 90;
+  const anchor = shortClinicalAnchor(content.clinical_summary, anchorBudget);
+  const rtpLine = `RTP window: ${rtp.min_weeks}–${rtp.max_weeks} weeks`;
+
+  const post2 = truncateWithEllipsis(
+    [anchor, '', rtpLine, '', OTM_SIGNATURE].join('\n'),
+    charLimit
+  );
+
+  return [post1, post2];
 }
 
 function buildDeepDiveThread(content: InjuryPostContent, charLimit: number): string[] {
@@ -172,9 +247,9 @@ function buildConflictTwitterThread(content: InjuryPostContent, charLimit: numbe
 export function formatForFarcaster(content: InjuryPostContent): string[] {
   switch (content.content_type) {
     case 'BREAKING':
-      return [buildBreakingCast(content, FARCASTER_CHAR_LIMIT)];
+      return buildBreakingThread(content, FARCASTER_CHAR_LIMIT);
     case 'TRACKING':
-      return [buildTrackingCast(content, FARCASTER_CHAR_LIMIT)];
+      return buildTrackingThread(content, FARCASTER_CHAR_LIMIT);
     case 'DEEP_DIVE':
       return buildDeepDiveThread(content, FARCASTER_CHAR_LIMIT);
     case 'CONFLICT_FLAG':
@@ -185,9 +260,9 @@ export function formatForFarcaster(content: InjuryPostContent): string[] {
 export function formatForTwitter(content: InjuryPostContent): string[] {
   switch (content.content_type) {
     case 'BREAKING':
-      return [buildBreakingCast(content, TWITTER_CHAR_LIMIT)];
+      return buildBreakingThread(content, TWITTER_CHAR_LIMIT);
     case 'TRACKING':
-      return [buildTrackingCast(content, TWITTER_CHAR_LIMIT)];
+      return buildTrackingThread(content, TWITTER_CHAR_LIMIT);
     case 'DEEP_DIVE':
       return buildDeepDiveThread(content, TWITTER_CHAR_LIMIT);
     case 'CONFLICT_FLAG':
