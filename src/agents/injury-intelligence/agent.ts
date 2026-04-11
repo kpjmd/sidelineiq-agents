@@ -69,6 +69,11 @@ const AGENT_TOOL = {
         type: 'number',
         description: 'Overall confidence in the post, 0 to 1. Below 0.75 routes to MD review.',
       },
+      team: {
+        type: 'string',
+        description:
+          'The athlete\'s current team. Use the source value if provided. If the source says "Unknown" or is blank, use your training knowledge to provide the correct current team name.',
+      },
       conflict_reason: {
         type: 'string',
         description:
@@ -295,7 +300,10 @@ Follow SKILL.md exactly. Emit your final answer via the emit_injury_post tool.`;
     const post: InjuryPostContent = {
       athlete_name: classified.athlete_name,
       sport: classified.sport,
-      team: classified.team,
+      // Prefer Sonnet's corrected team over the classifier value (Haiku sometimes hallucinates)
+      team: (typeof input.team === 'string' && input.team.trim() && input.team !== 'Unknown')
+        ? input.team.trim()
+        : classified.team,
       injury_type: injuryType,
       injury_severity: severity,
       content_type: contentType,

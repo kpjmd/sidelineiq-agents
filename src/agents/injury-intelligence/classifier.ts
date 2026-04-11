@@ -30,7 +30,7 @@ const CLASSIFIER_TOOL = {
       team: {
         type: 'string',
         description:
-          'The athlete\'s current team. If the source says "Unknown", "<UNKNOWN>", or is blank, use your training knowledge to provide the correct current team name. If genuinely unknown, return "Unknown".',
+          'The athlete\'s team exactly as stated in the source. If the source does not name a team, return "Unknown". Do NOT guess or fill in from general knowledge — team corrections are handled downstream.',
       },
       injury_description: {
         type: 'string',
