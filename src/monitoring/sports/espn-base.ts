@@ -31,6 +31,23 @@ interface ESPNInjuryRecord {
 }
 
 /**
+ * Statuses that indicate a chronic or season-ending condition.
+ * These are stable long-term listings that don't represent new injury news.
+ */
+const SKIP_STATUS_RE =
+  /^(injured\s+reserve|ir|physically\s+unable\s+to\s+perform|pup|non[-\s]?football\s+injury|nfi|out\s+for\s+(the\s+)?season|season[-\s]ending)/i;
+
+/**
+ * Maximum age (in ms) for an event to be considered "recent enough" to process.
+ * Defaults to 7 days. Override with MAX_EVENT_AGE_DAYS env var.
+ */
+function getMaxEventAgeMs(): number {
+  const days = parseInt(process.env.MAX_EVENT_AGE_DAYS ?? '', 10);
+  const d = Number.isFinite(days) && days > 0 ? days : 7;
+  return d * 24 * 60 * 60 * 1000;
+}
+
+/**
  * Base class for ESPN injury-feed sources (NFL, NBA, Premier League).
  * Subclasses only need to provide url, sport, and source name.
  */
@@ -60,6 +77,8 @@ export abstract class ESPNInjurySource implements SportDataSource {
   protected parse(feed: ESPNInjuryFeed): RawInjuryEvent[] {
     const events: RawInjuryEvent[] = [];
     const teamGroups = feed.injuries ?? [];
+    const maxAgeMs = getMaxEventAgeMs();
+    const now = Date.now();
 
     for (const group of teamGroups) {
       const teamName = group.team?.displayName ?? group.team?.name ?? 'Unknown';
@@ -69,10 +88,19 @@ export abstract class ESPNInjurySource implements SportDataSource {
         const athleteName = record.athlete?.displayName ?? record.athlete?.fullName;
         if (!athleteName) continue;
 
+        // Skip chronic / season-ending statuses (IR, PUP, NFI, etc.)
+        if (record.status && SKIP_STATUS_RE.test(record.status)) continue;
+
+        // Skip events with no date — can't verify recency
+        const reportedAt = parseDate(record.date);
+        if (!reportedAt) continue;
+
+        // Skip events older than the recency window
+        if (now - reportedAt.getTime() > maxAgeMs) continue;
+
         const description = buildDescription(record);
         if (!description) continue;
 
-        const reportedAt = parseDate(record.date) ?? new Date();
         const teamTimeline = extractTeamTimeline(record);
         const isUpdate = inferIsUpdate(record.status);
 
@@ -89,6 +117,7 @@ export abstract class ESPNInjurySource implements SportDataSource {
       }
     }
 
+    console.log(`[${this.name}] ${events.length} events after recency+status filter (${maxAgeMs / 86400000}d window)`);
     return events;
   }
 }

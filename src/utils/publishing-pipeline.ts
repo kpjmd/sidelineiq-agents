@@ -53,8 +53,7 @@ async function publishToFarcaster(content: InjuryPostContent): Promise<PlatformR
       data = await callTool('farcaster', 'farcaster_publish_thread', { casts });
     }
     if (isMCPError(data)) {
-      const msg = extractTextPayload(data) ?? data;
-      throw new Error(String(msg));
+      throw new Error(extractMCPErrorMessage(data));
     }
     return { platform: 'farcaster', success: true, data };
   } catch (err) {
@@ -78,8 +77,7 @@ async function publishToTwitter(content: InjuryPostContent): Promise<PlatformRes
       data = await callTool('twitter', 'twitter_publish_thread', { tweets });
     }
     if (isMCPError(data)) {
-      const msg = extractTextPayload(data) ?? data;
-      throw new Error(String(msg));
+      throw new Error(extractMCPErrorMessage(data));
     }
     return { platform: 'twitter', success: true, data };
   } catch (err) {
@@ -101,8 +99,7 @@ async function publishToWeb(
     const webContent = formatForWeb(content, status);
     const data = await callTool('web', 'web_create_injury_post', webContent);
     if (isMCPError(data)) {
-      const msg = extractTextPayload(data) ?? data;
-      throw new Error(String(msg));
+      throw new Error(extractMCPErrorMessage(data));
     }
     return { platform: 'web', success: true, data };
   } catch (err) {
@@ -129,6 +126,28 @@ function extractTextPayload(data: unknown): Record<string, unknown> | null {
     return JSON.parse(text) as Record<string, unknown>;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Extracts a human-readable error message from an MCP error response.
+ * MCP errors wrap the detail in content[0].text — usually JSON with an
+ * `error`, `message`, or `detail` field, sometimes plain text.
+ */
+function extractMCPErrorMessage(data: unknown): string {
+  try {
+    const result = data as MCPResponse;
+    const text = result?.content?.[0]?.text;
+    if (!text) return 'MCP server returned an error with no detail';
+    try {
+      const parsed = JSON.parse(text) as Record<string, unknown>;
+      const msg = parsed.error ?? parsed.message ?? parsed.detail;
+      return typeof msg === 'string' ? msg : text;
+    } catch {
+      return text;
+    }
+  } catch {
+    return String(data);
   }
 }
 
