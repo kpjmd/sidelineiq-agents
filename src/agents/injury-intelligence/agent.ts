@@ -239,8 +239,9 @@ Follow SKILL.md exactly. Emit your final answer via the emit_injury_post tool.`;
     }
 
     const rtpEstimate: ReturnToPlayEstimate = {
-      min_weeks: Number(rtpRaw.min_weeks ?? 0),
-      max_weeks: Number(rtpRaw.max_weeks ?? 0),
+      // DB schema stores these as INTEGER — round any fractional weeks Claude returns
+      min_weeks: Math.round(Number(rtpRaw.min_weeks ?? 0)),
+      max_weeks: Math.round(Number(rtpRaw.max_weeks ?? 0)),
       probability_week_2: Number(rtpRaw.probability_week_2 ?? 0),
       probability_week_4: Number(rtpRaw.probability_week_4 ?? 0),
       probability_week_8: Number(rtpRaw.probability_week_8 ?? 0),

@@ -10,7 +10,13 @@ interface ESPNInjuryFeed {
 }
 
 interface ESPNTeamInjuries {
-  team?: { displayName?: string; name?: string; abbreviation?: string };
+  team?: {
+    displayName?: string;
+    shortDisplayName?: string;
+    name?: string;
+    location?: string;
+    abbreviation?: string;
+  };
   injuries?: ESPNInjuryRecord[];
 }
 
@@ -81,7 +87,14 @@ export abstract class ESPNInjurySource implements SportDataSource {
     const now = Date.now();
 
     for (const group of teamGroups) {
-      const teamName = group.team?.displayName ?? group.team?.name ?? 'Unknown';
+      const t = group.team;
+      const teamName =
+        t?.displayName ??
+        t?.shortDisplayName ??
+        (t?.location && t?.name ? `${t.location} ${t.name}` : undefined) ??
+        t?.name ??
+        t?.abbreviation ??
+        'Unknown';
       const records = group.injuries ?? [];
 
       for (const record of records) {
