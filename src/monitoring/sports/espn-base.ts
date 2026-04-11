@@ -37,6 +37,17 @@ interface ESPNInjuryRecord {
 }
 
 /**
+ * Strips ESPN sentinel team name values (e.g. "<UNKNOWN>", "<UNK>") and
+ * returns undefined so the fallback chain continues to the next candidate.
+ */
+function sanitizeTeamName(name: string | undefined): string | undefined {
+  if (!name || name.trim() === '') return undefined;
+  // ESPN sometimes returns angle-bracket sentinel strings for unresolved teams
+  if (/^<.*>$/.test(name.trim())) return undefined;
+  return name;
+}
+
+/**
  * Statuses that indicate a chronic or season-ending condition.
  * These are stable long-term listings that don't represent new injury news.
  */
@@ -89,11 +100,11 @@ export abstract class ESPNInjurySource implements SportDataSource {
     for (const group of teamGroups) {
       const t = group.team;
       const teamName =
-        t?.displayName ??
-        t?.shortDisplayName ??
+        sanitizeTeamName(t?.displayName) ??
+        sanitizeTeamName(t?.shortDisplayName) ??
         (t?.location && t?.name ? `${t.location} ${t.name}` : undefined) ??
-        t?.name ??
-        t?.abbreviation ??
+        sanitizeTeamName(t?.name) ??
+        sanitizeTeamName(t?.abbreviation) ??
         'Unknown';
       const records = group.injuries ?? [];
 

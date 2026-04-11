@@ -29,6 +29,8 @@ const CLASSIFIER_TOOL = {
       },
       team: {
         type: 'string',
+        description:
+          'The athlete\'s current team. If the source says "Unknown", "<UNKNOWN>", or is blank, use your training knowledge to provide the correct current team name. If genuinely unknown, return "Unknown".',
       },
       injury_description: {
         type: 'string',
