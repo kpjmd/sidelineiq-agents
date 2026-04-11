@@ -126,23 +126,23 @@ export function parseTeamTimeline(timeline: string): number | null {
   const t = timeline.toLowerCase().trim();
 
   if (/out\s+for\s+(the\s+)?season|season[- ]ending/.test(t)) return 24;
-  if (/day[- ]to[- ]day/.test(t)) return 0.3;
+  if (/day[- ]to[- ]day/.test(t)) return 0; // sub-week; round to 0 for DB integer column
   if (/week[- ]to[- ]week/.test(t)) return 1;
-  if (/questionable|probable/.test(t)) return 0.5;
+  if (/questionable|probable/.test(t)) return null; // game-status, not a timeline estimate
 
   // "2-4 weeks", "2 to 4 weeks"
   const range = t.match(/(\d+(?:\.\d+)?)\s*(?:-|to)\s*(\d+(?:\.\d+)?)\s*week/);
   if (range) {
     const lo = parseFloat(range[1]);
     const hi = parseFloat(range[2]);
-    return (lo + hi) / 2;
+    return Math.round((lo + hi) / 2);
   }
 
   // "6 weeks", "2 months"
   const single = t.match(/(\d+(?:\.\d+)?)\s*(week|month)/);
   if (single) {
     const n = parseFloat(single[1]);
-    return single[2].startsWith('month') ? n * 4 : n;
+    return Math.round(single[2].startsWith('month') ? n * 4 : n);
   }
 
   return null;
@@ -267,12 +267,15 @@ Follow SKILL.md exactly. Emit your final answer via the emit_injury_post tool.`;
     // CONFLICT_FLAG detection: compare parsed team timeline to OTM estimate
     let contentType = (input.content_type as ContentType) ?? classified.content_type;
     let conflictReason = input.conflict_reason as string | undefined;
-    let teamTimelineWeeks =
+    const rawTimelineWeeks =
       typeof input.team_timeline_weeks === 'number'
         ? (input.team_timeline_weeks as number)
         : raw.team_timeline
           ? parseTeamTimeline(raw.team_timeline) ?? undefined
           : undefined;
+    // DB column is INTEGER — always round before writing
+    let teamTimelineWeeks =
+      rawTimelineWeeks !== undefined ? Math.round(rawTimelineWeeks) : undefined;
 
     if (teamTimelineWeeks !== undefined) {
       const { conflict, reason } = detectConflict(teamTimelineWeeks, validatedRTP);
