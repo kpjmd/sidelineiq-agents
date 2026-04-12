@@ -191,13 +191,17 @@ async function pingIndexNow(slug: string): Promise<void> {
 
 function extractFarcasterHash(data: unknown): string | null {
   const payload = extractTextPayload(data);
-  const hash = payload?.hash;
+  // farcaster_publish_cast returns { hash } (string)
+  // farcaster_publish_thread returns { hashes } (string[]) — use first cast hash
+  const hash = payload?.hash ?? (Array.isArray(payload?.hashes) ? (payload.hashes as string[])[0] : undefined);
   return typeof hash === 'string' ? hash : null;
 }
 
 function extractTwitterId(data: unknown): string | null {
   const payload = extractTextPayload(data);
-  const id = payload?.id ?? payload?.tweet_id;
+  // twitter_publish_tweet returns { id } (string)
+  // twitter_publish_thread returns { ids } (string[]) — use first tweet id
+  const id = payload?.id ?? payload?.tweet_id ?? (Array.isArray(payload?.ids) ? (payload.ids as string[])[0] : undefined);
   return typeof id === 'string' ? id : null;
 }
 
