@@ -42,7 +42,7 @@ const AGENT_TOOL = {
       clinical_summary: {
         type: 'string',
         description:
-          'The OTM clinical breakdown suitable for public consumption. Concise, evidence-grounded, states whether the grade is CONFIRMED or INFERRED.',
+          'The OTM clinical breakdown suitable for public consumption. Lead with 1-2 plain narrative sentences describing the injury and its significance — these appear directly in social posts. Classification details (three-axis, evidence tier, confidence note) may follow but must never open the field. States whether the grade is CONFIRMED or INFERRED.',
       },
       return_to_play: {
         type: 'object',

@@ -34,9 +34,19 @@ function splitIntoChunks(text: string, maxLen: number): string[] {
  * Strips markdown formatting from text for social platform output.
  * The agent generates rich web-format clinical summaries; social posts
  * need plain text.
+ *
+ * Also strips OTM-specific structured annotation that Sonnet embeds in
+ * clinical_summary for web rendering:
+ *   [CLASSIFICATION: MYO / Grade 2 / LE — ...]
+ *   [CONFIDENCE: Grade INFERRED ...]
+ *   OTM THREE-AXIS CLASSIFICATION:   (section header lines)
  */
 function stripMarkdown(text: string): string {
   return text
+    // OTM bracket annotation: [ALL CAPS LABEL: content] — remove entirely
+    .replace(/\[[A-Z][A-Z\s/]+:[^\]]*\]/g, '')
+    // OTM / all-caps section header lines ending in colon (e.g. "OTM THREE-AXIS CLASSIFICATION:")
+    .replace(/^(?:[A-Z][A-Z\s\-]+:)\s*$/gm, '')
     .replace(/\*\*([^*]+)\*\*/g, '$1')       // **bold**
     .replace(/\*([^*]+)\*/g, '$1')            // *italic*
     .replace(/#{1,6}\s+/gm, '')               // ## headings
@@ -187,7 +197,7 @@ function buildConflictFarcasterCast(content: InjuryPostContent, charLimit: numbe
     `${content.team} says ${content.team_timeline_weeks != null ? `${content.team_timeline_weeks} weeks` : 'day-to-day'}. That's not what the biology says.`,
     '',
     'THE INJURY',
-    content.clinical_summary,
+    stripMarkdown(content.clinical_summary),
     '',
     'THE GAP',
     teamLine,
