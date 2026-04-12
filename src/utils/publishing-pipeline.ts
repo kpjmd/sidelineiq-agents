@@ -170,7 +170,11 @@ function extractWebPostSlug(data: unknown): string | null {
 async function pingIndexNow(slug: string): Promise<void> {
   const key = process.env.INDEXNOW_KEY;
   const siteUrl = (process.env.SITE_URL ?? 'https://sidelineiq.vercel.app').replace(/\/$/, '');
-  if (!key || !slug) return;
+  if (!key) {
+    console.log('[Pipeline] IndexNow skipped: INDEXNOW_KEY not set');
+    return;
+  }
+  if (!slug) return;
   const url = `${siteUrl}/post/${slug}`;
   try {
     const res = await fetch('https://api.indexnow.org/indexnow', {
@@ -286,10 +290,13 @@ export async function publishInjuryPost(content: InjuryPostContent): Promise<Pub
       }
     }
 
-    // IndexNow ping — fire-and-forget, only for published posts with a slug
-    if (webPostSlug) {
-      void pingIndexNow(webPostSlug);
-    }
+  }
+
+  // IndexNow ping — best-effort, independent of hash writeback
+  if (webPostSlug) {
+    void pingIndexNow(webPostSlug);
+  } else {
+    console.log(`[Pipeline] IndexNow skipped for ${context}: no slug in web response`);
   }
 
   const platformResults = [webResult, farcasterResult, twitterResult];
