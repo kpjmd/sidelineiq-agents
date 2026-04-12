@@ -157,6 +157,34 @@ function extractWebPostId(data: unknown): string | null {
   return typeof id === 'string' ? id : null;
 }
 
+function extractWebPostSlug(data: unknown): string | null {
+  const payload = extractTextPayload(data);
+  const slug = payload?.slug;
+  return typeof slug === 'string' ? slug : null;
+}
+
+/**
+ * Fires an IndexNow ping so Bing/Yandex index the new post URL within minutes.
+ * Best-effort: errors are swallowed so they never affect the publish pipeline.
+ */
+async function pingIndexNow(slug: string): Promise<void> {
+  const key = process.env.INDEXNOW_KEY;
+  const siteUrl = (process.env.SITE_URL ?? 'https://sidelineiq.vercel.app').replace(/\/$/, '');
+  if (!key || !slug) return;
+  const url = `${siteUrl}/post/${slug}`;
+  try {
+    const res = await fetch('https://api.indexnow.org/indexnow', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ host: new URL(siteUrl).hostname, key, urlList: [url] }),
+    });
+    console.log(`[Pipeline] IndexNow ping: ${url} → ${res.status}`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[Pipeline] IndexNow ping failed (non-fatal): ${message}`);
+  }
+}
+
 function extractFarcasterHash(data: unknown): string | null {
   const payload = extractTextPayload(data);
   const hash = payload?.hash;
@@ -228,6 +256,7 @@ export async function publishInjuryPost(content: InjuryPostContent): Promise<Pub
   // Step 3a: Create web post first to get the post ID for hash write-back
   const webResult = await publishToWeb(content, 'PUBLISHED');
   const webPostId = webResult.success ? extractWebPostId(webResult.data) : null;
+  const webPostSlug = webResult.success ? extractWebPostSlug(webResult.data) : null;
 
   // Step 3b: Publish to social platforms in parallel
   const [farcasterResult, twitterResult] = await Promise.all([
@@ -255,6 +284,11 @@ export async function publishInjuryPost(content: InjuryPostContent): Promise<Pub
         const message = err instanceof Error ? err.message : String(err);
         console.warn(`[Pipeline] Failed to write social hashes to post ${webPostId}: ${message}`);
       }
+    }
+
+    // IndexNow ping — fire-and-forget, only for published posts with a slug
+    if (webPostSlug) {
+      void pingIndexNow(webPostSlug);
     }
   }
 
