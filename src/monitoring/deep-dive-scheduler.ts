@@ -16,6 +16,23 @@ const STARTUP_DELAY_MS = 5 * 60 * 1000;
 let timer: NodeJS.Timeout | null = null;
 let stopped = false;
 
+// In-memory cooldown: injury_type key → timestamp of last DEEP_DIVE generation.
+// Belt-and-suspenders guard for cases where web_list_posts doesn't return
+// PENDING_REVIEW posts (so the DB-side cooldown check can't see them).
+// Persists for the life of the server process.
+const generatedAt = new Map<string, number>();
+
+function isInMemoryCooldown(injuryTypeKey: string): boolean {
+  const last = generatedAt.get(injuryTypeKey);
+  if (last === undefined) return false;
+  return Date.now() - last < INJURY_TYPE_COOLDOWN_MS;
+}
+
+function recordGenerated(injuryTypeKey: string): void {
+  generatedAt.set(injuryTypeKey, Date.now());
+  console.log(`[DeepDive] In-memory cooldown set for "${injuryTypeKey}" (${INJURY_TYPE_COOLDOWN_MS / 86400000}d)`);
+}
+
 function getIntervalMs(): number {
   const raw = process.env.DEEP_DIVE_INTERVAL_MS;
   if (!raw) return DEFAULT_INTERVAL_MS;
@@ -125,9 +142,15 @@ async function findTopInjuryType(): Promise<InjuryAggregate | null> {
 
   const minCount = getMinCount();
 
-  // Sort by count descending, pick highest that isn't in cooldown
+  // Sort by count descending, pick highest that passes both cooldown checks:
+  //   1. DB-side: no DEEP_DIVE for this type in web_list_posts within 7 days
+  //   2. In-memory: not generated during this process lifetime within 7 days
   const sorted = [...counts.entries()]
-    .filter(([key, data]) => data.count >= minCount && !recentDeepDiveTypes.has(key))
+    .filter(([key, data]) =>
+      data.count >= minCount &&
+      !recentDeepDiveTypes.has(key) &&
+      !isInMemoryCooldown(key)
+    )
     .sort(([, a], [, b]) => b.count - a.count);
 
   if (sorted.length === 0) return null;
@@ -169,6 +192,11 @@ async function runDeepDiveCycle(): Promise<void> {
 
   const result = await publishInjuryPost(post);
   console.log(`[DeepDive] Published: status=${result.status}${result.reason ? ` reason=${result.reason}` : ''}`);
+
+  // Record in-memory cooldown regardless of publish status (pending_review counts)
+  if (result.status === 'published' || result.status === 'pending_review') {
+    recordGenerated(aggregate.injury_type.toLowerCase().trim());
+  }
 }
 
 function scheduleNext(intervalMs: number): void {
