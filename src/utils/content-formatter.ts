@@ -141,7 +141,7 @@ function buildTrackingThread(content: InjuryPostContent, charLimit: number): str
   return [post1, post2];
 }
 
-function buildDeepDiveThread(content: InjuryPostContent, charLimit: number): string[] {
+function buildDeepDiveThread(content: InjuryPostContent, charLimit: number, postUrl?: string): string[] {
   const casts: string[] = [];
 
   // Cast 1: headline + injury overview
@@ -151,7 +151,7 @@ function buildDeepDiveThread(content: InjuryPostContent, charLimit: number): str
   ));
 
   // Cast 2-3: clinical detail (split if needed)
-  const clinicalChunks = splitIntoChunks(content.clinical_summary, charLimit);
+  const clinicalChunks = splitIntoChunks(stripMarkdown(content.clinical_summary), charLimit);
   for (const chunk of clinicalChunks.slice(0, 2)) {
     casts.push(chunk);
   }
@@ -163,15 +163,16 @@ function buildDeepDiveThread(content: InjuryPostContent, charLimit: number): str
     charLimit
   ));
 
-  // Final cast: OrthoIQ reference + OTM signature (required on DEEP_DIVE)
-  casts.push(truncateWithEllipsis(`${ORTHOIQ_CTA.trim()}\n\n${OTM_SIGNATURE}`, charLimit));
+  // Final cast: web link (drives traffic) + OrthoIQ CTA + OTM signature
+  const webLine = postUrl ? `Full clinical breakdown → ${postUrl}\n\n` : '';
+  casts.push(truncateWithEllipsis(`${webLine}${ORTHOIQ_CTA.trim()}\n\n${OTM_SIGNATURE}`, charLimit));
 
   // Ensure 3-5 casts
   while (casts.length < 3) {
-    casts.splice(casts.length - 1, 0, truncateWithEllipsis(content.clinical_summary, charLimit));
+    casts.splice(casts.length - 1, 0, truncateWithEllipsis(stripMarkdown(content.clinical_summary), charLimit));
   }
   if (casts.length > 5) {
-    // Keep first 4 + final OrthoIQ cast
+    // Keep first 4 + final cast
     const final = casts[casts.length - 1];
     casts.length = 4;
     casts.push(final);
@@ -254,27 +255,27 @@ function buildConflictTwitterThread(content: InjuryPostContent, charLimit: numbe
   return posts;
 }
 
-export function formatForFarcaster(content: InjuryPostContent): string[] {
+export function formatForFarcaster(content: InjuryPostContent, postUrl?: string): string[] {
   switch (content.content_type) {
     case 'BREAKING':
       return buildBreakingThread(content, FARCASTER_CHAR_LIMIT);
     case 'TRACKING':
       return buildTrackingThread(content, FARCASTER_CHAR_LIMIT);
     case 'DEEP_DIVE':
-      return buildDeepDiveThread(content, FARCASTER_CHAR_LIMIT);
+      return buildDeepDiveThread(content, FARCASTER_CHAR_LIMIT, postUrl);
     case 'CONFLICT_FLAG':
       return [buildConflictFarcasterCast(content, FARCASTER_CHAR_LIMIT)];
   }
 }
 
-export function formatForTwitter(content: InjuryPostContent): string[] {
+export function formatForTwitter(content: InjuryPostContent, postUrl?: string): string[] {
   switch (content.content_type) {
     case 'BREAKING':
       return buildBreakingThread(content, TWITTER_CHAR_LIMIT);
     case 'TRACKING':
       return buildTrackingThread(content, TWITTER_CHAR_LIMIT);
     case 'DEEP_DIVE':
-      return buildDeepDiveThread(content, TWITTER_CHAR_LIMIT);
+      return buildDeepDiveThread(content, TWITTER_CHAR_LIMIT, postUrl);
     case 'CONFLICT_FLAG':
       return buildConflictTwitterThread(content, TWITTER_CHAR_LIMIT);
   }

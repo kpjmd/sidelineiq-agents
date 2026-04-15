@@ -208,6 +208,100 @@ function extractTwitterId(data: unknown): string | null {
   return typeof id === 'string' ? id : null;
 }
 
+/**
+ * Publishes an already-approved DEEP_DIVE post to Farcaster and X/Twitter.
+ * Called by the /admin/approve/:post_id endpoint after the frontend has
+ * already called web_approve_injury_post (which flips the DB status to PUBLISHED).
+ *
+ * @param content   - Reconstructed InjuryPostContent from the approved post row
+ * @param postUrl   - Full web URL of the published post (included in final social cast)
+ * @param webPostId - Post ID for hash write-back to the web DB
+ */
+export async function publishApprovedDeepDive(
+  content: InjuryPostContent,
+  postUrl: string,
+  webPostId: string
+): Promise<PublishResult> {
+  const context = `${content.athlete_name} (${content.sport}/${content.team})`;
+  const platformResults: PlatformResult[] = [];
+
+  // Publish to Farcaster
+  if (isServerAvailable('farcaster')) {
+    try {
+      const casts = formatForFarcaster(content, postUrl);
+      let data: unknown;
+      if (casts.length === 1) {
+        data = await callTool('farcaster', 'farcaster_publish_cast', { text: casts[0] });
+      } else {
+        data = await callTool('farcaster', 'farcaster_publish_thread', { casts });
+      }
+      if (isMCPError(data)) throw new Error(extractMCPErrorMessage(data));
+      platformResults.push({ platform: 'farcaster', success: true, data });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[Pipeline] Approved DEEP_DIVE Farcaster publish failed for ${context}: ${message}`);
+      platformResults.push({ platform: 'farcaster', success: false, error: message });
+    }
+  } else {
+    platformResults.push({ platform: 'farcaster', success: false, error: 'Farcaster MCP server unavailable' });
+  }
+
+  // Publish to X/Twitter
+  if (isServerAvailable('twitter')) {
+    try {
+      const tweets = formatForTwitter(content, postUrl);
+      let data: unknown;
+      if (tweets.length === 1) {
+        data = await callTool('twitter', 'twitter_publish_tweet', { text: tweets[0] });
+      } else {
+        data = await callTool('twitter', 'twitter_publish_thread', { tweets });
+      }
+      if (isMCPError(data)) throw new Error(extractMCPErrorMessage(data));
+      platformResults.push({ platform: 'twitter', success: true, data });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[Pipeline] Approved DEEP_DIVE Twitter publish failed for ${context}: ${message}`);
+      platformResults.push({ platform: 'twitter', success: false, error: message });
+    }
+  } else {
+    platformResults.push({ platform: 'twitter', success: false, error: 'Twitter MCP server unavailable' });
+  }
+
+  // Write social hashes back to the web post
+  const farcasterResult = platformResults.find((r) => r.platform === 'farcaster');
+  const twitterResult = platformResults.find((r) => r.platform === 'twitter');
+  const farcasterHash = farcasterResult?.success ? extractFarcasterHash(farcasterResult.data) : null;
+  const twitterId = twitterResult?.success ? extractTwitterId(twitterResult.data) : null;
+
+  if (webPostId && (farcasterHash || twitterId)) {
+    try {
+      await callTool('web', 'web_update_injury_post', {
+        post_id: webPostId,
+        updates: {
+          ...(farcasterHash && { farcaster_hash: farcasterHash }),
+          ...(twitterId && { twitter_id: twitterId }),
+        },
+        update_reason: 'Approved DEEP_DIVE social hash writeback',
+      });
+      console.log(`[Pipeline] Wrote social hashes back to approved post ${webPostId} (farcaster: ${!!farcasterHash}, twitter: ${!!twitterId})`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[Pipeline] Failed to write social hashes to approved post ${webPostId}: ${message}`);
+    }
+  }
+
+  // IndexNow ping — post was PENDING_REVIEW before, so this is the first ping
+  const slug = postUrl ? postUrl.split('/post/').pop() ?? '' : '';
+  if (slug) {
+    void pingIndexNow(slug);
+  }
+
+  const successCount = platformResults.filter((r) => r.success).length;
+  console.log(`[Pipeline] Approved DEEP_DIVE social publish for ${context}: ${successCount}/${platformResults.length} platforms`);
+
+  return { status: 'published', platform_results: platformResults };
+}
+
 export async function publishInjuryPost(content: InjuryPostContent): Promise<PublishResult> {
   const timestamp = new Date().toISOString();
   const context = `${content.athlete_name} (${content.sport}/${content.team})`;

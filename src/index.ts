@@ -1,11 +1,11 @@
 import 'dotenv/config';
 import express from 'express';
 import { initializeMCPClients, disconnectAll, getServerStatus, callTool, isServerAvailable } from './utils/mcp-client-manager.js';
-import { publishInjuryPost } from './utils/publishing-pipeline.js';
+import { publishInjuryPost, publishApprovedDeepDive } from './utils/publishing-pipeline.js';
 import { startPolling, stopPolling, pollSport } from './monitoring/poller.js';
 import { processInjuryEvent } from './agents/injury-intelligence/agent.js';
 import { startDeepDiveScheduler, stopDeepDiveScheduler } from './monitoring/deep-dive-scheduler.js';
-import type { InjuryPostContent, SportKey, RawInjuryEvent, ClassificationResult } from './types.js';
+import type { InjuryPostContent, InjurySeverity, SportKey, RawInjuryEvent, ClassificationResult } from './types.js';
 
 const app = express();
 const PORT = process.env.PORT || 3100;
@@ -97,6 +97,75 @@ app.post('/test/deep-dive', async (req, res) => {
     res.json({ success: true, post, result });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+/**
+ * Called by the frontend admin approve route after web_approve_injury_post succeeds.
+ * Receives the full post row returned by the MCP tool and handles social publishing.
+ *
+ * Flow:
+ *   Frontend: web_approve_injury_post(post_id) → fire-and-forget POST here
+ *   Agents: reconstruct InjuryPostContent → publish Farcaster + X → write hashes back
+ */
+app.post('/admin/approve/:post_id', async (req, res) => {
+  const { post_id } = req.params;
+  const body = req.body as Record<string, unknown>;
+  const post = body.post as Record<string, unknown> | undefined;
+
+  if (!post) {
+    res.status(400).json({
+      success: false,
+      error: 'Request body must include { post: <approved post object from web_approve_injury_post> }',
+    });
+    return;
+  }
+
+  // Reconstruct InjuryPostContent from the web post row.
+  // The MCP returns return_to_play_estimate; InjuryPostContent uses return_to_play.
+  const rtpRaw = post.return_to_play_estimate as Record<string, unknown> | undefined;
+  if (!rtpRaw) {
+    res.status(400).json({ success: false, error: 'Post missing return_to_play_estimate' });
+    return;
+  }
+
+  const content: InjuryPostContent = {
+    athlete_name: String(post.athlete_name ?? ''),
+    sport: String(post.sport ?? ''),
+    team: String(post.team ?? ''),
+    injury_type: String(post.injury_type ?? ''),
+    injury_severity: (post.injury_severity as InjurySeverity) ?? 'UNKNOWN',
+    content_type: (post.content_type as InjuryPostContent['content_type']) ?? 'DEEP_DIVE',
+    headline: String(post.headline ?? ''),
+    clinical_summary: String(post.clinical_summary ?? ''),
+    return_to_play: {
+      min_weeks: Number(rtpRaw.min_weeks ?? 0),
+      max_weeks: Number(rtpRaw.max_weeks ?? 0),
+      probability_week_2: Number(rtpRaw.probability_week_2 ?? 0),
+      probability_week_4: Number(rtpRaw.probability_week_4 ?? 0),
+      probability_week_8: Number(rtpRaw.probability_week_8 ?? 0),
+      confidence: Number(rtpRaw.confidence ?? 0),
+    },
+    confidence: Number(post.confidence ?? 0),
+    ...(post.conflict_reason ? { conflict_reason: String(post.conflict_reason) } : {}),
+    ...(post.team_timeline_weeks !== undefined ? { team_timeline_weeks: Number(post.team_timeline_weeks) } : {}),
+    ...(post.parent_post_id ? { parent_post_id: String(post.parent_post_id) } : {}),
+  };
+
+  const slug = String(post.slug ?? '');
+  const siteUrl = (process.env.SITE_URL ?? 'https://sidelineiq.vercel.app').replace(/\/$/, '');
+  const postUrl = slug ? `${siteUrl}/post/${slug}` : '';
+  const webPostId = String(post.post_id ?? post.id ?? post_id);
+
+  console.log(`[Approve] Social publish triggered for post ${webPostId} (${content.content_type}: ${content.athlete_name})`);
+
+  try {
+    const result = await publishApprovedDeepDive(content, postUrl, webPostId);
+    res.json({ success: true, result });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[Approve] Social publish failed for post ${webPostId}: ${message}`);
     res.status(500).json({ success: false, error: message });
   }
 });
