@@ -3,7 +3,9 @@ import express from 'express';
 import { initializeMCPClients, disconnectAll, getServerStatus, callTool, isServerAvailable } from './utils/mcp-client-manager.js';
 import { publishInjuryPost } from './utils/publishing-pipeline.js';
 import { startPolling, stopPolling, pollSport } from './monitoring/poller.js';
-import type { InjuryPostContent, SportKey } from './types.js';
+import { processInjuryEvent } from './agents/injury-intelligence/agent.js';
+import { startDeepDiveScheduler, stopDeepDiveScheduler } from './monitoring/deep-dive-scheduler.js';
+import type { InjuryPostContent, SportKey, RawInjuryEvent, ClassificationResult } from './types.js';
 
 const app = express();
 const PORT = process.env.PORT || 3100;
@@ -43,6 +45,56 @@ app.post('/test/publish', async (_req, res) => {
   try {
     const result = await publishInjuryPost(mockContent);
     res.json({ success: true, result });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+app.post('/test/deep-dive', async (req, res) => {
+  const { athlete_name, sport, team, injury_type, injury_description } = req.body as Record<string, string>;
+
+  if (!athlete_name || !sport || !team || !injury_type || !injury_description) {
+    res.status(400).json({
+      success: false,
+      error: 'Required fields: athlete_name, sport, team, injury_type, injury_description',
+    });
+    return;
+  }
+
+  const sportKey = sport.toUpperCase().replace(/-/g, '_') as SportKey;
+
+  const rawEvent: RawInjuryEvent = {
+    athlete_name,
+    sport: sportKey,
+    team,
+    injury_description: `${injury_type}: ${injury_description}`,
+    source_url: 'test://deep-dive-endpoint',
+    reported_at: new Date(),
+  };
+
+  const classified: ClassificationResult = {
+    is_injury_event: true,
+    confidence: 0.95,
+    sport: sportKey,
+    athlete_name,
+    team,
+    injury_description: `${injury_type}: ${injury_description}`,
+    content_type: 'DEEP_DIVE',
+    is_new: true,
+    raw_event: rawEvent,
+  };
+
+  try {
+    const post = await processInjuryEvent(classified);
+    if (!post) {
+      res.status(500).json({ success: false, error: 'Agent returned null — check server logs' });
+      return;
+    }
+    // Force content_type to DEEP_DIVE in case agent overrode it
+    post.content_type = 'DEEP_DIVE';
+    const result = await publishInjuryPost(post);
+    res.json({ success: true, post, result });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(500).json({ success: false, error: message });
@@ -257,11 +309,18 @@ async function start(): Promise<void> {
   } else {
     console.log('[Server] POLLING_ENABLED=false — polling loop not started');
   }
+
+  if (process.env.DEEP_DIVE_ENABLED !== 'false') {
+    startDeepDiveScheduler();
+  } else {
+    console.log('[Server] DEEP_DIVE_ENABLED=false — deep-dive scheduler not started');
+  }
 }
 
 function shutdown(): void {
   console.log('[Server] Shutting down...');
   stopPolling();
+  stopDeepDiveScheduler();
   disconnectAll()
     .then(() => process.exit(0))
     .catch(() => process.exit(1));

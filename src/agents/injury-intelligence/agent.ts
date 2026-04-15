@@ -7,6 +7,7 @@ import type {
   InjurySeverity,
   ContentType,
   ReturnToPlayEstimate,
+  SportKey,
 } from '../../types.js';
 
 const MODEL = 'claude-sonnet-4-6';
@@ -177,6 +178,14 @@ function detectConflict(
   };
 }
 
+export interface DeepDiveInput {
+  injury_type: string;
+  sport: SportKey;
+  count: number;
+  athletes: string[];
+  teams: string[];
+}
+
 let client: Anthropic | null = null;
 
 function getClient(): Anthropic {
@@ -321,6 +330,133 @@ Follow SKILL.md exactly. Emit your final answer via the emit_injury_post tool.`;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[Agent] Failed to process event for ${context}: ${message}`);
+    return null;
+  }
+}
+
+/**
+ * Generates an educational DEEP_DIVE post for a high-frequency injury type.
+ * Called by the deep-dive scheduler when an injury type has appeared >= N times
+ * in the recent polling window.
+ *
+ * Differs from processInjuryEvent in several ways:
+ * - Educational, physician-authored tone (not news-breaking)
+ * - Injury TYPE as the subject, with recent athletes as real-world context
+ * - Higher max_tokens (4096) for fuller clinical content
+ * - content_type always forced to DEEP_DIVE
+ */
+export async function processDeepDive(input: DeepDiveInput): Promise<InjuryPostContent | null> {
+  const context = `DEEP_DIVE: ${input.injury_type} (${input.sport}, ${input.count} cases)`;
+
+  try {
+    const { core, rtpTables, sportReference } = await loadSkillContext(input.sport);
+
+    const sections = [
+      core,
+      '\n\n--- RTP PROBABILITY TABLES ---\n\n',
+      rtpTables,
+    ];
+    if (sportReference) {
+      sections.push('\n\n--- SPORT REFERENCE ---\n\n', sportReference);
+    }
+    sections.push(
+      '\n\n--- OUTPUT INSTRUCTIONS ---\n\n',
+      'You are writing a DEEP DIVE educational analysis about an injury type that has appeared multiple times recently. ',
+      'Write as a physician-authored clinical explainer — educational tone, not news-breaking tone. ',
+      'Focus on: mechanism of injury, anatomy involved, standard grading systems, surgical vs conservative treatment options, rehabilitation protocols, and return-to-play evidence. ',
+      'The clinical_summary should be thorough (4–8 paragraphs) with clinical depth suitable for informed sports fans and fantasy managers. ',
+      'Use the specific athletes listed as real-world context, but center the analysis on the injury type itself — not one athlete\'s case. ',
+      'Complete the OTM three-axis classification before selecting an RTP range — classify for the typical presentation of this injury type. ',
+      'Never emit an RTP estimate for CONCUSSION or SYSTEMIC events. ',
+      'State whether the grade is CONFIRMED or INFERRED for each referenced athlete case. ',
+      'You must call the emit_injury_post tool exactly once with your final structured output.'
+    );
+    const system = sections.join('');
+
+    const athleteList = input.athletes.slice(0, 5).map((a, i) =>
+      `${i + 1}. ${a}${input.teams[i] ? ` (${input.teams[i]})` : ''}`
+    ).join('\n');
+
+    const primaryAthlete = input.athletes[0] || 'Multiple Athletes';
+    const primaryTeam = input.teams[0] || 'Various';
+
+    const userMessage = `Write a DEEP DIVE educational analysis about this injury type.
+
+Injury type: ${input.injury_type}
+Sport: ${input.sport}
+Recent occurrences: ${input.count} cases in the last reporting window
+
+Athletes affected:
+${athleteList}
+
+Write an in-depth clinical breakdown of "${input.injury_type}" as it affects ${input.sport} athletes. This is an educational deep-dive, not a breaking news post. Center the analysis on the injury type with these athletes as real-world context.
+
+For the post structure fields (athlete_name, team), use "${primaryAthlete}" and "${primaryTeam}" as the primary reference. The clinical_summary should cover the injury type broadly, referencing the affected athletes where relevant.
+
+Emit your final answer via the emit_injury_post tool with content_type: DEEP_DIVE.`;
+
+    const anthropic = getClient();
+    const response = await anthropic.messages.create({
+      model: MODEL,
+      max_tokens: 4096,
+      system,
+      tools: [AGENT_TOOL],
+      tool_choice: { type: 'tool', name: 'emit_injury_post' },
+      messages: [{ role: 'user', content: userMessage }],
+    });
+
+    const toolUse = response.content.find((block) => block.type === 'tool_use');
+    if (!toolUse || toolUse.type !== 'tool_use') {
+      console.error(`[Agent] No tool_use block returned for ${context}`);
+      return null;
+    }
+
+    const toolInput = toolUse.input as Record<string, unknown>;
+    const rtpRaw = toolInput.return_to_play as Record<string, unknown> | undefined;
+    if (!rtpRaw) {
+      console.error(`[Agent] Missing return_to_play in deep dive output for ${context}`);
+      return null;
+    }
+
+    const rtpEstimate: ReturnToPlayEstimate = {
+      min_weeks: Math.round(Number(rtpRaw.min_weeks ?? 0)),
+      max_weeks: Math.round(Number(rtpRaw.max_weeks ?? 0)),
+      probability_week_2: Number(rtpRaw.probability_week_2 ?? 0),
+      probability_week_4: Number(rtpRaw.probability_week_4 ?? 0),
+      probability_week_8: Number(rtpRaw.probability_week_8 ?? 0),
+      confidence: Number(rtpRaw.confidence ?? 0),
+    };
+
+    const injuryType = String(toolInput.injury_type ?? input.injury_type);
+    const severity = (toolInput.injury_severity as InjurySeverity) ?? 'UNKNOWN';
+
+    const validation = validateRTPEstimate(rtpEstimate, injuryType, severity);
+    if (!validation.valid) {
+      console.error(`[Agent] RTP validation failed for ${context}: ${validation.warnings.join('; ')}`);
+      return null;
+    }
+    const validatedRTP = validation.corrected ?? rtpEstimate;
+    if (validation.warnings.length > 0) {
+      console.warn(`[Agent] RTP auto-corrected for ${context}: ${validation.warnings.join('; ')}`);
+    }
+
+    const post: InjuryPostContent = {
+      athlete_name: primaryAthlete,
+      sport: input.sport,
+      team: primaryTeam,
+      injury_type: injuryType,
+      injury_severity: severity,
+      content_type: 'DEEP_DIVE',
+      headline: String(toolInput.headline ?? ''),
+      clinical_summary: String(toolInput.clinical_summary ?? ''),
+      return_to_play: validatedRTP,
+      confidence: Number(toolInput.confidence ?? 0),
+    };
+
+    return post;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[Agent] Failed to process deep dive for ${context}: ${message}`);
     return null;
   }
 }

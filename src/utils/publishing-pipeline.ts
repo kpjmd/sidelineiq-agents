@@ -10,6 +10,9 @@ function getMDReviewThreshold(): number {
 }
 
 function needsMDReview(content: InjuryPostContent): { needed: boolean; reason?: string } {
+  if (content.content_type === 'DEEP_DIVE') {
+    return { needed: true, reason: 'DEEP_DIVE content always requires MD review' };
+  }
   const threshold = getMDReviewThreshold();
   if (content.confidence < threshold) {
     return { needed: true, reason: `confidence ${content.confidence} below threshold ${threshold}` };
