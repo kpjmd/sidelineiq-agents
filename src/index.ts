@@ -122,11 +122,21 @@ app.post('/admin/approve/:post_id', async (req, res) => {
     return;
   }
 
-  // Reconstruct InjuryPostContent from the web post row.
-  // The MCP returns return_to_play_estimate; InjuryPostContent uses return_to_play.
-  const rtpRaw = post.return_to_play_estimate as Record<string, unknown> | undefined;
-  if (!rtpRaw) {
-    res.status(400).json({ success: false, error: 'Post missing return_to_play_estimate' });
+  // Reconstruct RTP from whichever shape the MCP tool returns:
+  //   web_create_injury_post / seed → nested return_to_play_estimate object
+  //   web_approve_injury_post       → flat DB columns (return_to_play_min_weeks, etc.)
+  const rtpNested = post.return_to_play_estimate as Record<string, unknown> | undefined;
+  const rtpRaw: Record<string, unknown> = rtpNested ?? {
+    min_weeks:          post.return_to_play_min_weeks,
+    max_weeks:          post.return_to_play_max_weeks,
+    probability_week_2: post.return_to_play_probability_week_2,
+    probability_week_4: post.return_to_play_probability_week_4,
+    probability_week_8: post.return_to_play_probability_week_8,
+    confidence:         post.return_to_play_confidence ?? post.confidence,
+  };
+
+  if (rtpRaw.min_weeks === undefined || rtpRaw.min_weeks === null) {
+    res.status(400).json({ success: false, error: 'Post missing RTP data' });
     return;
   }
 
