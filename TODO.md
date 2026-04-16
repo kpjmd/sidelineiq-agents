@@ -87,33 +87,35 @@
 
 ---
 
-## Session 6 — MD Review Admin UX + DEEP_DIVE + Data Sources (PLANNED)
+## Session 6 — MD Review Admin UX + DEEP_DIVE + Data Sources ✅
 
-### MD Review Admin UX
-- [ ] Admin page approve/reject actions (currently read-only queue display)
-- [ ] One-click approve: moves post from PENDING_REVIEW → PUBLISHED
-- [ ] One-click reject/delete: calls web_delete_injury_post
-- [ ] Batch clear for low-signal posts (e.g. confidence < 0.4 bulk dismiss)
-- [ ] Requires new MCP tools: web_approve_injury_post (or web_update status)
+### MD Review Admin UX ✅
+- [x] Admin page approve/reject actions (was read-only queue display)
+- [x] One-click approve: PENDING_REVIEW → PUBLISHED via web_approve_injury_post MCP tool
+- [x] One-click reject/delete: calls web_delete_injury_post
+- [ ] Batch clear for low-signal posts (e.g. confidence < 0.4 bulk dismiss) — deferred
 
-### DEEP_DIVE Content
-- [ ] Manual trigger test: POST /test/deep-dive with an injury_type payload
-  - Verify DEEP_DIVE format renders correctly on web, Farcaster (3–5 casts), Twitter
-  - Verify OrthoIQ referral appears on final cast only
-  - Verify no social links until manual approval (MD review required)
-- [ ] Autonomous DEEP_DIVE trigger strategy (options to evaluate in session):
-  - Option A: Frequency trigger — same injury_type seen ≥3 times in a rolling 72h window
-  - Option B: Star-power trigger — injury to high-profile athlete (top 50 by some signal)
-  - Option C: Scheduled — once per day, pick highest-frequency injury_type from last 24h
-  - Option C is simplest and most predictable — recommend evaluating this first
-- [ ] DEEP_DIVE should always route to MD review (physician-authored feel, higher bar)
-- [ ] DEEP_DIVE agent prompt: different from BREAKING — educational tone, PubMed citations welcome
+### DEEP_DIVE Content ✅
+- [x] Force DEEP_DIVE to always route to MD review (needsMDReview in publishing-pipeline.ts)
+- [x] Manual trigger: POST /test/deep-dive — exercises full Sonnet agent + pipeline
+- [x] processDeepDive() in agent.ts — educational tone, 4096 max_tokens, DeepDiveInput interface
+- [x] Autonomous scheduler (deep-dive-scheduler.ts)
+  - [x] 3-day default interval (DEEP_DIVE_INTERVAL_MS env var)
+  - [x] Aggregates last 72h of posts by injury_type, triggers if count ≥ 3
+  - [x] 7-day per-type cooldown (DB-side + in-memory belt-and-suspenders)
+  - [x] 5-minute startup delay, setTimeout-chaining pattern (matches poller.ts)
+  - [x] DEEP_DIVE_ENABLED and DEEP_DIVE_MIN_INJURY_COUNT env vars
+- [x] Social publishing on MD approval
+  - [x] POST /admin/approve/:post_id endpoint on agents backend
+  - [x] Handles both nested return_to_play_estimate and flat DB column shapes
+  - [x] Web URL in final social cast (drives traffic web ← social)
+  - [x] IndexNow ping fires on approval (first ping since post was PENDING_REVIEW)
+  - [x] Frontend approve route calls agents backend after web_approve_injury_post
+- [x] Verified end-to-end: Farcaster thread (5 casts) + X thread (5 tweets) with web link
+- [ ] OTM signature truncated on X final cast (~10 chars) — minor cosmetic, fix deferred
 
 ### Additional Data Sources
-- [ ] Evaluate NewsAPI as secondary source for NFL/NBA (cross-validates ESPN data)
-- [ ] MultiSource architecture already supports adding sources — one import + one array append
-- [ ] Consider: team injury reports (official practice participation — higher signal than ESPN)
-- [ ] Add second source for NFL first (most active, easiest to validate improvement)
+- [ ] Evaluate NewsAPI as secondary source for NFL/NBA — deferred to Session 7
 
 ### Sports Coverage Expansion
 - [ ] Premier League (hold — stabilize NFL/NBA first)
