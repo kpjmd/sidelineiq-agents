@@ -57,6 +57,9 @@ const LEADING_BLOCKLIST = new Set([
   'NFL', 'National', 'Monday', 'Sunday', 'Thursday', 'Saturday', 'Tuesday', 'Wednesday', 'Friday',
   'Fantasy', 'Super', 'Injury', 'Report', 'Breaking', 'Update', 'Watch', 'Week',
   'Sources', 'League', 'Season', 'Coach', 'Pro', 'Wild', 'Hall',
+  'The', 'This', 'That', 'These', 'Those', 'Former', 'After', 'Every', 'Their',
+  'His', 'Her', 'New', 'First', 'Last', 'Best', 'Top', 'Big', 'Round',
+  'College', 'Football', 'Sports', 'Game', 'Reveals', 'Here',
 ]);
 
 // Full team names for extractTeam() — short nicknames only, case-sensitive
@@ -76,7 +79,10 @@ function extractAthleteName(title: string, description: string): string | null {
     for (const match of matches) {
       const first = match[1];
       if (LEADING_BLOCKLIST.has(first)) continue;
-      return `${first} ${match[2]}`;
+      // Strip trailing possessive 's (e.g. "Kelly's" → "Kelly")
+      const last = match[2].replace(/'s$/, '');
+      if (last.length < 2) continue;
+      return `${first} ${last}`;
     }
   }
   return null;
