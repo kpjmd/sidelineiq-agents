@@ -3,6 +3,11 @@ import type { InjuryPostContent } from '../types.js';
 const FARCASTER_CHAR_LIMIT = 320;
 const TWITTER_CHAR_LIMIT = 280;
 
+// Twitter replaces every URL with a 23-char t.co link regardless of actual length.
+// See https://developer.x.com/en/docs/counting-characters
+const TWITTER_TCO_LENGTH = 23;
+const URL_REGEX = /https?:\/\/\S+/g;
+
 const ORTHOIQ_REFERRAL_URL = process.env.ORTHOIQ_REFERRAL_URL || 'https://orthoiq.com?ref=sidelineiq';
 const ORTHOIQ_CTA = `\n\nDealing with a similar injury? Get a personalized consultation at OrthoIQ. ${ORTHOIQ_REFERRAL_URL}`;
 const OTM_SIGNATURE = '— OrthoTriage Master | AI-generated analysis. Physician-founded.';
@@ -10,6 +15,17 @@ const OTM_SIGNATURE = '— OrthoTriage Master | AI-generated analysis. Physician
 function truncateWithEllipsis(text: string, maxLen: number): string {
   if (text.length <= maxLen) return text;
   return text.slice(0, maxLen - 3).trimEnd() + '...';
+}
+
+/**
+ * Effective post length on X/Twitter, counting each URL as 23 chars (t.co shortening).
+ * Use this for casts that include URLs to avoid pre-truncating text that Twitter will
+ * render within the 280-char limit after shortening.
+ */
+function twitterEffectiveLength(text: string): number {
+  const urls = text.match(URL_REGEX) ?? [];
+  const rawUrlChars = urls.reduce((sum, u) => sum + u.length, 0);
+  return text.length - rawUrlChars + urls.length * TWITTER_TCO_LENGTH;
 }
 
 function splitIntoChunks(text: string, maxLen: number): string[] {
@@ -141,7 +157,12 @@ function buildTrackingThread(content: InjuryPostContent, charLimit: number): str
   return [post1, post2];
 }
 
-function buildDeepDiveThread(content: InjuryPostContent, charLimit: number, postUrl?: string): string[] {
+function buildDeepDiveThread(
+  content: InjuryPostContent,
+  charLimit: number,
+  postUrl?: string,
+  platform: 'farcaster' | 'twitter' = 'farcaster'
+): string[] {
   const casts: string[] = [];
 
   // Cast 1: headline + injury overview
@@ -163,9 +184,14 @@ function buildDeepDiveThread(content: InjuryPostContent, charLimit: number, post
     charLimit
   ));
 
-  // Final cast: web link (drives traffic) + OrthoIQ CTA + OTM signature
+  // Final cast: web link (drives traffic) + OrthoIQ CTA + OTM signature.
+  // On Twitter this cast contains up to two URLs; the t.co shortener makes the
+  // rendered length ~45 chars shorter than raw. Using raw-length truncation
+  // here would clip OTM_SIGNATURE even though the actual tweet fits 280 chars.
   const webLine = postUrl ? `Full clinical breakdown → ${postUrl}\n\n` : '';
-  casts.push(truncateWithEllipsis(`${webLine}${ORTHOIQ_CTA.trim()}\n\n${OTM_SIGNATURE}`, charLimit));
+  const finalText = `${webLine}${ORTHOIQ_CTA.trim()}\n\n${OTM_SIGNATURE}`;
+  const effectiveLen = platform === 'twitter' ? twitterEffectiveLength(finalText) : finalText.length;
+  casts.push(effectiveLen <= charLimit ? finalText : truncateWithEllipsis(finalText, charLimit));
 
   // Ensure 3-5 casts
   while (casts.length < 3) {
@@ -262,7 +288,7 @@ export function formatForFarcaster(content: InjuryPostContent, postUrl?: string)
     case 'TRACKING':
       return buildTrackingThread(content, FARCASTER_CHAR_LIMIT);
     case 'DEEP_DIVE':
-      return buildDeepDiveThread(content, FARCASTER_CHAR_LIMIT, postUrl);
+      return buildDeepDiveThread(content, FARCASTER_CHAR_LIMIT, postUrl, 'farcaster');
     case 'CONFLICT_FLAG':
       return [buildConflictFarcasterCast(content, FARCASTER_CHAR_LIMIT)];
   }
@@ -275,7 +301,7 @@ export function formatForTwitter(content: InjuryPostContent, postUrl?: string): 
     case 'TRACKING':
       return buildTrackingThread(content, TWITTER_CHAR_LIMIT);
     case 'DEEP_DIVE':
-      return buildDeepDiveThread(content, TWITTER_CHAR_LIMIT, postUrl);
+      return buildDeepDiveThread(content, TWITTER_CHAR_LIMIT, postUrl, 'twitter');
     case 'CONFLICT_FLAG':
       return buildConflictTwitterThread(content, TWITTER_CHAR_LIMIT);
   }

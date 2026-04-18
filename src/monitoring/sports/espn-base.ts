@@ -135,6 +135,7 @@ export abstract class ESPNInjurySource implements SportDataSource {
           injury_description: description,
           source_url: this.url,
           reported_at: reportedAt,
+          source_name: this.name,
           ...(teamTimeline && { team_timeline: teamTimeline }),
           ...(isUpdate && { is_update: true }),
         });

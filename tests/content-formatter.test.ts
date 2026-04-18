@@ -109,6 +109,28 @@ describe('formatForTwitter', () => {
     expect(result).toHaveLength(2);
     result.forEach((tweet) => expect(tweet.length).toBeLessThanOrEqual(280));
   });
+
+  it('preserves OTM signature on DEEP_DIVE final tweet when postUrl is present', () => {
+    // Regression: raw-length truncation was clipping OTM_SIGNATURE into
+    // "Physicia..." because the post URL + OrthoIQ URL consumed ~220 chars of
+    // raw string before Twitter's t.co shortening. The final cast should now
+    // be gauged against Twitter's effective length (URLs = 23 chars each).
+    const longPostUrl =
+      'https://sidelineiq-frontend.vercel.app/posts/nfl/patrick-mahomes-high-ankle-sprain-week-12-2025';
+    const result = formatForTwitter(
+      makeContent({ content_type: 'DEEP_DIVE' }),
+      longPostUrl
+    );
+    const finalTweet = result[result.length - 1];
+    expect(finalTweet).toContain('Physician-founded.');
+    expect(finalTweet).not.toContain('...');
+
+    // Effective tweet length (URLs counted as 23 chars) must fit in 280
+    const urls = finalTweet.match(/https?:\/\/\S+/g) ?? [];
+    const rawUrlChars = urls.reduce((sum, u) => sum + u.length, 0);
+    const effectiveLen = finalTweet.length - rawUrlChars + urls.length * 23;
+    expect(effectiveLen).toBeLessThanOrEqual(280);
+  });
 });
 
 describe('formatForWeb', () => {

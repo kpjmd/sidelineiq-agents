@@ -68,6 +68,7 @@ export interface RawInjuryEvent {
   reported_at: Date;
   team_timeline?: string;
   is_update?: boolean;
+  source_name?: string;
 }
 
 export interface ClassificationResult {

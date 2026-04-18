@@ -1,6 +1,7 @@
 import type { SportKey } from '../../types.js';
 import { MultiSource } from './multi-source.js';
 import { ESPNNFLSource } from './espn-nfl.js';
+import { NewsAPINFLSource } from './newsapi-nfl.js';
 import { ESPNNBASource } from './espn-nba.js';
 import { ESPNPremierLeagueSource } from './espn-premier-league.js';
 import { ESPNUFCSource } from './espn-ufc.js';
@@ -12,7 +13,7 @@ import { ESPNUFCSource } from './espn-ufc.js';
  * that sport. No changes to the poller, deduplicator, or agent are needed.
  */
 export const SPORT_SOURCES: Record<SportKey, MultiSource> = {
-  NFL: new MultiSource([new ESPNNFLSource()]),
+  NFL: new MultiSource([new ESPNNFLSource(), new NewsAPINFLSource()]),
   NBA: new MultiSource([new ESPNNBASource()]),
   PREMIER_LEAGUE: new MultiSource([new ESPNPremierLeagueSource()]),
   UFC: new MultiSource([new ESPNUFCSource()]),

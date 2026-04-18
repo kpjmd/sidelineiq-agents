@@ -70,6 +70,7 @@ export class ESPNUFCSource implements SportDataSource {
         injury_description: text.trim(),
         source_url: article.links?.web?.href ?? UFC_NEWS_URL,
         reported_at: reportedAt,
+        source_name: 'espn-ufc',
       });
     }
 

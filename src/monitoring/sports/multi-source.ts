@@ -69,7 +69,15 @@ export function deduplicateEvents(events: RawInjuryEvent[]): RawInjuryEvent[] {
   for (const event of events) {
     const key = eventKey(event);
     const existing = byKey.get(key);
-    if (!existing || isRicher(event, existing)) {
+    if (!existing) {
+      byKey.set(key, event);
+    } else if (isRicher(event, existing)) {
+      // Log genuine cross-source merges (different source_name values)
+      if (event.source_name && existing.source_name && event.source_name !== existing.source_name) {
+        console.log(
+          `[MultiSource] cross-source merge: ${key} — kept ${event.source_name}, dropped ${existing.source_name}`
+        );
+      }
       byKey.set(key, event);
     }
   }
