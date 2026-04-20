@@ -354,35 +354,6 @@ app.post('/seed/test-posts', async (_req, res) => {
   }
 });
 
-// ── /admin/purge-db ───────────────────────────────────────────────────
-// Temporary pre-launch endpoint. Calls web_purge_all_posts and returns
-// before/after row counts. Remove after launch purge is confirmed.
-app.post('/admin/purge-db', async (_req, res) => {
-  if (!isServerAvailable('web')) {
-    res.status(503).json({ success: false, error: 'Web MCP server unavailable' });
-    return;
-  }
-  try {
-    const raw = await callTool('web', 'web_purge_all_posts', {
-      confirm: true,
-      reason: 'Pre-launch test data purge',
-    });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data = raw as any;
-    if (data?.isError === true) {
-      const errText = data?.content?.[0]?.text ?? 'unknown MCP error';
-      res.status(500).json({ success: false, error: errText });
-      return;
-    }
-    const text = data?.content?.[0]?.text;
-    const payload = text ? JSON.parse(text) : data;
-    res.json({ success: true, ...payload });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ success: false, error: message });
-  }
-});
-
 const VALID_SPORTS: SportKey[] = ['NFL', 'NBA', 'PREMIER_LEAGUE', 'UFC'];
 
 app.post('/poll/:sport', async (req, res) => {
