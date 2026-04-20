@@ -1,5 +1,5 @@
 import { callTool, isServerAvailable } from './mcp-client-manager.js';
-import { formatForFarcaster, formatForTwitter, formatForWeb } from './content-formatter.js';
+import { formatForFarcaster, formatForTwitter, formatForWeb, buildLaunchAnnouncement } from './content-formatter.js';
 import type { InjuryPostContent, PlatformResult, PublishResult } from '../types.js';
 
 const DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -288,6 +288,34 @@ export async function publishApprovedDeepDive(
       const message = err instanceof Error ? err.message : String(err);
       console.warn(`[Pipeline] Failed to write social hashes to approved post ${webPostId}: ${message}`);
     }
+  }
+
+  // Launch announcement — fires once when LAUNCH_ANNOUNCEMENT=true.
+  // Single cast + tweet introducing SidelineIQ. Non-fatal if either fails.
+  if (process.env.LAUNCH_ANNOUNCEMENT === 'true' && postUrl) {
+    const announcementText = buildLaunchAnnouncement(postUrl);
+    await Promise.all([
+      isServerAvailable('farcaster')
+        ? callTool('farcaster', 'farcaster_publish_cast', { text: announcementText })
+            .then((data) => {
+              if (isMCPError(data)) throw new Error(extractMCPErrorMessage(data));
+              console.log('[Pipeline] Launch announcement cast published to Farcaster');
+            })
+            .catch((err: unknown) => {
+              console.warn(`[Pipeline] Launch announcement Farcaster failed: ${err instanceof Error ? err.message : String(err)}`);
+            })
+        : Promise.resolve(),
+      isServerAvailable('twitter')
+        ? callTool('twitter', 'twitter_publish_tweet', { text: announcementText })
+            .then((data) => {
+              if (isMCPError(data)) throw new Error(extractMCPErrorMessage(data));
+              console.log('[Pipeline] Launch announcement tweet published to Twitter');
+            })
+            .catch((err: unknown) => {
+              console.warn(`[Pipeline] Launch announcement Twitter failed: ${err instanceof Error ? err.message : String(err)}`);
+            })
+        : Promise.resolve(),
+    ]);
   }
 
   // IndexNow ping — post was PENDING_REVIEW before, so this is the first ping

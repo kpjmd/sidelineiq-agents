@@ -281,6 +281,23 @@ function buildConflictTwitterThread(content: InjuryPostContent, charLimit: numbe
   return posts;
 }
 
+/**
+ * Launch announcement — single cast/tweet introducing SidelineIQ.
+ * Fires alongside the launch deep dive approval when LAUNCH_ANNOUNCEMENT=true.
+ * Fits within 280 effective Twitter chars (URL counts as 23 via t.co).
+ */
+export function buildLaunchAnnouncement(postUrl: string): string {
+  return [
+    '🏥 Introducing SidelineIQ — AI sports injury intelligence, physician-founded.',
+    '',
+    'We analyze injuries the way team docs do: three-axis classification, evidence-based RTP estimates, and no spin.',
+    '',
+    `Launching with our Moses Moody deep dive:\n${postUrl}`,
+    '',
+    '— OrthoTriage Master',
+  ].join('\n');
+}
+
 export function formatForFarcaster(content: InjuryPostContent, postUrl?: string): string[] {
   switch (content.content_type) {
     case 'BREAKING':
