@@ -95,11 +95,21 @@ skills/
 - DEEP_DIVE — educational deep dive on injury type, scheduled
 - CONFLICT_FLAG — conflicting reports from multiple sources on the same injury
 
+## Launch
+
+**Launched: April 20, 2026**
+
+- Autonomous polling live (NFL + NBA, 15-minute intervals)
+- Inaugural post: Moses Moody patellar tendon rupture DEEP_DIVE
+  published to Farcaster + X/Twitter + web
+- NewsAPI wired as secondary NFL data source (NFL-only at launch)
+- MD review queue active
+
 ### Sports Coverage (Launch Order)
-1. NFL (active now)
-2. NBA (add after NFL stable)
-3. PREMIER_LEAGUE (add after NBA stable)
-4. UFC (add after Premier League stable)
+1. NFL ✅ active (ESPN + NewsAPI)
+2. NBA ✅ active (ESPN only)
+3. PREMIER_LEAGUE — add after NFL/NBA stable
+4. UFC — add after Premier League stable
 
 ### OrthoIQ Reference Rule
 Append OrthoIQ referral link ONLY on DEEP_DIVE content type,

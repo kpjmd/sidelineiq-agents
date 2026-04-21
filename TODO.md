@@ -124,10 +124,36 @@
 
 ---
 
-## Known Monitoring / Operational Items
-- [ ] MD_REVIEW_CONFIDENCE_THRESHOLD currently at 0.6 (lowered from 0.75 due to ESPN data quality)
+---
+
+## 🚀 Launched — April 20, 2026
+
+- [x] Autonomous polling live — NFL + NBA, 15-minute intervals
+- [x] Inaugural post: Moses Moody patellar tendon rupture DEEP_DIVE (Farcaster + X + web)
+- [x] NewsAPI wired as secondary NFL data source
+- [x] MD review queue active
+- [x] Database purged of all test data pre-launch
+- [x] Twitter MCP tool max tweet length raised to 500 (t.co URL shortening fix)
+- [x] web_purge_all_posts MCP tool added (pre-launch utility)
+
+---
+
+## Post-Launch — Active Monitoring
+
+- [ ] Watch first week of autonomous posts: dedup rates, MD review queue volume, confidence distribution
+- [ ] MD_REVIEW_CONFIDENCE_THRESHOLD at 0.6 (lowered from 0.75 for ESPN data quality) — revisit after observing queue
+- [ ] NewsAPI athlete name extraction: misses DK/DJ/TJ/Za'Darius-style names — improve regex if miss rate is high
+- [ ] Batch clear for low-signal posts (confidence < 0.4 bulk dismiss in admin UI) — deferred
+- [ ] OTM signature truncated on X final cast (~10 chars) — minor cosmetic, fix when convenient
+
+## Infrastructure / Ops
+
 - [ ] IndexNow key file will need updating when custom domain purchased
 - [ ] SITE_URL env var on Railway controls IndexNow URL (update to custom domain, no code change)
-- [ ] Neynar basic plan rate limits — first-run flooding resolves naturally via dedup
+- [ ] Neynar basic plan rate limits — monitor if volume increases
 - [ ] Twitter forbidden errors — monitor; if recurring, regenerate tokens AFTER permission change
-- [ ] POLLING_ENABLED=true when ready for fully autonomous operation
+
+## Sports Coverage Expansion (in order)
+
+- [ ] Premier League — add after NFL/NBA stable (ESPN source exists, needs activation)
+- [ ] UFC — add after Premier League (no structured injury feed, lower signal quality)
