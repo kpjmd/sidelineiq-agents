@@ -5,9 +5,10 @@ import type { SportKey } from '../types.js';
 
 // Default: 3 days — keeps DEEP_DIVE premium (~8/month, ~100/year)
 const DEFAULT_INTERVAL_MS = 3 * 24 * 60 * 60 * 1000;
-const DEFAULT_MIN_COUNT = 3;
-// Lookback window for finding trending injury types (matches interval)
-const LOOKBACK_MS = 3 * 24 * 60 * 60 * 1000;
+const DEFAULT_MIN_COUNT = 2;
+// Lookback window for finding trending injury types — wider than interval so
+// multiple injury types accumulate enough count even when one is in cooldown.
+const LOOKBACK_MS = 5 * 24 * 60 * 60 * 1000;
 // Cooldown: don't repeat a DEEP_DIVE for the same injury type within 7 days
 const INJURY_TYPE_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 // Delay first run after boot so MCP clients are settled

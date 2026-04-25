@@ -43,7 +43,7 @@ const AGENT_TOOL = {
       clinical_summary: {
         type: 'string',
         description:
-          'The OTM clinical breakdown suitable for public consumption. Lead with 1-2 plain narrative sentences describing the injury and its significance — these appear directly in social posts. Classification details (three-axis, evidence tier, confidence note) may follow but must never open the field. States whether the grade is CONFIRMED or INFERRED.',
+          'The OTM clinical breakdown written as plain narrative prose for public consumption. Lead with 1-2 plain sentences describing the injury and its significance — these appear directly in social posts. Clinical reasoning and evidence basis may follow, but must be written as prose, not as labeled taxonomy headers. Never include "Axis N —", "Evidence Tier:", "SKILL.md", "OTM protocol", "MD review flagged", or escalation protocol language in this field. CONFIRMED and INFERRED may appear naturally in prose but not as classification headers.',
       },
       return_to_play: {
         type: 'object',
@@ -112,7 +112,12 @@ function buildSystemPrompt(core: string, rtpTables: string, sportReference: stri
     'You must call the emit_injury_post tool exactly once with your final structured output. ',
     'Complete the OTM three-axis classification before selecting an RTP range. ',
     'Never emit an RTP estimate for CONCUSSION or SYSTEMIC events — in those cases, set return_to_play probabilities to 0 and confidence to a low value. ',
-    'State whether the injury grade is CONFIRMED (imaging/team confirmed) or INFERRED (reasoned from mechanism and reporting) in the clinical_summary.'
+    'State whether the injury grade is CONFIRMED (imaging/team confirmed) or INFERRED (reasoned from mechanism and reporting) in the clinical_summary. ',
+    'CRITICAL — clinical_summary format rules: The clinical_summary must be written as public-facing narrative prose throughout. ',
+    'Do NOT include internal taxonomy labels such as "Axis 1 — Tissue:", "Axis 2 — Severity:", "Axis 3 — Region:", "Evidence Tier:", "Flag: ESCALATION", or "ESCALATION —". ',
+    'Do NOT mention "SKILL.md", "OTM protocol", "MD review flagged per protocol", or "per OTM protocol" — these are internal processing notes and must never appear in published content. ',
+    'CONFIRMED and INFERRED may appear naturally in prose (e.g., "the ACL tear is confirmed by imaging") but must not be formatted as classification headers. ',
+    'End clinical_summary on the clinical take — never with an escalation flag, protocol note, or MD review reference.'
   );
   return sections.join('');
 }
@@ -163,6 +168,11 @@ function detectConflict(
   rtp: ReturnToPlayEstimate
 ): { conflict: boolean; reason?: string } {
   if (teamTimelineWeeks === null) return { conflict: false };
+
+  // "day-to-day" parses to 0, but for serious injuries it means the team
+  // hasn't disclosed a real timeline — not that the athlete returns in days.
+  // Suppress conflict when OTM's minimum estimate is 4+ weeks.
+  if (teamTimelineWeeks === 0 && rtp.min_weeks >= 4) return { conflict: false };
 
   const otmMid = (rtp.min_weeks + rtp.max_weeks) / 2;
   const gap = Math.abs(teamTimelineWeeks - otmMid);
@@ -215,6 +225,10 @@ export async function processInjuryEvent(
     const { core, rtpTables, sportReference } = await loadSkillContext(classified.sport);
     const system = buildSystemPrompt(core, rtpTables, sportReference);
 
+    const today = new Date().toISOString().split('T')[0];
+    const month = new Date().getMonth() + 1; // 1-indexed
+    const isNFLOffseason = classified.sport === 'NFL' && month >= 4 && month <= 8;
+
     const userMessage = `Process this injury event into a structured post.
 
 Sport: ${classified.sport}
@@ -224,8 +238,10 @@ Injury (raw): ${classified.injury_description}
 ${raw.team_timeline ? `Team-reported timeline: ${raw.team_timeline}` : 'Team timeline: not reported'}
 Source: ${raw.source_url}
 Reported at: ${raw.reported_at.toISOString()}
+Current date: ${today}
 Classifier hint — content_type: ${classified.content_type}, is_new: ${classified.is_new}
 ${parentPostId ? `This is an UPDATE to an existing story (parent post id: ${parentPostId}).` : ''}
+${isNFLOffseason ? `NFL offseason context: It is currently the NFL offseason (April–August). A "Questionable" or "day-to-day" game-status designation is meaningless during the offseason — it is not a recovery timeline disclosure. Do NOT classify as CONFLICT_FLAG based solely on a stale game-status term. If OTM's recovery estimate aligns with a return by September (week 1 of the NFL season), classify as TRACKING and note the recovery trajectory. Reserve CONFLICT_FLAG only for cases where the team has provided a specific week-based timeline that is biologically irreconcilable with the injury.` : ''}
 
 Follow SKILL.md exactly. Emit your final answer via the emit_injury_post tool.`;
 
@@ -300,6 +316,14 @@ Follow SKILL.md exactly. Emit your final answer via the emit_injury_post tool.`;
       }
     }
 
+    // If Claude self-flagged CONFLICT_FLAG but no parseable team timeline exists,
+    // suppress it — real conflicts require a concrete team disclosure to compare
+    // against. "Questionable" / "day-to-day" with no week number are not conflicts.
+    if (contentType === 'CONFLICT_FLAG' && teamTimelineWeeks === undefined) {
+      contentType = classified.content_type === 'CONFLICT_FLAG' ? 'TRACKING' : classified.content_type;
+      conflictReason = undefined;
+    }
+
     // If the poller is updating an existing story, mark as TRACKING
     // (unless a conflict was detected, which takes precedence).
     if (parentPostId && contentType !== 'CONFLICT_FLAG') {
@@ -369,7 +393,12 @@ export async function processDeepDive(input: DeepDiveInput): Promise<InjuryPostC
       'Complete the OTM three-axis classification before selecting an RTP range — classify for the typical presentation of this injury type. ',
       'Never emit an RTP estimate for CONCUSSION or SYSTEMIC events. ',
       'State whether the grade is CONFIRMED or INFERRED for each referenced athlete case. ',
-      'You must call the emit_injury_post tool exactly once with your final structured output.'
+      'You must call the emit_injury_post tool exactly once with your final structured output. ',
+      'CRITICAL — clinical_summary format rules: The clinical_summary must be written as public-facing narrative prose throughout. ',
+      'Do NOT include internal taxonomy labels such as "Axis 1 — Tissue:", "Axis 2 — Severity:", "Axis 3 — Region:", "Evidence Tier:", "Flag: ESCALATION", or "ESCALATION —". ',
+      'Do NOT mention "SKILL.md", "OTM protocol", "MD review flagged per protocol", or "per OTM protocol" — these are internal processing notes and must never appear in published content. ',
+      'CONFIRMED and INFERRED may appear naturally in prose but must not be formatted as classification headers. ',
+      'End clinical_summary on the clinical take — never with an escalation flag, protocol note, or MD review reference.'
     );
     const system = sections.join('');
 

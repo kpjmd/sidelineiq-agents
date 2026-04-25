@@ -57,8 +57,35 @@ function splitIntoChunks(text: string, maxLen: number): string[] {
  *   [CONFIDENCE: Grade INFERRED ...]
  *   OTM THREE-AXIS CLASSIFICATION:   (section header lines)
  */
-function stripMarkdown(text: string): string {
+/**
+ * Strips internal OTM framework taxonomy labels from text.
+ * These labels should never appear in public-facing content but can leak
+ * from the agent's clinical_summary if the model ignores prompt guardrails.
+ * Applied as a safety net on both social and web content.
+ */
+function stripFrameworkLabels(text: string): string {
   return text
+    // "Axis N — ..." header lines (e.g. "Axis 1 — Tissue: NRV")
+    .replace(/^Axis\s+\d+\s*[—\-][^\n]*$/gim, '')
+    // "per SKILL.md ..." inline phrases
+    .replace(/\bper\s+SKILL\.md[^.!\n]*/gi, '')
+    // "per OTM protocol ..." inline phrases
+    .replace(/\bper\s+OTM\s+protocol[^.!\n]*/gi, '')
+    // "MD review flagged ..." standalone lines
+    .replace(/^MD\s+review\s+flagged[^\n]*\.?\s*$/gim, '')
+    // "Evidence Tier: T1 ..." standalone lines
+    .replace(/^Evidence\s+Tier:\s+T[1-4][^\n]*\.?\s*$/gim, '')
+    // "Flag: ESCALATION ..." standalone lines
+    .replace(/^Flag:\s+ESCALATION[^\n]*\.?\s*$/gim, '')
+    // "ESCALATION — ..." standalone lines
+    .replace(/^ESCALATION\s*—[^\n]*\.?\s*$/gim, '')
+    // Collapse any blank lines left behind
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function stripMarkdown(text: string): string {
+  return stripFrameworkLabels(text)
     // OTM bracket annotation: [ALL CAPS LABEL: content] — remove entirely
     .replace(/\[[A-Z][A-Z\s/]+:[^\]]*\]/g, '')
     // OTM / all-caps section header lines ending in colon (e.g. "OTM THREE-AXIS CLASSIFICATION:")
@@ -71,6 +98,15 @@ function stripMarkdown(text: string): string {
     .replace(/`([^`]+)`/g, '$1')             // `code`
     .replace(/\n{3,}/g, '\n\n')              // collapse extra blank lines
     .trim();
+}
+
+/**
+ * Strips internal OTM framework labels from clinical_summary before web storage.
+ * Unlike stripMarkdown(), this preserves markdown formatting — the web uses full
+ * markdown rendering. It only removes content that should never be public-facing.
+ */
+function sanitizeClinicalSummary(text: string): string {
+  return stripFrameworkLabels(text);
 }
 
 /**
@@ -336,7 +372,7 @@ export function formatForWeb(
     injury_severity: content.injury_severity,
     content_type: content.content_type,
     headline: content.headline,
-    clinical_summary: content.clinical_summary,
+    clinical_summary: sanitizeClinicalSummary(content.clinical_summary),
     return_to_play_estimate: { ...content.return_to_play },
     ...(content.source_url !== undefined && { source_url: content.source_url }),
     ...(content.conflict_reason !== undefined && { conflict_reason: content.conflict_reason }),
