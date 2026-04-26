@@ -82,3 +82,27 @@ export interface ClassificationResult {
   is_new: boolean;
   raw_event: RawInjuryEvent;
 }
+
+// ── Social Engagement types ───────────────────────────────────────────
+
+export type SocialPlatform = 'twitter' | 'farcaster';
+
+export type MentionIntent =
+  | 'CORRECTION'
+  | 'CLINICAL_QUESTION'
+  | 'ENGAGEMENT'
+  | 'PUSHBACK'
+  | 'SOURCING'
+  | 'IGNORE';
+
+export interface SocialMention {
+  platform: SocialPlatform;
+  mentionId: string;
+  text: string;
+  authorHandle: string;
+  authorFollowerCount?: number;
+  conversationId: string;
+  parentPostId?: string;
+  createdAt: string;
+  rawPayload: Record<string, unknown>;
+}
