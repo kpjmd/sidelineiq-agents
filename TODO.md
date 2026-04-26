@@ -138,6 +138,20 @@
 
 ---
 
+## Session 5 — Social Engagement: Tier 1 Reactive Replies ✅
+
+- [x] DB migration 005: social_monitor_state, processed_mentions, pending_corrections tables
+- [x] MCP tools: twitter_get_mentions, farcaster_get_notifications (both handle 429 gracefully)
+- [x] MCP tools: web_get_social_state, web_set_social_state (cursor persistence)
+- [x] MCP tools: web_check_mention_processed, web_insert_processed_mention (dedup + audit)
+- [x] MCP tools: web_insert_pending_correction, web_list_pending_corrections (correction queue)
+- [x] reply-agent.ts: two-stage Haiku classify → Sonnet generate, 6 intent types, AI skepticism detection
+- [x] mention-monitor-loop.ts: 20-min loop, 10-min startup offset, 5 guardrails (dedup, min followers, max 10/run, self-reply, dry-run)
+- [x] Validated dry-run: CORRECTION @310jayare (Harrison Barnes team) and SOURCING @BronCheated both classified at 0.95 confidence, routed correctly
+- [ ] SOURCING reply should include SITE_URL at minimum, and query web_list_posts by athlete name to surface a matching DEEP_DIVE link if one exists — "available at our web frontend" is too vague to drive clicks
+
+---
+
 ## Post-Launch — Active Monitoring
 
 - [ ] Watch first week of autonomous posts: dedup rates, MD review queue volume, confidence distribution
