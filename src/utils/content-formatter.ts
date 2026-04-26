@@ -1,7 +1,7 @@
 import type { InjuryPostContent } from '../types.js';
 
 const FARCASTER_CHAR_LIMIT = 320;
-const TWITTER_CHAR_LIMIT = 280;
+const TWITTER_CHAR_LIMIT = Number(process.env.TWITTER_CHAR_LIMIT) || 280;
 
 // Twitter replaces every URL with a 23-char t.co link regardless of actual length.
 // See https://developer.x.com/en/docs/counting-characters
@@ -150,10 +150,12 @@ function buildBreakingThread(content: InjuryPostContent, charLimit: number): str
     charLimit
   );
 
-  // Reserve space for RTP line + signature + separating newlines (~90 chars)
-  const anchorBudget = charLimit - 90;
-  const anchor = shortClinicalAnchor(content.clinical_summary, anchorBudget);
   const rtpLine = `RTP: ${rtp.min_weeks}–${rtp.max_weeks} weeks`;
+  // Compute exact overhead so the anchor budget is never too large and the
+  // assembled post2 never exceeds charLimit (which would clip OTM_SIGNATURE).
+  const post2Overhead = 2 + rtpLine.length + 2 + OTM_SIGNATURE.length; // \n\n + rtp + \n\n + sig
+  const anchorBudget = charLimit - post2Overhead;
+  const anchor = shortClinicalAnchor(content.clinical_summary, anchorBudget);
 
   const post2 = truncateWithEllipsis(
     [anchor, '', rtpLine, '', OTM_SIGNATURE].join('\n'),
@@ -181,9 +183,10 @@ function buildTrackingThread(content: InjuryPostContent, charLimit: number): str
     charLimit
   );
 
-  const anchorBudget = charLimit - 90;
-  const anchor = shortClinicalAnchor(content.clinical_summary, anchorBudget);
   const rtpLine = `RTP window: ${rtp.min_weeks}–${rtp.max_weeks} weeks`;
+  const post2Overhead = 2 + rtpLine.length + 2 + OTM_SIGNATURE.length; // \n\n + rtp + \n\n + sig
+  const anchorBudget = charLimit - post2Overhead;
+  const anchor = shortClinicalAnchor(content.clinical_summary, anchorBudget);
 
   const post2 = truncateWithEllipsis(
     [anchor, '', rtpLine, '', OTM_SIGNATURE].join('\n'),

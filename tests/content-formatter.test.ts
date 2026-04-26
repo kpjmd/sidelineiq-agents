@@ -108,6 +108,61 @@ describe('formatForTwitter', () => {
     const result = formatForTwitter(makeContent({ clinical_summary: longSummary }));
     expect(result).toHaveLength(2);
     result.forEach((tweet) => expect(tweet.length).toBeLessThanOrEqual(280));
+    expect(result[1]).toContain('Physician-founded.');
+  });
+
+  it('preserves OTM signature on TRACKING post2 with long clinical summary', () => {
+    // Regression: hardcoded 90-char reserve was too small; signature got clipped.
+    // Repro: Anthony Edwards TRACKING post, April 25 2026, 1,105 views, sig truncated to "Physician-fou..."
+    const longSummary =
+      'Anthony Edwards sustained a Grade 2 posterior cruciate ligament sprain during a contested drive to the basket. ' +
+      'MRI confirmed partial tearing of the PCL with mild posterior tibial translation. ' +
+      'Associated popliteal region edema noted. Progressive rehab protocol initiated with emphasis on quadriceps strengthening.';
+    const result = formatForTwitter(
+      makeContent({
+        content_type: 'TRACKING',
+        clinical_summary: longSummary,
+        athlete_name: 'Anthony Edwards',
+        team: 'Minnesota Timberwolves',
+        return_to_play: {
+          min_weeks: 6,
+          max_weeks: 10,
+          probability_week_2: 0.05,
+          probability_week_4: 0.25,
+          probability_week_8: 0.80,
+          confidence: 0.78,
+        },
+      })
+    );
+    expect(result).toHaveLength(2);
+    expect(result[1]).toContain('Physician-founded.');
+    expect(result[1]).not.toMatch(/Physician-fou\.\.\./);
+    expect(result[1].length).toBeLessThanOrEqual(280);
+  });
+
+  it('preserves OTM signature on BREAKING post2 with long clinical summary and double-digit weeks', () => {
+    // Double-digit week numbers produce a longer rtpLine, stressing the budget calculation.
+    const longSummary =
+      'Imaging reveals a complete tear of the ulnar collateral ligament with associated flexor-pronator mass strain. ' +
+      'Surgical reconstruction (Tommy John) is the expected treatment pathway. ' +
+      'Pre-surgical rehabilitation will focus on range of motion preservation and inflammation management.';
+    const result = formatForTwitter(
+      makeContent({
+        content_type: 'BREAKING',
+        clinical_summary: longSummary,
+        return_to_play: {
+          min_weeks: 52,
+          max_weeks: 68,
+          probability_week_2: 0.0,
+          probability_week_4: 0.0,
+          probability_week_8: 0.0,
+          confidence: 0.90,
+        },
+      })
+    );
+    expect(result).toHaveLength(2);
+    expect(result[1]).toContain('Physician-founded.');
+    expect(result[1].length).toBeLessThanOrEqual(280);
   });
 
   it('preserves OTM signature on DEEP_DIVE final tweet when postUrl is present', () => {
