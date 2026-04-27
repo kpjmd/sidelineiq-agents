@@ -496,6 +496,7 @@ export function formatForWeb(
     ...(content.conflict_reason !== undefined && { conflict_reason: content.conflict_reason }),
     ...(content.team_timeline_weeks !== undefined && { team_timeline_weeks: content.team_timeline_weeks }),
     ...(content.parent_post_id !== undefined && { parent_post_id: content.parent_post_id }),
+    ...(content.injury_date !== undefined && { injury_date: content.injury_date }),
     confidence: content.confidence,
     status,
   };

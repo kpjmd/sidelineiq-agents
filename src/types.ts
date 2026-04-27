@@ -28,6 +28,7 @@ export interface InjuryPostContent {
   conflict_reason?: string;
   team_timeline_weeks?: number;
   parent_post_id?: string;
+  injury_date?: string;
 }
 
 export interface PlatformResult {
