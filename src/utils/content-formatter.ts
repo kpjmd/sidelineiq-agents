@@ -2,6 +2,9 @@ import type { InjuryPostContent } from '../types.js';
 
 const FARCASTER_CHAR_LIMIT = 320;
 const TWITTER_CHAR_LIMIT = Number(process.env.TWITTER_CHAR_LIMIT) || 280;
+// Premium account (25K chars) enables long-form single posts instead of threads.
+// Free/Basic accounts (≤500 chars) use the original thread builders.
+const TWITTER_LONG_FORM = TWITTER_CHAR_LIMIT > 500;
 
 // Twitter replaces every URL with a 23-char t.co link regardless of actual length.
 // See https://developer.x.com/en/docs/counting-characters
@@ -320,6 +323,105 @@ function buildConflictTwitterThread(content: InjuryPostContent, charLimit: numbe
   return posts;
 }
 
+// ─── Long-form builders (Premium account, TWITTER_CHAR_LIMIT > 500) ───────────
+// These produce single rich posts or 2-post threads rather than splitting
+// content across 2-5 tweets to fit within the free-account 280-char limit.
+
+/**
+ * Long-form BREAKING or TRACKING — single post.
+ * Full clinical summary, RTP, and OTM signature in one tweet.
+ */
+function buildLongFormBreakingOrTracking(content: InjuryPostContent): string[] {
+  const rtp = content.return_to_play;
+  const isTracking = content.content_type === 'TRACKING';
+  const prefix = isTracking ? '📋 UPDATE: ' : '🚨 ';
+  const rtpLine = isTracking
+    ? `RTP window: ${rtp.min_weeks}–${rtp.max_weeks} weeks`
+    : `RTP: ${rtp.min_weeks}–${rtp.max_weeks} weeks`;
+
+  const post = [
+    `${prefix}${content.headline}`,
+    '',
+    `${content.athlete_name} (${content.team}) — ${content.injury_type}`,
+    `Severity: ${content.injury_severity}`,
+    '',
+    stripMarkdown(content.clinical_summary),
+    '',
+    rtpLine,
+    '',
+    OTM_SIGNATURE,
+  ].join('\n');
+
+  return [post];
+}
+
+/**
+ * Long-form DEEP_DIVE — 1 or 2 posts.
+ * Post 1: full clinical content + RTP + signature.
+ * Post 2 (only when postUrl provided): web link + OrthoIQ CTA.
+ * OrthoIQ CTA appears on final post only, per CLAUDE.md rule.
+ */
+function buildLongFormDeepDive(content: InjuryPostContent, postUrl?: string): string[] {
+  const rtp = content.return_to_play;
+
+  const post1 = [
+    `🔬 DEEP DIVE: ${content.headline}`,
+    '',
+    `${content.athlete_name} (${content.team}) — ${content.injury_type} | Severity: ${content.injury_severity}`,
+    '',
+    stripMarkdown(content.clinical_summary),
+    '',
+    `⏱️ Return to Play: ${rtp.min_weeks}–${rtp.max_weeks} weeks`,
+    `Wk 2: ${Math.round(rtp.probability_week_2 * 100)}% | Wk 4: ${Math.round(rtp.probability_week_4 * 100)}% | Wk 8: ${Math.round(rtp.probability_week_8 * 100)}%`,
+    '',
+    OTM_SIGNATURE,
+  ].join('\n');
+
+  if (!postUrl) return [post1];
+
+  const post2 = [
+    `Full clinical breakdown → ${postUrl}`,
+    '',
+    ORTHOIQ_CTA.trim(),
+  ].join('\n');
+
+  return [post1, post2];
+}
+
+/**
+ * Long-form CONFLICT_FLAG — 2-post thread.
+ * Post 1: hook + injury + full clinical context + team vs OTM gap.
+ * Post 2: watch-for signal + OTM signature.
+ */
+function buildLongFormConflict(content: InjuryPostContent): string[] {
+  const rtp = content.return_to_play;
+  const teamWeeks = content.team_timeline_weeks;
+  const teamDisclosure = teamWeeks != null ? `${teamWeeks} weeks` : 'day-to-day';
+  const delta = teamWeeks != null ? Math.abs(teamWeeks - rtp.max_weeks) : null;
+
+  const post1 = [
+    `OTM 🚩 ${content.athlete_name} — ${content.team}'s timeline doesn't add up.`,
+    '',
+    `The injury: ${content.injury_type} | Severity: ${content.injury_severity}`,
+    '',
+    stripMarkdown(content.clinical_summary),
+    '',
+    'The gap:',
+    `Team disclosed: ${teamDisclosure}`,
+    `OTM read: ${rtp.min_weeks}–${rtp.max_weeks} weeks`,
+    delta != null ? `Delta: ${delta}+ weeks — conflict threshold met` : 'Delta: exceeds 2-week conflict threshold',
+    ...(content.conflict_reason ? ['', content.conflict_reason] : []),
+  ].join('\n');
+
+  const post2 = [
+    'Watch for: the signal that resolves this — imaging update, practice shift, or a quiet timeline revision that validates OTM\'s flag.',
+    '',
+    OTM_SIGNATURE,
+  ].join('\n');
+
+  return [post1, post2];
+}
+
 /**
  * Launch announcement — single cast/tweet introducing SidelineIQ.
  * Fires alongside the launch deep dive approval when LAUNCH_ANNOUNCEMENT=true.
@@ -351,15 +453,28 @@ export function formatForFarcaster(content: InjuryPostContent, postUrl?: string)
 }
 
 export function formatForTwitter(content: InjuryPostContent, postUrl?: string): string[] {
+  // Read env var at call time so tests (and Railway config changes) take effect
+  // without a module reload.
+  const charLimit = Number(process.env.TWITTER_CHAR_LIMIT) || 280;
+  const longForm = charLimit > 500;
+
   switch (content.content_type) {
     case 'BREAKING':
-      return buildBreakingThread(content, TWITTER_CHAR_LIMIT);
+      return longForm
+        ? buildLongFormBreakingOrTracking(content)
+        : buildBreakingThread(content, charLimit);
     case 'TRACKING':
-      return buildTrackingThread(content, TWITTER_CHAR_LIMIT);
+      return longForm
+        ? buildLongFormBreakingOrTracking(content)
+        : buildTrackingThread(content, charLimit);
     case 'DEEP_DIVE':
-      return buildDeepDiveThread(content, TWITTER_CHAR_LIMIT, postUrl, 'twitter');
+      return longForm
+        ? buildLongFormDeepDive(content, postUrl)
+        : buildDeepDiveThread(content, charLimit, postUrl, 'twitter');
     case 'CONFLICT_FLAG':
-      return buildConflictTwitterThread(content, TWITTER_CHAR_LIMIT);
+      return longForm
+        ? buildLongFormConflict(content)
+        : buildConflictTwitterThread(content, charLimit);
   }
 }
 

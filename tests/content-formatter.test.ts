@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { formatForFarcaster, formatForTwitter, formatForWeb } from '../src/utils/content-formatter.js';
 import type { InjuryPostContent } from '../src/types.js';
 
@@ -185,6 +185,77 @@ describe('formatForTwitter', () => {
     const rawUrlChars = urls.reduce((sum, u) => sum + u.length, 0);
     const effectiveLen = finalTweet.length - rawUrlChars + urls.length * 23;
     expect(effectiveLen).toBeLessThanOrEqual(280);
+  });
+});
+
+describe('formatForTwitter — long-form (Premium, 25K chars)', () => {
+  const originalLimit = process.env.TWITTER_CHAR_LIMIT;
+
+  beforeEach(() => {
+    process.env.TWITTER_CHAR_LIMIT = '25000';
+  });
+
+  afterEach(() => {
+    if (originalLimit === undefined) {
+      delete process.env.TWITTER_CHAR_LIMIT;
+    } else {
+      process.env.TWITTER_CHAR_LIMIT = originalLimit;
+    }
+  });
+
+  it('BREAKING returns a single post with headline, clinical summary, RTP, and full signature', () => {
+    const result = formatForTwitter(makeContent({ content_type: 'BREAKING' }));
+    expect(result).toHaveLength(1);
+    expect(result[0]).toContain('🚨');
+    expect(result[0]).toContain('Mahomes');
+    expect(result[0]).toContain('MRI confirms');
+    expect(result[0]).toContain('RTP:');
+    expect(result[0]).toContain('Physician-founded.');
+  });
+
+  it('TRACKING returns a single post with UPDATE prefix, clinical summary, RTP window, and full signature', () => {
+    const result = formatForTwitter(makeContent({ content_type: 'TRACKING' }));
+    expect(result).toHaveLength(1);
+    expect(result[0]).toContain('📋 UPDATE:');
+    expect(result[0]).toContain('MRI confirms');
+    expect(result[0]).toContain('RTP window:');
+    expect(result[0]).toContain('Physician-founded.');
+  });
+
+  it('DEEP_DIVE without postUrl returns a single post', () => {
+    const result = formatForTwitter(makeContent({ content_type: 'DEEP_DIVE' }));
+    expect(result).toHaveLength(1);
+    expect(result[0]).toContain('🔬 DEEP DIVE:');
+    expect(result[0]).toContain('Physician-founded.');
+    expect(result[0]).not.toContain('OrthoIQ');
+  });
+
+  it('DEEP_DIVE with postUrl returns 2-post thread; post2 has OrthoIQ CTA, post1 does not', () => {
+    const result = formatForTwitter(
+      makeContent({ content_type: 'DEEP_DIVE' }),
+      'https://sidelineiq.vercel.app/post/test-slug'
+    );
+    expect(result).toHaveLength(2);
+    expect(result[0]).toContain('🔬 DEEP DIVE:');
+    expect(result[0]).not.toContain('OrthoIQ');
+    expect(result[1]).toContain('OrthoIQ');
+    expect(result[1]).toContain('sidelineiq.vercel.app');
+  });
+
+  it('CONFLICT_FLAG returns 2-post thread; post1 has clinical summary and gap, post2 has signature', () => {
+    const result = formatForTwitter(
+      makeContent({
+        content_type: 'CONFLICT_FLAG',
+        team_timeline_weeks: 2,
+        conflict_reason: 'PCL injuries of this grade rarely resolve in under 4 weeks.',
+      })
+    );
+    expect(result).toHaveLength(2);
+    expect(result[0]).toContain('OTM 🚩');
+    expect(result[0]).toContain('MRI confirms');
+    expect(result[0]).toContain('OTM read:');
+    expect(result[1]).toContain('Watch for:');
+    expect(result[1]).toContain('Physician-founded.');
   });
 });
 
