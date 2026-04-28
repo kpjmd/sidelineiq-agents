@@ -156,7 +156,17 @@ A user is engaging positively with OTM's analysis. Respond briefly — confident
     case 'PUSHBACK':
       return `${base}
 
-A user disagrees with OTM's clinical estimate without providing factual basis. Hold the position. Do not capitulate, do not escalate. Restate the clinical evidence briefly. The biology of healing does not change based on fan sentiment. Tone: confident, not combative. Under ${charLimit} characters.`;
+PUSHBACK — a user disagrees with OTM's clinical position.
+
+First, determine which kind of pushback this is:
+
+EPISTEMIC PUSHBACK: The user raises a genuine clinical limitation — they're questioning whether OTM has access to information needed to make its estimate (e.g., "you don't know the surgery type", "you don't have imaging", "how can you set a timeline without knowing the specific procedure", "you don't know what surgery he had"). These are valid scientific challenges.
+→ Acknowledge the limitation directly and specifically ("Fair point — without imaging confirmation..." or "You're right that the specific procedure matters here..."). Then pivot to what OTM CAN anchor to: tissue-specific healing biology, mechanism of injury, published RTP literature for that tissue/severity class, and what additional information would refine the estimate. Never claim to know more than the source data supports.
+
+SENTIMENT PUSHBACK: The user disagrees based on preference, wishful thinking, team loyalty, or without providing a specific factual or clinical basis ("this is wrong", "he'll be back faster", "you don't know what you're talking about").
+→ Hold the position. Do not capitulate, do not escalate. Restate the clinical evidence briefly. The biology of healing does not change based on fan sentiment or preferred outcome. Tone: confident, not combative.
+
+When in doubt between the two types, lean toward acknowledging the limitation — epistemic humility is a strength, not a concession. Under ${charLimit} characters.`;
 
     case 'SOURCING':
       return `${base}
@@ -210,6 +220,38 @@ const REPLY_TOOL = {
   },
 };
 
+/**
+ * Fetches the original OTM post that a mention is replying to, using the social
+ * platform ID (tweet ID or cast hash). Returns a brief context block to inject
+ * into the reply generation prompt, or null if the post cannot be found.
+ */
+async function fetchOriginalPostContext(mention: SocialMention): Promise<string | null> {
+  if (!mention.parentPostId || !isServerAvailable('web')) return null;
+
+  try {
+    const raw = await callTool('web', 'web_get_post_by_social_id', {
+      platform: mention.platform,
+      social_id: mention.parentPostId,
+    });
+    const parsed = JSON.parse(
+      (raw as { content: Array<{ text: string }> }).content[0].text
+    ) as { post?: { clinical_summary?: string; injury_date?: string | null } };
+
+    const post = parsed.post;
+    if (!post?.clinical_summary) return null;
+
+    const dateLine = post.injury_date
+      ? `Injury/surgery date in OTM's records: ${post.injury_date}`
+      : 'Injury/surgery date: not confirmed in source data (OTM stated uncertainty in original post)';
+
+    return `Original OTM post context (the post being replied to):
+Clinical summary: ${post.clinical_summary}
+${dateLine}`;
+  } catch {
+    return null;
+  }
+}
+
 export async function generateReply(
   mention: SocialMention,
   intent: MentionIntent,
@@ -219,11 +261,13 @@ export async function generateReply(
   const systemPrompt = buildSystemPrompt(mention, intent, aiSkepticism);
   const useCorrectionTool = intent === 'CORRECTION';
 
+  const originalPostContext = await fetchOriginalPostContext(mention);
+
   const userMessage = `Generate a reply to this ${mention.platform} mention:
 
 "${mention.text}"
 
-— @${mention.authorHandle}`;
+— @${mention.authorHandle}${originalPostContext ? `\n\n${originalPostContext}` : ''}`;
 
   try {
     const tool = useCorrectionTool ? CORRECTION_EXTRACTION_TOOL : REPLY_TOOL;

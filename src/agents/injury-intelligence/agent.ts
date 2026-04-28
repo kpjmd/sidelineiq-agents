@@ -256,6 +256,11 @@ DATE ANCHORING — CRITICAL:
 - If the actual date cannot be determined, omit "injury_date" and present RTP as total expected duration from injury, noting the start date is unconfirmed.
 - NEVER use the report date or current date as a proxy for when the injury/surgery occurred.
 
+SURGICAL PROCEDURE UNCERTAINTY:
+- If the source confirms surgery occurred but does not name the specific procedure (e.g., "underwent knee surgery" without specifying ACL reconstruction vs. meniscectomy vs. cartilage repair), the clinical_summary must explicitly state that the procedure type is not publicly disclosed.
+- Provide the plausible RTP range across likely procedures for that injury type and explain what drives the variance. Do not anchor to a single timeline as if the procedure were known.
+- This is distinct from grade uncertainty (CONFIRMED/INFERRED) — procedure uncertainty affects the width of the RTP range and must be named explicitly.
+
 Follow SKILL.md exactly. Emit your final answer via the emit_injury_post tool.`;
 
     const anthropic = getClient();
