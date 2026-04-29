@@ -6,6 +6,7 @@ import { startPolling, stopPolling, pollSport } from './monitoring/poller.js';
 import { processInjuryEvent } from './agents/injury-intelligence/agent.js';
 import { startDeepDiveScheduler, stopDeepDiveScheduler } from './monitoring/deep-dive-scheduler.js';
 import { startMentionMonitor, stopMentionMonitor } from './agents/social/mention-monitor-loop.js';
+import { startApprovalSync, stopApprovalSync } from './monitoring/approval-sync.js';
 import type { InjuryPostContent, InjurySeverity, SportKey, RawInjuryEvent, ClassificationResult } from './types.js';
 
 const app = express();
@@ -401,6 +402,12 @@ async function start(): Promise<void> {
   } else {
     console.log('[Server] SOCIAL_MONITOR_ENABLED=false — mention monitor not started');
   }
+
+  if (process.env.APPROVAL_SYNC_ENABLED !== 'false') {
+    startApprovalSync();
+  } else {
+    console.log('[Server] APPROVAL_SYNC_ENABLED=false — approval sync not started');
+  }
 }
 
 function shutdown(): void {
@@ -408,6 +415,7 @@ function shutdown(): void {
   stopPolling();
   stopDeepDiveScheduler();
   stopMentionMonitor();
+  stopApprovalSync();
   disconnectAll()
     .then(() => process.exit(0))
     .catch(() => process.exit(1));
