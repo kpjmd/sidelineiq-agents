@@ -72,6 +72,28 @@ export interface RawInjuryEvent {
   source_name?: string;
 }
 
+export type AthleteTier = 1 | 2 | 3 | 4;
+
+export type TriageDecision = 'PROCESS' | 'DEFER' | 'DROP';
+
+export interface SignificanceSubscores {
+  athlete_prominence: number;       // 0-100, deterministic from tier
+  information_specificity: number;  // 0-100, Haiku-judged
+  event_recency_novelty: number;    // 0-100, Haiku-judged
+  content_type_prior: number;       // 0-100, deterministic from content_type
+}
+
+export interface SignificanceAssessment {
+  raw_score: number;
+  sport_multiplier: number;
+  composite_score: number;
+  triage_decision: TriageDecision;
+  athlete_tier: AthleteTier;
+  athlete_tier_source: 'lookup' | 'default';
+  subscores: SignificanceSubscores;
+  rationale: string;
+}
+
 export interface ClassificationResult {
   is_injury_event: boolean;
   confidence: number;
@@ -82,6 +104,8 @@ export interface ClassificationResult {
   content_type: ContentType;
   is_new: boolean;
   raw_event: RawInjuryEvent;
+  // Present iff is_injury_event === true
+  significance?: SignificanceAssessment;
 }
 
 // ── Social Engagement types ───────────────────────────────────────────

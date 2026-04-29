@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "thresholds": {
+    "default":       { "process": 55, "defer": 35 },
+    "BREAKING_T1":   { "process": 45, "defer": 30 },
+    "TRACKING":      { "process": 70, "defer": 35, "require_tier_1_or_2": true },
+    "DEEP_DIVE":     { "process": 40, "defer": 25 },
+    "CONFLICT_FLAG": { "always_process": true }
+  },
+  "sport_multipliers": {
+    "NFL": [
+      { "window": "offseason",      "from": "03-01", "to": "08-31", "multiplier": 0.7 },
+      { "window": "regular_season", "from": "09-01", "to": "02-28", "multiplier": 1.0 }
+    ],
+    "NBA": [
+      { "window": "playoffs",       "from": "04-15", "to": "06-30", "multiplier": 1.1 },
+      { "window": "regular_season", "from": "10-15", "to": "04-14", "multiplier": 1.0 },
+      { "window": "offseason",      "from": "07-01", "to": "10-14", "multiplier": 0.7 }
+    ]
+  },
+  "default_sport_multiplier": 1.0,
+  "defer": {
+    "ttl_hours": 6,
+    "promotion_cap": 3,
+    "corroboration_bonus_per_source": 5,
+    "corroboration_bonus_max": 20
+  }
+}
