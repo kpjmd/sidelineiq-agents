@@ -126,9 +126,29 @@
 
 ---
 
+## Session 7 — Cost & Signal Optimization ✅
+
+- [x] Stage 1 Significance Gate (classifier.ts + significance.ts + poller.ts)
+  - [x] Haiku-scored `information_specificity` and `event_recency_novelty` subscores computed during classification
+  - [x] Algorithmic significance scoring: athlete tier × specificity × recency × content_type prior
+  - [x] Triage decisions: PROCESS / DEFER / DROP (no new API calls — reuses existing classifier output)
+  - [x] Defer queue with TTL, corroboration bonus, and promotion cap (defer-queue.ts)
+  - [x] Athlete tier DB (data/athlete-tiers.json) + significance config (data/significance-config.json)
+  - [x] `dropped_sig` and `deferred` counters in poller summary log
+  - [ ] **Review significance gate logs after first week** — check DROP rate, DEFER promotion rate, confirm no high-value events being dropped
+- [x] Heuristic pre-filter before Haiku classifier call (poller.ts)
+  - [x] `INJURY_ANCHOR_RE` + `NON_INJURY_RE` — injury anchor check takes priority (no false drops on mixed-signal articles)
+  - [x] Filters: load management, personal reasons, contract/trade/suspension events with no injury language
+  - [x] `pre_filtered` counter added to `PollSummary` and summary log line
+- [x] Polling interval reduced to 6-hour cycles (POLL_INTERVAL_MS env var in Railway)
+  - [x] Was: 15-minute intervals (96 cycles/day per sport)
+  - [x] Now: 6-hour intervals (~4 cycles/day per sport) — appropriate for offseason signal cadence
+
+---
+
 ## 🚀 Launched — April 20, 2026
 
-- [x] Autonomous polling live — NFL + NBA, 15-minute intervals
+- [x] Autonomous polling live — NFL + NBA, 15-minute intervals (now 6-hour, see Session 7)
 - [x] Inaugural post: Moses Moody patellar tendon rupture DEEP_DIVE (Farcaster + X + web)
 - [x] NewsAPI wired as secondary NFL data source
 - [x] MD review queue active
@@ -154,6 +174,7 @@
 
 ## Post-Launch — Active Monitoring
 
+- [ ] Review significance gate logs after first week — check `dropped_sig` / `deferred` / `pre_filtered` counts per cycle; confirm no high-value events dropped
 - [ ] Watch first week of autonomous posts: dedup rates, MD review queue volume, confidence distribution
 - [ ] MD_REVIEW_CONFIDENCE_THRESHOLD at 0.6 (lowered from 0.75 for ESPN data quality) — revisit after observing queue
 - [ ] NewsAPI athlete name extraction: misses DK/DJ/TJ/Za'Darius-style names — improve regex if miss rate is high

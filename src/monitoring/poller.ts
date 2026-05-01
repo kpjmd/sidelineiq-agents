@@ -52,9 +52,21 @@ function isSportEnabled(sport: SportKey): boolean {
   return raw === 'true' || raw === '1';
 }
 
+// Events with clear injury signal — always pass to classifier regardless of other content.
+const INJURY_ANCHOR_RE = /\b(injur|torn?|tear|sprain|fractur|concuss|sidelin|surger|strain|ruptur|acl|mcl|hamstring|achilles|tendon|ligament|hyperextension|disloc|contusion|laceration|bruise|bone|stress fracture)\b/i;
+
+// Non-injury signals — drop the event only when no injury anchor is present.
+const NON_INJURY_RE = /\b(load management|personal reasons?|personal leave|family (matter|emergency|reasons?)|contract (extension|signing|negotiation)|suspended|suspension|ejected|ejection|paternity leave|bereavement|rest day)\b/i;
+
+function isObviousNonInjury(event: RawInjuryEvent): boolean {
+  if (INJURY_ANCHOR_RE.test(event.injury_description)) return false;
+  return NON_INJURY_RE.test(event.injury_description);
+}
+
 interface PollSummary {
   fetched: number;
   classified_positive: number;
+  pre_filtered: number;
   dropped_significance: number;
   deferred: number;
   promoted_from_defer: number;
@@ -77,6 +89,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
   const summary: PollSummary = {
     fetched: 0,
     classified_positive: 0,
+    pre_filtered: 0,
     dropped_significance: 0,
     deferred: 0,
     promoted_from_defer: 0,
@@ -133,6 +146,11 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
   for (const event of events) {
     const context = `${event.athlete_name} (${sport}/${event.team})`;
     try {
+      if (isObviousNonInjury(event)) {
+        summary.pre_filtered++;
+        continue;
+      }
+
       // Resolve athlete tier before classifying — Haiku must not infer prominence
       const tierInfo = lookupAthleteTier(event.athlete_name, event.sport);
 
@@ -205,7 +223,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
   }
 
   console.log(
-    `[Poller] ${sport} — summary: fetched=${summary.fetched} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} expired=${summary.expired_from_defer} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} skipped=${summary.skipped} errors=${summary.errors}`
+    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} expired=${summary.expired_from_defer} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} skipped=${summary.skipped} errors=${summary.errors}`
   );
   return summary;
 }
