@@ -88,7 +88,7 @@ const AGENT_TOOL = {
       injury_date: {
         type: 'string',
         description:
-          'ISO 8601 date (YYYY-MM-DD) when the injury or surgery originally occurred, if determinable from the source text. Omit if the actual date cannot be determined. This must NOT be the report date or current date — it is the date the injury event itself happened.',
+          'ISO 8601 date (YYYY-MM-DD) when the injury or surgery originally occurred. Set this whenever the date is determinable — including when it is resolved from a relative reference in the source ("Wednesday", "yesterday", "today", "the team announced Wednesday") against the "Reported at" anchor per the DATE ANCHORING rules. Omit only when the source provides no usable date anchor at all. The value must reflect when the injury/surgery itself happened, not the report date — but resolving "Wednesday" against the report date IS a valid way to determine when it happened.',
       },
     },
     required: [
@@ -249,12 +249,17 @@ ${parentPostId ? `This is an UPDATE to an existing story (parent post id: ${pare
 ${isNFLOffseason ? `NFL offseason context: It is currently the NFL offseason (April–August). A "Questionable" or "day-to-day" game-status designation is meaningless during the offseason — it is not a recovery timeline disclosure. Do NOT classify as CONFLICT_FLAG based solely on a stale game-status term. If OTM's recovery estimate aligns with a return by September (week 1 of the NFL season), classify as TRACKING and note the recovery trajectory. Reserve CONFLICT_FLAG only for cases where the team has provided a specific week-based timeline that is biologically irreconcilable with the injury.` : ''}
 
 DATE ANCHORING — CRITICAL:
-- "Reported at" is when the SOURCE ARTICLE was published. "Current date" is today. Neither is necessarily when the injury/surgery occurred.
-- Extract or infer the actual injury/surgery date from the source text (e.g., "underwent surgery in January", "injured three weeks ago", "recovering since October"). Set the "injury_date" field if determinable.
+- "Reported at" is when the SOURCE ARTICLE was published. "Current date" is today. Neither is automatically when the injury/surgery occurred — but "Reported at" IS the anchor for resolving relative date language in the source.
+- Resolve relative date references in the source against "Reported at":
+    - "today", "this morning", "earlier today" → the calendar date of "Reported at"
+    - "yesterday" → one day before "Reported at"
+    - A weekday name ("Wednesday", "Monday", etc.) → the most recent occurrence of that weekday on or before "Reported at". Example: if "Reported at" is Wed 2026-05-06 and the source says "the team announced Wednesday", the anchor date is 2026-05-06; if the source says "announced Monday", it is 2026-05-04.
+    - "last week", "earlier this week", "recently" → ambiguous; do not set injury_date.
+- When the source says the team "announced [surgery/injury] [day]", resolve that day to a calendar date and set injury_date. The announcement date is the operative anchor for RTP even if the procedure itself occurred 1–2 days earlier — that variance is negligible against a multi-week RTP window.
+- Extract or infer the actual injury/surgery date from absolute references too (e.g., "underwent surgery in January", "injured three weeks ago", "recovering since October"). Set "injury_date" whenever determinable by any of these rules.
 - min_weeks and max_weeks in return_to_play must represent REMAINING recovery time from today, not total recovery time from the original injury/surgery date. Example: ACL surgery 9 months ago with a 9–12 month typical recovery → remaining time is 0–12 weeks, not 36–48 weeks.
-- clinical_summary must accurately state elapsed time since injury/surgery (e.g., "now 10 months post-op"), and must never use the report date or current date as a proxy for when the injury or surgery occurred.
-- If the actual date cannot be determined, omit "injury_date" and present RTP as total expected duration from injury, noting the start date is unconfirmed.
-- NEVER use the report date or current date as a proxy for when the injury/surgery occurred.
+- clinical_summary must accurately state elapsed time since injury/surgery (e.g., "now 10 months post-op"), and must never present the report date or current date as if it were the injury/surgery date.
+- If no rule above resolves a date, omit "injury_date" and present RTP as total expected duration from injury, noting the start date is unconfirmed.
 
 SURGICAL PROCEDURE UNCERTAINTY:
 - If the source confirms surgery occurred but does not name the specific procedure (e.g., "underwent knee surgery" without specifying ACL reconstruction vs. meniscectomy vs. cartilage repair), the clinical_summary must explicitly state that the procedure type is not publicly disclosed.
