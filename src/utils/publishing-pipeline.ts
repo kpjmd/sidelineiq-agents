@@ -330,7 +330,17 @@ export async function publishApprovedDeepDive(
   return { status: 'published', platform_results: platformResults };
 }
 
-export async function publishInjuryPost(content: InjuryPostContent): Promise<PublishResult> {
+export interface PublishOptions {
+  // When set, bypasses needsMDReview() and forces the post into PENDING_REVIEW
+  // with this exact reason. Used by the poller when the fact-validator
+  // soft-fails — the soft-fail signal lives in the poller, not in InjuryPostContent.
+  forceMDReviewReason?: string;
+}
+
+export async function publishInjuryPost(
+  content: InjuryPostContent,
+  opts: PublishOptions = {},
+): Promise<PublishResult> {
   const timestamp = new Date().toISOString();
   const context = `${content.athlete_name} (${content.sport}/${content.team})`;
 
@@ -353,8 +363,10 @@ export async function publishInjuryPost(content: InjuryPostContent): Promise<Pub
     console.warn(`[Pipeline] Dedup check failed for ${context}, proceeding: ${message}`);
   }
 
-  // Step 2: MD review check
-  const review = needsMDReview(content);
+  // Step 2: MD review check (force flag wins over confidence/severity rules)
+  const review = opts.forceMDReviewReason
+    ? { needed: true, reason: opts.forceMDReviewReason }
+    : needsMDReview(content);
   if (review.needed) {
     console.log(`[Pipeline] Routing to MD review: ${context} — ${review.reason}`);
 

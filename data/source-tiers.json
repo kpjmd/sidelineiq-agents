@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "updated_at": "2026-05-31",
+  "notes": "Source corroboration tiers used by fact-validator. T1 = authoritative (official team or top-tier sports newsroom). T2 = reputable secondary. T3 = aggregator or lower-trust. Matched on hostname suffix; longest match wins.",
+  "tiers": {
+    "T1": [
+      "nfl.com",
+      "nba.com",
+      "premierleague.com",
+      "ufc.com",
+      "espn.com",
+      "site.api.espn.com",
+      "apnews.com",
+      "ap.org",
+      "reuters.com",
+      "theathletic.com",
+      "nytimes.com"
+    ],
+    "T2": [
+      "si.com",
+      "cbssports.com",
+      "foxsports.com",
+      "yahoo.com",
+      "sports.yahoo.com",
+      "bleacherreport.com",
+      "profootballtalk.nbcsports.com",
+      "nbcsports.com",
+      "theguardian.com",
+      "skysports.com",
+      "bbc.com",
+      "bbc.co.uk"
+    ],
+    "T3": [
+      "newsapi.org",
+      "google.com",
+      "msn.com",
+      "247sports.com",
+      "fanbuzz.com",
+      "sportskeeda.com",
+      "bloggingthebench.com"
+    ]
+  }
+}

@@ -11,6 +11,13 @@ import {
   getDeferConfig,
 } from '../agents/injury-intelligence/significance.js';
 import { evictExpired, handleDeferDecision } from './defer-queue.js';
+import { callTool, isServerAvailable } from '../utils/mcp-client-manager.js';
+import {
+  validateEvent,
+  summarizeFailures,
+  type ResolvedPlayerInfo,
+  type ValidationResult,
+} from '../agents/injury-intelligence/fact-validator.js';
 
 const DEFAULT_POLL_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -68,6 +75,8 @@ interface PollSummary {
   classified_positive: number;
   pre_filtered: number;
   dropped_significance: number;
+  dropped_fact_validation: number;
+  soft_failed_fact_validation: number;
   deferred: number;
   promoted_from_defer: number;
   expired_from_defer: number;
@@ -76,6 +85,113 @@ interface PollSummary {
   pending_review: number;
   skipped: number;
   errors: number;
+}
+
+interface ResolveResponse {
+  resolved: boolean;
+  player: ResolvedPlayerInfo | null;
+}
+
+interface MCPResultLike {
+  content?: Array<{ text?: string }>;
+}
+
+function unwrapMCP<T>(res: unknown): T | null {
+  try {
+    const text = (res as MCPResultLike)?.content?.[0]?.text;
+    if (!text) return null;
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function resolvePlayer(
+  name: string,
+  sport: SportKey,
+): Promise<ResolvedPlayerInfo | null> {
+  if (!isServerAvailable('web')) return null;
+  try {
+    const res = await callTool('web', 'web_resolve_player', { name, sport });
+    const parsed = unwrapMCP<ResolveResponse>(res);
+    return parsed?.resolved ? parsed.player : null;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[FactValidator] resolve_player failed for ${name}: ${message}`);
+    return null;
+  }
+}
+
+async function maintainEntity(
+  event: RawInjuryEvent,
+  player: ResolvedPlayerInfo,
+  metadata: import('../agents/injury-intelligence/fact-validator.js').ExtractedInjuryMetadata,
+  dedup: import('./deduplicator.js').DedupResult,
+  postId: string,
+  teamTimelineWeeks: number | undefined,
+  otmMinWeeks: number | undefined,
+  severity: string,
+): Promise<void> {
+  if (!isServerAvailable('web')) return;
+  try {
+    let entityId = dedup.entityId;
+    if (!entityId) {
+      const createRes = await callTool('web', 'web_create_injury_entity', {
+        player_id: player.player_id,
+        body_part: metadata.primary_body_part ?? undefined,
+        laterality: metadata.laterality,
+        injury_type: metadata.injury_type_hint ?? undefined,
+        canonical_post_id: postId,
+      });
+      const parsed = unwrapMCP<{ entity: { id: string } }>(createRes);
+      entityId = parsed?.entity?.id;
+    }
+    if (!entityId) return;
+    const updateKind =
+      dedup.decision === 'entity_match_pass_through' ? 'TRACKING' : 'INITIAL';
+    await callTool('web', 'web_append_injury_update', {
+      entity_id: entityId,
+      post_id: postId,
+      update_kind: updateKind,
+      severity_at_time: severity,
+      team_timeline_weeks: teamTimelineWeeks,
+      otm_min_weeks: otmMinWeeks,
+      source_url: event.source_url,
+      description: event.injury_description.slice(0, 500),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[EntityMaint] failed for post=${postId}: ${message}`);
+  }
+}
+
+async function auditValidation(
+  event: RawInjuryEvent,
+  result: ValidationResult,
+  action: 'fact_validate_drop' | 'fact_validate_soft_fail' | 'fact_validate_pass',
+): Promise<void> {
+  if (!isServerAvailable('web')) return;
+  try {
+    await callTool('web', 'web_audit_append', {
+      actor: 'system',
+      actor_id: 'fact-validator',
+      entity_type: 'injury_event',
+      action,
+      payload: {
+        athlete_name: event.athlete_name,
+        sport: event.sport,
+        team_reported: event.team,
+        source_url: event.source_url,
+        hard_failures: result.hardFailures,
+        soft_failures: result.softFailures,
+        corrections: result.corrections,
+        resolved_player_id: result.resolvedPlayer?.player_id ?? null,
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[FactValidator] audit append failed: ${message}`);
+  }
 }
 
 function logGateDecision(sport: SportKey, athleteName: string, sig: SignificanceAssessment): void {
@@ -91,6 +207,8 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
     classified_positive: 0,
     pre_filtered: 0,
     dropped_significance: 0,
+    dropped_fact_validation: 0,
+    soft_failed_fact_validation: 0,
     deferred: 0,
     promoted_from_defer: 0,
     expired_from_defer: 0,
@@ -198,10 +316,46 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
       }
       // ── End significance gate ────────────────────────────────────────────
 
-      const dedup = await checkForExisting(event);
+      // ── Fact validation ──────────────────────────────────────────────
+      // Runs BEFORE Sonnet so hard failures don't burn agent tokens.
+      // Hard fail → drop the event. Soft fail → route post to MD review.
+      const resolved = await resolvePlayer(event.athlete_name, sport);
+      const validation = await validateEvent(event, resolved, {
+        contentTypeHint: classified.content_type,
+      });
+
+      let forceMDReviewReason: string | undefined;
+      if (!validation.passed) {
+        const codes = summarizeFailures(validation.hardFailures);
+        console.warn(
+          `[FactValidator] ${sport} DROP — ${context} — codes=${codes}`,
+        );
+        summary.dropped_fact_validation++;
+        await auditValidation(event, validation, 'fact_validate_drop');
+        continue;
+      }
+      if (validation.softFailures.length > 0) {
+        const codes = summarizeFailures(validation.softFailures);
+        forceMDReviewReason = `fact_soft_fail:${codes}`;
+        summary.soft_failed_fact_validation++;
+        console.log(
+          `[FactValidator] ${sport} SOFT — ${context} — codes=${codes} (routing to MD review)`,
+        );
+        await auditValidation(event, validation, 'fact_validate_soft_fail');
+      } else {
+        await auditValidation(event, validation, 'fact_validate_pass');
+      }
+      // ── End fact validation ─────────────────────────────────────────
+
+      const dedup = await checkForExisting(event, {
+        resolvedPlayer: validation.resolvedPlayer,
+        metadata: validation.metadata,
+      });
       if (dedup.isDuplicate) {
         summary.duplicates++;
-        console.log(`[Poller] ${sport} — duplicate skipped: ${context}`);
+        console.log(
+          `[Poller] ${sport} — duplicate skipped: ${context} (decision=${dedup.decision})`,
+        );
         continue;
       }
 
@@ -211,10 +365,30 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
         continue;
       }
 
-      const result = await publishInjuryPost(post);
+      const result = await publishInjuryPost(
+        post,
+        forceMDReviewReason ? { forceMDReviewReason } : {},
+      );
       if (result.status === 'published') summary.published++;
       else if (result.status === 'pending_review') summary.pending_review++;
       else summary.skipped++;
+
+      // ── Entity bookkeeping (after the post lands) ────────────────────
+      // On entity miss → create the entity + INITIAL update linked to the post.
+      // On entity match (status-update pass-through) → append a TRACKING
+      // update tied to the new post so the timeline reflects it.
+      if (result.post_id && validation.resolvedPlayer) {
+        await maintainEntity(
+          event,
+          validation.resolvedPlayer,
+          validation.metadata,
+          dedup,
+          result.post_id,
+          post.team_timeline_weeks,
+          post.return_to_play.min_weeks,
+          post.injury_severity,
+        );
+      }
     } catch (err) {
       summary.errors++;
       const message = err instanceof Error ? err.message : String(err);
@@ -223,7 +397,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
   }
 
   console.log(
-    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} expired=${summary.expired_from_defer} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} skipped=${summary.skipped} errors=${summary.errors}`
+    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} dropped_fact=${summary.dropped_fact_validation} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} expired=${summary.expired_from_defer} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} skipped=${summary.skipped} errors=${summary.errors}`
   );
   return summary;
 }

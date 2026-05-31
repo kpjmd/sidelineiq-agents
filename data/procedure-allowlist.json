@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "updated_at": "2026-05-31",
+  "notes": "Body-part → plausible-procedure allowlist used by fact-validator. Procedures absent from any body-part's list are not blocked; only procedures matched to the wrong body part are flagged. Match is case-insensitive substring on the injury_description.",
+  "procedures": {
+    "elbow": [
+      "tommy john",
+      "ulnar collateral ligament",
+      "ucl reconstruction",
+      "internal brace",
+      "elbow scope",
+      "elbow arthroscopy"
+    ],
+    "shoulder": [
+      "labral repair",
+      "labrum",
+      "rotator cuff",
+      "shoulder scope",
+      "shoulder arthroscopy",
+      "capsule"
+    ],
+    "knee": [
+      "acl reconstruction",
+      "acl repair",
+      "mcl repair",
+      "pcl repair",
+      "meniscectomy",
+      "meniscus repair",
+      "patellar tendon",
+      "quad tendon",
+      "knee scope",
+      "knee arthroscopy",
+      "microfracture"
+    ],
+    "ankle": [
+      "ankle scope",
+      "ankle arthroscopy",
+      "syndesmosis",
+      "tightrope",
+      "lateral ligament"
+    ],
+    "foot": [
+      "lisfranc",
+      "jones fracture",
+      "plantar fascia",
+      "5th metatarsal"
+    ],
+    "hip": [
+      "hip scope",
+      "hip arthroscopy",
+      "labral repair",
+      "femoroacetabular impingement",
+      "fai"
+    ],
+    "wrist": [
+      "scaphoid",
+      "tfcc",
+      "wrist scope"
+    ],
+    "hand": [
+      "metacarpal",
+      "finger",
+      "thumb ucl"
+    ],
+    "spine": [
+      "discectomy",
+      "fusion",
+      "microdiscectomy",
+      "laminectomy"
+    ],
+    "achilles": [
+      "achilles repair",
+      "achilles reconstruction"
+    ],
+    "hamstring": [
+      "hamstring repair",
+      "proximal hamstring"
+    ]
+  }
+}

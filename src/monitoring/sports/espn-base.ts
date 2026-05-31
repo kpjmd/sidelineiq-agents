@@ -65,13 +65,72 @@ function getMaxEventAgeMs(): number {
 }
 
 /**
+ * Roster data exposed by ESPN team + roster endpoints.
+ * Used by agents/src/monitoring/roster-sync.ts to seed/refresh
+ * the players + teams tables that fact-validator depends on.
+ */
+export interface ESPNTeam {
+  espn_team_id: string;
+  name: string;
+  abbreviation?: string;
+  location?: string;
+  display_name?: string;
+  conference?: string;
+}
+
+export interface ESPNRosterAthlete {
+  espn_athlete_id: string;
+  full_name: string;
+  position?: string;
+  jersey?: string;
+}
+
+interface ESPNTeamsResponse {
+  sports?: Array<{
+    leagues?: Array<{
+      teams?: Array<{ team?: ESPNRawTeam }>;
+    }>;
+  }>;
+}
+
+interface ESPNRawTeam {
+  id?: string | number;
+  abbreviation?: string;
+  displayName?: string;
+  name?: string;
+  location?: string;
+  shortDisplayName?: string;
+}
+
+interface ESPNRosterResponse {
+  athletes?: Array<ESPNRosterGroup | ESPNRawAthlete>;
+}
+
+interface ESPNRosterGroup {
+  position?: string;
+  items?: ESPNRawAthlete[];
+}
+
+interface ESPNRawAthlete {
+  id?: string | number;
+  displayName?: string;
+  fullName?: string;
+  jersey?: string;
+  position?: { abbreviation?: string };
+}
+
+/**
  * Base class for ESPN injury-feed sources (NFL, NBA, Premier League).
- * Subclasses only need to provide url, sport, and source name.
+ * Subclasses only need to provide url, sport, leaguePath, and source name.
+ * leaguePath drives roster fetching (e.g. "basketball/nba").
  */
 export abstract class ESPNInjurySource implements SportDataSource {
   abstract readonly name: string;
   protected abstract readonly sport: SportKey;
   protected abstract readonly url: string;
+  // ESPN league path, e.g. "football/nfl", "basketball/nba", "soccer/eng.1".
+  // Used to build roster endpoint URLs. Override per sport.
+  protected readonly leaguePath: string | null = null;
 
   async fetchLatestEvents(): Promise<RawInjuryEvent[]> {
     try {
@@ -145,6 +204,86 @@ export abstract class ESPNInjurySource implements SportDataSource {
     console.log(`[${this.name}] ${events.length} events after recency+status filter (${maxAgeMs / 86400000}d window)`);
     return events;
   }
+
+  // ── Roster sync helpers ──────────────────────────────────────────────
+  // Returns the list of teams in the league. Empty if leaguePath unset.
+  async fetchTeams(): Promise<ESPNTeam[]> {
+    if (!this.leaguePath) return [];
+    const url = `https://site.api.espn.com/apis/site/v2/sports/${this.leaguePath}/teams`;
+    try {
+      const res = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!res.ok) {
+        console.warn(`[${this.name}] roster: HTTP ${res.status} from ${url}`);
+        return [];
+      }
+      const body = (await res.json()) as ESPNTeamsResponse;
+      const raw = body.sports?.[0]?.leagues?.[0]?.teams ?? [];
+      const teams: ESPNTeam[] = [];
+      for (const wrapper of raw) {
+        const t = wrapper.team;
+        if (!t?.id) continue;
+        teams.push({
+          espn_team_id: String(t.id),
+          name: t.name ?? t.displayName ?? 'Unknown',
+          abbreviation: t.abbreviation,
+          location: t.location,
+          display_name: t.displayName ?? t.shortDisplayName,
+        });
+      }
+      return teams;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[${this.name}] roster teams fetch failed: ${message}`);
+      return [];
+    }
+  }
+
+  // Returns the roster for one team. Tolerates both flat and grouped shapes.
+  async fetchRoster(espnTeamId: string): Promise<ESPNRosterAthlete[]> {
+    if (!this.leaguePath) return [];
+    const url = `https://site.api.espn.com/apis/site/v2/sports/${this.leaguePath}/teams/${espnTeamId}/roster`;
+    try {
+      const res = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!res.ok) {
+        console.warn(`[${this.name}] roster ${espnTeamId}: HTTP ${res.status}`);
+        return [];
+      }
+      const body = (await res.json()) as ESPNRosterResponse;
+      const athletes: ESPNRosterAthlete[] = [];
+      for (const entry of body.athletes ?? []) {
+        const group = entry as ESPNRosterGroup;
+        if (Array.isArray(group.items)) {
+          for (const raw of group.items) {
+            const a = normalizeRosterAthlete(raw, group.position);
+            if (a) athletes.push(a);
+          }
+        } else {
+          const a = normalizeRosterAthlete(entry as ESPNRawAthlete);
+          if (a) athletes.push(a);
+        }
+      }
+      return athletes;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[${this.name}] roster ${espnTeamId} fetch failed: ${message}`);
+      return [];
+    }
+  }
+}
+
+function normalizeRosterAthlete(
+  raw: ESPNRawAthlete,
+  groupPosition?: string,
+): ESPNRosterAthlete | null {
+  if (!raw?.id) return null;
+  const fullName = raw.fullName ?? raw.displayName;
+  if (!fullName) return null;
+  return {
+    espn_athlete_id: String(raw.id),
+    full_name: fullName,
+    position: raw.position?.abbreviation ?? groupPosition,
+    jersey: raw.jersey,
+  };
 }
 
 function buildDescription(record: ESPNInjuryRecord): string {

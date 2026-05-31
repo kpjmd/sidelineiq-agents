@@ -7,6 +7,7 @@ import { processInjuryEvent } from './agents/injury-intelligence/agent.js';
 import { startDeepDiveScheduler, stopDeepDiveScheduler } from './monitoring/deep-dive-scheduler.js';
 import { startMentionMonitor, stopMentionMonitor } from './agents/social/mention-monitor-loop.js';
 import { startApprovalSync, stopApprovalSync } from './monitoring/approval-sync.js';
+import { startRosterSync, stopRosterSync, syncAllRosters } from './monitoring/roster-sync.js';
 import type { InjuryPostContent, InjurySeverity, SportKey, RawInjuryEvent, ClassificationResult } from './types.js';
 
 const app = express();
@@ -358,6 +359,16 @@ app.post('/seed/test-posts', async (_req, res) => {
 
 const VALID_SPORTS: SportKey[] = ['NFL', 'NBA', 'PREMIER_LEAGUE', 'UFC'];
 
+app.post('/admin/roster-sync', async (_req, res) => {
+  try {
+    const results = await syncAllRosters();
+    res.json({ success: true, results });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
 app.post('/poll/:sport', async (req, res) => {
   const raw = (req.params.sport || '').toUpperCase().replace(/-/g, '_');
   if (!VALID_SPORTS.includes(raw as SportKey)) {
@@ -403,6 +414,12 @@ async function start(): Promise<void> {
     console.log('[Server] SOCIAL_MONITOR_ENABLED=false — mention monitor not started');
   }
 
+  if (process.env.ROSTER_SYNC_ENABLED !== 'false') {
+    startRosterSync();
+  } else {
+    console.log('[Server] ROSTER_SYNC_ENABLED=false — roster sync not started');
+  }
+
   if (process.env.APPROVAL_SYNC_ENABLED !== 'false') {
     startApprovalSync();
   } else {
@@ -416,6 +433,7 @@ function shutdown(): void {
   stopDeepDiveScheduler();
   stopMentionMonitor();
   stopApprovalSync();
+  stopRosterSync();
   disconnectAll()
     .then(() => process.exit(0))
     .catch(() => process.exit(1));

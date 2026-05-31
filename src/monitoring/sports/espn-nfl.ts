@@ -6,4 +6,5 @@ export class ESPNNFLSource extends ESPNInjurySource {
   protected readonly sport: SportKey = 'NFL';
   protected readonly url =
     'https://site.api.espn.com/apis/site/v2/sports/football/nfl/injuries';
+  protected readonly leaguePath = 'football/nfl';
 }

@@ -6,4 +6,5 @@ export class ESPNPremierLeagueSource extends ESPNInjurySource {
   protected readonly sport: SportKey = 'PREMIER_LEAGUE';
   protected readonly url =
     'https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/injuries';
+  protected readonly leaguePath = 'soccer/eng.1';
 }
