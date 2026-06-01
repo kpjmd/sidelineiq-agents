@@ -207,6 +207,11 @@ async function sweep(dryRun: boolean): Promise<void> {
               reason: `legacy_sweep:${codes}`,
               confidence_score: 0.5,
               flagged_by: 'legacy-fact-sweep',
+              // Retrospective flag on an already-published post — don't flip
+              // status to PENDING_REVIEW, which would pull the post out of
+              // any "PUBLISHED only" filter and is what required the
+              // post-run SQL cleanup the first time around.
+              preserve_status: true,
             });
           }
           flagged++;
