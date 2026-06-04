@@ -6,6 +6,8 @@ import {
   lookupAthleteTier,
   computeFingerprint,
   computeSignificance,
+  computePromotionScore,
+  PROMOTION_PROPOSE_THRESHOLD,
   _setTiersForTesting,
   _setConfigForTesting,
 } from '../src/agents/injury-intelligence/significance.js';
@@ -350,5 +352,79 @@ describe('computeSignificance', () => {
     );
     expect(result.athlete_tier_source).toBe('default');
     expect(result.rationale).toMatch(/tier=3\?/);
+  });
+});
+
+describe('computePromotionScore', () => {
+  it('scores a fresh tier-1, max-magnitude, T1-corroborated conflict at the ceiling', () => {
+    const { score, proposed, reasons } = computePromotionScore({
+      composite: 95,
+      conflict_flag_present: true,
+      conflict_gap_weeks: 12,        // >= cap → full magnitude
+      entity_staleness_days: 0,
+      corroboration_tier: 'T1',
+    });
+    // 0.40*0.95 + 0.15*1 + 0.20*1 + 0.15*1 + 0.10*1 = 0.98 → 98
+    expect(score).toBe(98);
+    expect(proposed).toBe(true);
+    expect(reasons).toHaveLength(5);
+  });
+
+  it('weights are normalized — a maxed-out input cannot exceed 100', () => {
+    const { score } = computePromotionScore({
+      composite: 100,
+      conflict_flag_present: true,
+      conflict_gap_weeks: 40,        // beyond cap, still clamps
+      entity_staleness_days: 0,
+      corroboration_tier: 'T1',
+    });
+    expect(score).toBe(100);
+  });
+
+  it('conflict magnitude raises the score — a bigger team-vs-OTM gap ranks higher', () => {
+    const base = { composite: 40, conflict_flag_present: true, entity_staleness_days: 0, corroboration_tier: 'T1' as const };
+    const small = computePromotionScore({ ...base, conflict_gap_weeks: 2 });
+    const large = computePromotionScore({ ...base, conflict_gap_weeks: 12 });
+    expect(large.score).toBeGreaterThan(small.score);
+    // a large-gap conflict for an obscure (low-composite) athlete can outrank a
+    // tiny-gap conflict for a star — magnitude is meant to do exactly this
+    const obscureBigGap = computePromotionScore({ composite: 40, conflict_flag_present: true, conflict_gap_weeks: 12, entity_staleness_days: 0, corroboration_tier: 'T1' });
+    const starTinyGap = computePromotionScore({ composite: 70, conflict_flag_present: true, conflict_gap_weeks: 1, entity_staleness_days: 0, corroboration_tier: 'T1' });
+    expect(obscureBigGap.score).toBeGreaterThan(starTinyGap.score);
+  });
+
+  it('magnitude only counts when a conflict is flagged', () => {
+    const withGapNoFlag = computePromotionScore({ composite: 40, conflict_flag_present: false, conflict_gap_weeks: 12, entity_staleness_days: 0, corroboration_tier: 'T1' });
+    const noGapNoFlag = computePromotionScore({ composite: 40, conflict_flag_present: false, conflict_gap_weeks: 0, entity_staleness_days: 0, corroboration_tier: 'T1' });
+    expect(withGapNoFlag.score).toBe(noGapNoFlag.score);
+  });
+
+  it('penalizes staleness — fresh outranks stale, all else equal', () => {
+    const common = { composite: 70, conflict_flag_present: true, conflict_gap_weeks: 6, corroboration_tier: 'T1' as const };
+    const fresh = computePromotionScore({ ...common, entity_staleness_days: 0 });
+    const stale = computePromotionScore({ ...common, entity_staleness_days: 21 });
+    expect(fresh.score).toBeGreaterThan(stale.score);
+    // staleness floors at STALENESS_FLOOR_DAYS (21) — beyond that, no extra penalty
+    const veryStale = computePromotionScore({ ...common, entity_staleness_days: 999 });
+    expect(veryStale.score).toBe(stale.score);
+  });
+
+  it('rewards corroboration tier: T1 > T2 > T3/unknown', () => {
+    const mk = (t: 'T1' | 'T2' | 'T3' | 'unknown') =>
+      computePromotionScore({ composite: 50, conflict_flag_present: true, conflict_gap_weeks: 6, entity_staleness_days: 0, corroboration_tier: t }).score;
+    expect(mk('T1')).toBeGreaterThan(mk('T2'));
+    expect(mk('T2')).toBeGreaterThan(mk('T3'));
+    expect(mk('T3')).toBe(mk('unknown'));
+  });
+
+  it('a non-conflict, low-prominence, stale, low-trust event falls below threshold', () => {
+    const { score, proposed } = computePromotionScore({
+      composite: 10,
+      conflict_flag_present: false,
+      entity_staleness_days: 30,
+      corroboration_tier: 'T3',
+    });
+    expect(score).toBeLessThan(PROMOTION_PROPOSE_THRESHOLD);
+    expect(proposed).toBe(false);
   });
 });

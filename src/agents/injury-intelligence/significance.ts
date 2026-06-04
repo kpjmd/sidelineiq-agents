@@ -9,6 +9,9 @@ import type {
   ContentType,
   SportKey,
   RawInjuryEvent,
+  PromotionScoreInput,
+  PromotionScore,
+  CorroborationTier,
 } from '../../types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -291,6 +294,88 @@ export function computeSignificance(
     subscores,
     rationale,
   };
+}
+
+// ── Promotion scoring (Phase 1: queue → Injury Desk candidate) ───────────────
+//
+// Separate objective from the significance score above. The composite carries
+// the base "how much does this matter" signal; the promotion model adds the
+// things that specifically make an injury worth a *physician* breakdown: a
+// live team-vs-OTM conflict, strong source corroboration, and freshness (a
+// stale entity that nobody is still talking about is a poor desk subject).
+//
+// Weights are expressed as fractions that sum to 1.0, so the weighted blend of
+// 0..1 component values scales cleanly to a 0-100 score. Hardcoded here (like
+// WEIGHTS above) because changing them is a research decision, not config.
+//
+// The conflict signal has two parts: presence (is there a team-vs-OTM flag at
+// all) and magnitude (how large the divergence is). Magnitude is the strongest
+// "deserves a physician breakdown" signal — a team calling a season-ending ACL
+// "questionable" is far more desk-worthy than a 1-week star day-to-day — so it
+// carries more weight than presence alone.
+const PROMOTION_WEIGHTS = {
+  composite:          0.40, // base significance / prominence (normalized 0..1)
+  conflict_presence:  0.15, // any team-vs-OTM conflict flag is present
+  conflict_magnitude: 0.20, // size of the divergence, normalized & capped
+  corroboration:      0.15, // T1 → full, T2 → half, T3/unknown → none
+  staleness:          0.10, // freshness: full at 0 days → 0 at STALENESS_FLOOR_DAYS
+};
+
+const STALENESS_FLOOR_DAYS = 21; // an entity untouched this long contributes 0 freshness
+const CONFLICT_GAP_CAP_WEEKS = 12; // a divergence this large (or larger) = full magnitude
+export const PROMOTION_PROPOSE_THRESHOLD = 55; // 0-100; >= proposes a candidate
+
+const CORROBORATION_FRACTION: Record<CorroborationTier, number> = {
+  T1: 1.0,
+  T2: 0.5,
+  T3: 0.0,
+  unknown: 0.0,
+};
+
+// Exposed so the replay/verify harness can reconstruct a composite proxy from
+// athlete tier when the original Haiku subscores were never persisted on a post.
+export function prominenceForTier(tier: AthleteTier): number {
+  return TIER_TO_PROMINENCE[tier];
+}
+
+export function computePromotionScore(input: PromotionScoreInput): PromotionScore {
+  const compositeFrac = clamp(input.composite, 0, 100) / 100;
+  const presenceFrac = input.conflict_flag_present ? 1 : 0;
+  // Magnitude only counts when a conflict is actually flagged. Positive gap =
+  // OTM runs longer than the team admits; negatives and unknowns contribute 0.
+  const gap = input.conflict_gap_weeks ?? 0;
+  const magnitudeFrac = presenceFrac * (clamp(gap, 0, CONFLICT_GAP_CAP_WEEKS) / CONFLICT_GAP_CAP_WEEKS);
+  const corroborationFrac = CORROBORATION_FRACTION[input.corroboration_tier] ?? 0;
+  const freshnessFrac = 1 - clamp(input.entity_staleness_days, 0, STALENESS_FLOOR_DAYS) / STALENESS_FLOOR_DAYS;
+
+  const terms = {
+    composite:          PROMOTION_WEIGHTS.composite          * compositeFrac,
+    conflict_presence:  PROMOTION_WEIGHTS.conflict_presence  * presenceFrac,
+    conflict_magnitude: PROMOTION_WEIGHTS.conflict_magnitude * magnitudeFrac,
+    corroboration:      PROMOTION_WEIGHTS.corroboration      * corroborationFrac,
+    staleness:          PROMOTION_WEIGHTS.staleness          * freshnessFrac,
+  };
+
+  const total =
+    terms.composite + terms.conflict_presence + terms.conflict_magnitude +
+    terms.corroboration + terms.staleness;
+  const score = clamp(Math.round(total * 100), 0, 100);
+
+  const reasons = [
+    `composite=${Math.round(input.composite)} (+${Math.round(terms.composite * 100)})`,
+    input.conflict_flag_present
+      ? `conflict_flag (+${Math.round(terms.conflict_presence * 100)})`
+      : 'no_conflict_flag (+0)',
+    input.conflict_flag_present
+      ? `gap=${gap > 0 ? `+${gap}w` : 'n/a'} (+${Math.round(terms.conflict_magnitude * 100)})`
+      : 'no_gap (+0)',
+    `corroboration=${input.corroboration_tier} (+${Math.round(terms.corroboration * 100)})`,
+    input.entity_staleness_days > 0
+      ? `staleness=${input.entity_staleness_days}d (+${Math.round(terms.staleness * 100)})`
+      : `fresh (+${Math.round(terms.staleness * 100)})`,
+  ];
+
+  return { score, proposed: score >= PROMOTION_PROPOSE_THRESHOLD, reasons };
 }
 
 // ── Test helpers (not for production use) ────────────────────────────────────

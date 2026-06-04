@@ -94,6 +94,29 @@ export interface SignificanceAssessment {
   rationale: string;
 }
 
+// ── Promotion scoring (Phase 1: queue → Injury Desk candidate) ─────────
+// A DIFFERENT objective from significance. Significance answers "should the
+// machine publish this at all?"; promotion answers "does this conflict-flagged
+// injury deserve a physician-attributed Injury Desk breakdown?".
+export type CorroborationTier = 'T1' | 'T2' | 'T3' | 'unknown';
+
+export interface PromotionScoreInput {
+  composite: number;            // 0-100, the significance composite (or replay proxy)
+  conflict_flag_present: boolean;
+  // How many weeks the OTM estimate exceeds the team's stated timeline (the
+  // team-downplaying divergence). Only counts when a conflict flag is present;
+  // null/absent → no magnitude contribution. Capped internally.
+  conflict_gap_weeks?: number | null;
+  entity_staleness_days: number; // days since the entity was last updated; 0 = fresh
+  corroboration_tier: CorroborationTier;
+}
+
+export interface PromotionScore {
+  score: number;          // 0-100
+  proposed: boolean;      // score >= PROMOTION_PROPOSE_THRESHOLD
+  reasons: string[];      // per-term contribution breakdown, stored on the candidate
+}
+
 export interface ClassificationResult {
   is_injury_event: boolean;
   confidence: number;
