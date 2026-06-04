@@ -8,7 +8,21 @@ import { startDeepDiveScheduler, stopDeepDiveScheduler } from './monitoring/deep
 import { startMentionMonitor, stopMentionMonitor } from './agents/social/mention-monitor-loop.js';
 import { startApprovalSync, stopApprovalSync } from './monitoring/approval-sync.js';
 import { startRosterSync, stopRosterSync, syncAllRosters } from './monitoring/roster-sync.js';
-import type { InjuryPostContent, InjurySeverity, SportKey, RawInjuryEvent, ClassificationResult } from './types.js';
+import {
+  computePromotionScore,
+  prominenceForTier,
+  lookupAthleteTier,
+  loadSignificanceData,
+} from './agents/injury-intelligence/significance.js';
+import { resolveSourceTier } from './agents/injury-intelligence/fact-validator.js';
+import type {
+  InjuryPostContent,
+  InjurySeverity,
+  SportKey,
+  RawInjuryEvent,
+  ClassificationResult,
+  PromotionScoreInput,
+} from './types.js';
 
 const app = express();
 const PORT = process.env.PORT || 3100;
@@ -179,6 +193,116 @@ app.post('/admin/approve/:post_id', async (req, res) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[Approve] Social publish failed for post ${webPostId}: ${message}`);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+// Generic MCP result unwrapper (mirror of the score-candidates-replay helper).
+function unwrapMCP<T>(res: unknown): T | null {
+  const raw = res as { isError?: boolean; content?: Array<{ text?: string }> };
+  if (raw?.isError === true) {
+    throw new Error(`MCP error: ${raw?.content?.[0]?.text ?? 'unknown MCP error'}`);
+  }
+  const text = raw?.content?.[0]?.text;
+  if (!text) return null;
+  return JSON.parse(text) as T;
+}
+
+interface PromotePost {
+  athlete_name: string;
+  sport: string;
+  conflict_reason: string | null;
+  team_timeline_weeks: number | null;
+  return_to_play_max_weeks: number | null;
+  source_url: string | null;
+  created_at: string;
+}
+
+interface PromoteEntity {
+  id: string;
+  last_updated_at: string;
+}
+
+/**
+ * Manual promotion: the MD clicks "Promote to Injury Desk" on a post (from the
+ * review queue or the post browser). We compute the live promotion_score and
+ * upsert a desk_candidate (PROPOSED) via web_propose_candidate.
+ *
+ * Additive — does NOT touch the post's machine-brand review/publish lane.
+ * Frontend-gated (no secret check here), mirroring /admin/approve. Manual
+ * promote always proposes regardless of PROMOTION_PROPOSE_THRESHOLD; `proposed`
+ * in the response is informational (would the auto-propose gate have fired).
+ *
+ * Live analogue of scorePost() in scripts/score-candidates-replay.ts. The one
+ * divergence: staleness is measured from the entity's real last_updated_at here,
+ * whereas the replay used post.created_at (the Phase-0 backfill bulk-reset every
+ * entity timestamp, making entity staleness meaningless for legacy rows).
+ */
+app.post('/admin/promote/:post_id', async (req, res) => {
+  const { post_id } = req.params;
+
+  if (!isServerAvailable('web')) {
+    res.status(503).json({ success: false, error: 'Web MCP server unavailable' });
+    return;
+  }
+
+  try {
+    // Athlete tiers feed the composite proxy; ensure they're loaded.
+    await loadSignificanceData();
+
+    const post = unwrapMCP<PromotePost>(await callTool('web', 'web_get_post', { post_id }));
+    if (!post) {
+      res.status(404).json({ success: false, error: `Post ${post_id} not found` });
+      return;
+    }
+
+    const entityWrap = unwrapMCP<{ entity: PromoteEntity | null }>(
+      await callTool('web', 'web_get_entity_for_post', { post_id }),
+    );
+    const entity = entityWrap?.entity ?? null;
+    if (!entity) {
+      res.status(409).json({
+        success: false,
+        error: 'Post has no linked injury entity; cannot promote. desk_candidates requires an entity.',
+      });
+      return;
+    }
+
+    const { tier } = lookupAthleteTier(post.athlete_name, post.sport as SportKey);
+    const conflictGapWeeks =
+      post.team_timeline_weeks != null && post.return_to_play_max_weeks != null
+        ? post.return_to_play_max_weeks - post.team_timeline_weeks
+        : null;
+    const stalenessDays = Math.max(
+      0,
+      Math.round((Date.now() - new Date(entity.last_updated_at).getTime()) / 86_400_000),
+    );
+
+    const scoreInput: PromotionScoreInput = {
+      composite: prominenceForTier(tier),
+      conflict_flag_present: post.conflict_reason != null,
+      conflict_gap_weeks: conflictGapWeeks,
+      entity_staleness_days: stalenessDays,
+      corroboration_tier: await resolveSourceTier(post.source_url),
+    };
+    const { score, proposed, reasons } = computePromotionScore(scoreInput);
+
+    console.log(`[Promote] post ${post_id} (${post.athlete_name}) → score=${score}, entity=${entity.id}`);
+
+    const candidateRes = unwrapMCP<{ candidate: unknown }>(
+      await callTool('web', 'web_propose_candidate', {
+        entity_id: entity.id,
+        source_post_id: post_id,
+        promotion_score: score,
+        reasons,
+        proposed_by: 'md',
+      }),
+    );
+
+    res.json({ success: true, candidate: candidateRes?.candidate ?? null, score, proposed, reasons });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[Promote] Failed for post ${post_id}: ${message}`);
     res.status(500).json({ success: false, error: message });
   }
 });
