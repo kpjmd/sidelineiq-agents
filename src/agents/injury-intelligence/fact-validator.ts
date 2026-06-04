@@ -309,6 +309,15 @@ function sourceTier(url: string, tiers: SourceTiersFile): 'T1' | 'T2' | 'T3' | '
   return best;
 }
 
+// Public accessor for the source corroboration tier of a URL. Single source
+// of truth (same source-tiers.json + matching logic the validator uses), so
+// promotion scoring and the replay harness don't re-implement tiering.
+export async function resolveSourceTier(url: string | null | undefined): Promise<'T1' | 'T2' | 'T3' | 'unknown'> {
+  if (!url) return 'unknown';
+  const tiers = await loadTiers();
+  return sourceTier(url, tiers);
+}
+
 // ── The validator itself ───────────────────────────────────────────────
 export interface ValidateOptions {
   // BREAKING content has stricter date sanity than TRACKING/DEEP_DIVE
