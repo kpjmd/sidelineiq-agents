@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import { timingSafeEqual } from 'node:crypto';
 import { initializeMCPClients, disconnectAll, getServerStatus, callTool, isServerAvailable } from './utils/mcp-client-manager.js';
 import { publishInjuryPost, publishApprovedDeepDive } from './utils/publishing-pipeline.js';
 import { startPolling, stopPolling, pollSport } from './monitoring/poller.js';
@@ -28,6 +29,43 @@ const app = express();
 const PORT = process.env.PORT || 3100;
 
 app.use(express.json());
+
+/**
+ * Machine-to-machine auth for the /admin/* endpoints. These are server-to-server
+ * calls from the frontend (e.g. the approve/promote route handlers), NOT browser
+ * requests — the human-facing /admin dashboard authenticates via NextAuth in the
+ * frontend and never reaches this service directly. The frontend forwards
+ * AGENTS_API_SECRET as a Bearer token; we re-derive and compare it here.
+ *
+ * Fail-closed: if AGENTS_API_SECRET is unset we refuse rather than leave the
+ * endpoints open (approve triggers a live Farcaster + X publish under the brand).
+ * Set the env var in both Vercel and Railway before this deploys.
+ */
+function requireAdminSecret(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction,
+): void {
+  const expected = process.env.AGENTS_API_SECRET;
+  if (!expected) {
+    console.error('[Auth] AGENTS_API_SECRET not configured — refusing /admin request');
+    res.status(503).json({ success: false, error: 'Admin auth not configured' });
+    return;
+  }
+  const header = req.headers.authorization ?? '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+  const provided = Buffer.from(token);
+  const secret = Buffer.from(expected);
+  if (provided.length !== secret.length || !timingSafeEqual(provided, secret)) {
+    res.status(401).json({ success: false, error: 'Unauthorized' });
+    return;
+  }
+  next();
+}
+
+// Gate every /admin/* route (approve, promote, roster-sync, and any future one).
+// Registered before the route definitions so it runs first regardless of order.
+app.use('/admin', requireAdminSecret);
 
 app.get('/health', (_req, res) => {
   res.json({
