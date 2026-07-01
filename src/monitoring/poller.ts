@@ -1,8 +1,13 @@
-import type { SportKey, RawInjuryEvent, SignificanceAssessment } from '../types.js';
+import type { SportKey, RawInjuryEvent, SignificanceAssessment, InjuryPostContent } from '../types.js';
 import { SPORT_SOURCES } from './sports/index.js';
 import { classifyEvent } from '../agents/injury-intelligence/classifier.js';
-import { processInjuryEvent } from '../agents/injury-intelligence/agent.js';
-import { checkForExisting } from './deduplicator.js';
+import {
+  processInjuryEvent,
+  parseTeamTimeline,
+  type InjuryThreadContext,
+} from '../agents/injury-intelligence/agent.js';
+import { resolveInjuryDate } from '../agents/injury-intelligence/date-resolution.js';
+import { checkForExisting, type DedupResult } from './deduplicator.js';
 import { publishInjuryPost } from '../utils/publishing-pipeline.js';
 import {
   loadSignificanceData,
@@ -122,19 +127,54 @@ async function resolvePlayer(
   }
 }
 
+// Frozen OTM projection captured at thread open. Mirrors the MCP web server's
+// OtmProjection shape (persisted as JSONB on injury_entities.otm_projection).
+interface OtmProjection {
+  min_weeks: number;
+  max_weeks: number;
+  probability_week_2?: number;
+  probability_week_4?: number;
+  probability_week_8?: number;
+  projected_return_date?: string | null;
+  created_at?: string;
+}
+
+function addWeeksIso(baseIso: string, weeks: number): string {
+  const base = Date.parse(`${baseIso}T00:00:00Z`);
+  return new Date(base + weeks * 7 * 86_400_000).toISOString().slice(0, 10);
+}
+
+// Build the projection to freeze on the thread once OTM has produced the post.
+function buildOtmProjection(post: InjuryPostContent, injuryDate: string | null): OtmProjection {
+  const rtp = post.return_to_play;
+  const mid = (rtp.min_weeks + rtp.max_weeks) / 2;
+  return {
+    min_weeks: rtp.min_weeks,
+    max_weeks: rtp.max_weeks,
+    probability_week_2: rtp.probability_week_2,
+    probability_week_4: rtp.probability_week_4,
+    probability_week_8: rtp.probability_week_8,
+    projected_return_date: injuryDate ? addWeeksIso(injuryDate, mid) : null,
+    created_at: new Date().toISOString(),
+  };
+}
+
 async function maintainEntity(
   event: RawInjuryEvent,
   player: ResolvedPlayerInfo,
   metadata: import('../agents/injury-intelligence/fact-validator.js').ExtractedInjuryMetadata,
-  dedup: import('./deduplicator.js').DedupResult,
+  dedup: DedupResult,
   postId: string,
   teamTimelineWeeks: number | undefined,
   otmMinWeeks: number | undefined,
   severity: string,
+  // When the Injury Thread Manager already created/matched the entity pre-OTM,
+  // reuse its id (avoids a duplicate entity) and freeze the OTM projection.
+  opts?: { entityId?: string; otmProjection?: OtmProjection },
 ): Promise<void> {
   if (!isServerAvailable('web')) return;
   try {
-    let entityId = dedup.entityId;
+    let entityId = opts?.entityId ?? dedup.entityId;
     if (!entityId) {
       const createRes = await callTool('web', 'web_create_injury_entity', {
         player_id: player.player_id,
@@ -159,9 +199,124 @@ async function maintainEntity(
       source_url: event.source_url,
       description: event.injury_description.slice(0, 500),
     });
+    // Freeze the OTM projection on the thread (dates are left untouched via COALESCE).
+    if (opts?.otmProjection) {
+      await callTool('web', 'web_thread_update_dates', {
+        entity_id: entityId,
+        otm_projection: opts.otmProjection,
+      });
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`[EntityMaint] failed for post=${postId}: ${message}`);
+  }
+}
+
+// ── Injury Thread Manager: pre-OTM date resolution + thread assembly ────
+// Runs behind DATE_RESOLUTION_ENABLED, after fact-validation + dedup, before
+// OTM. Resolves the injury/surgery date (with a web-search fallback), persists
+// it to the thread, and assembles the InjuryThreadContext OTM consumes. Returns
+// null (→ OTM runs thread-less, i.e. today's behavior) on any failure.
+interface ThreadEntityRow {
+  injury_date: string | null;
+  injury_date_confidence: 'unknown' | 'possible' | 'probable' | 'confirmed';
+  surgery_date: string | null;
+  surgery_confirmed: boolean;
+  status: 'ACTIVE' | 'RESOLVED' | 'RETIRED';
+}
+interface ThreadUpdateRow {
+  team_timeline_weeks: number | null;
+  otm_min_weeks: number | null;
+  severity_at_time: string | null;
+  created_at: string;
+}
+
+async function resolveThreadAndDates(
+  event: RawInjuryEvent,
+  validation: ValidationResult,
+  dedup: DedupResult,
+): Promise<{ entityId: string; thread: InjuryThreadContext } | null> {
+  const player = validation.resolvedPlayer;
+  if (!player) return null;
+  const metadata = validation.metadata;
+  try {
+    // 1. Resolve-or-create the entity early (canonical_post_id attached later).
+    let entityId = dedup.entityId;
+    if (!entityId) {
+      const createRes = await callTool('web', 'web_create_injury_entity', {
+        player_id: player.player_id,
+        body_part: metadata.primary_body_part ?? undefined,
+        laterality: metadata.laterality,
+        injury_type: metadata.injury_type_hint ?? undefined,
+      });
+      entityId = unwrapMCP<{ entity: { id: string } }>(createRes)?.entity?.id;
+    }
+    if (!entityId) return null;
+
+    // 2. Resolve the injury/surgery date (Pass 1 source-only, Pass 2 web search).
+    const resolution = await resolveInjuryDate({
+      event,
+      player,
+      metadata,
+      reportedAt: event.reported_at,
+      today: new Date().toISOString().slice(0, 10),
+    });
+
+    // 3. Persist dates + provenance; flag for MD review when still unknown.
+    await callTool('web', 'web_thread_update_dates', {
+      entity_id: entityId,
+      injury_date: resolution.injury_date ?? undefined,
+      injury_date_confidence: resolution.injury_date_confidence,
+      surgery_date: resolution.surgery_date ?? undefined,
+      surgery_confirmed: resolution.surgery_confirmed,
+      date_resolution_sources: resolution.sources,
+      needs_date_review: resolution.injury_date_confidence === 'unknown',
+    });
+
+    // 4. Read the thread back (entity with dates + trajectory) and assemble context.
+    const getRes = await callTool('web', 'web_thread_get', { entity_id: entityId });
+    const thread = unwrapMCP<{ entity: ThreadEntityRow; updates: ThreadUpdateRow[] }>(getRes);
+
+    const priorFromDb = (thread?.updates ?? [])
+      .map((u) => ({
+        reported_weeks: u.team_timeline_weeks ?? null,
+        otm_min_weeks: u.otm_min_weeks ?? null,
+        severity: u.severity_at_time ?? null,
+        at: u.created_at,
+      }))
+      .sort((a, b) => Date.parse(a.at) - Date.parse(b.at)); // list is newest-first
+
+    // Append the current event's reported timeline in-memory (the persisted row
+    // is written post-publish by maintainEntity) so compression detection sees it.
+    const currentReported = event.team_timeline
+      ? parseTeamTimeline(event.team_timeline)
+      : null;
+    const priorTimelines = [
+      ...priorFromDb,
+      {
+        reported_weeks: currentReported,
+        otm_min_weeks: null,
+        severity: null,
+        at: event.reported_at.toISOString(),
+      },
+    ];
+
+    const entity = thread?.entity;
+    return {
+      entityId,
+      thread: {
+        injury_date: entity?.injury_date ?? resolution.injury_date,
+        injury_date_confidence: entity?.injury_date_confidence ?? resolution.injury_date_confidence,
+        surgery_date: entity?.surgery_date ?? resolution.surgery_date,
+        surgery_confirmed: entity?.surgery_confirmed ?? resolution.surgery_confirmed,
+        status: entity?.status ?? 'ACTIVE',
+        prior_timelines: priorTimelines,
+      },
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[ThreadManager] date resolution failed for ${event.athlete_name}: ${message}`);
+    return null;
   }
 }
 
@@ -220,6 +375,8 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
   };
 
   const gateEnabled = process.env.SIGNIFICANCE_GATE_ENABLED !== 'false';
+  // Pre-OTM date resolution is opt-in (default off) until validated in prod.
+  const dateResolutionEnabled = process.env.DATE_RESOLUTION_ENABLED === 'true';
 
   // Refresh significance data (athlete tiers + config) at the start of every cycle
   await loadSignificanceData();
@@ -359,7 +516,20 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
         continue;
       }
 
-      const post = await processInjuryEvent(classified, dedup.existingPostId);
+      // ── Injury Thread Manager: resolve dates + assemble thread (pre-OTM) ──
+      // Behind DATE_RESOLUTION_ENABLED (default off). When disabled or on any
+      // failure, `thread` stays undefined → OTM runs exactly as before.
+      let thread: InjuryThreadContext | undefined;
+      let threadEntityId: string | undefined;
+      if (dateResolutionEnabled && isServerAvailable('web') && validation.resolvedPlayer) {
+        const resolved = await resolveThreadAndDates(event, validation, dedup);
+        if (resolved) {
+          thread = resolved.thread;
+          threadEntityId = resolved.entityId;
+        }
+      }
+
+      const post = await processInjuryEvent(classified, dedup.existingPostId, thread);
       if (!post) {
         summary.errors++;
         continue;
@@ -376,7 +546,8 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
       // ── Entity bookkeeping (after the post lands) ────────────────────
       // On entity miss → create the entity + INITIAL update linked to the post.
       // On entity match (status-update pass-through) → append a TRACKING
-      // update tied to the new post so the timeline reflects it.
+      // update tied to the new post so the timeline reflects it. When the thread
+      // was resolved pre-OTM, reuse its entity id and freeze the OTM projection.
       if (result.post_id && validation.resolvedPlayer) {
         await maintainEntity(
           event,
@@ -387,6 +558,12 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
           post.team_timeline_weeks,
           post.return_to_play.min_weeks,
           post.injury_severity,
+          threadEntityId
+            ? {
+                entityId: threadEntityId,
+                otmProjection: buildOtmProjection(post, thread?.injury_date ?? null),
+              }
+            : undefined,
         );
       }
     } catch (err) {
