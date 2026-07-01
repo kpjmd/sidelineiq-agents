@@ -165,32 +165,77 @@ export function parseTeamTimeline(timeline: string): number | null {
 }
 
 /**
- * Detects a CONFLICT_FLAG between team timeline and OTM estimate.
- * Triggers when the gap exceeds 2 weeks in either direction.
+ * Detects TIMELINE COMPRESSION across a thread's reported timelines: when the
+ * team has shortened the reported return window faster than calendar time can
+ * explain (you cannot heal faster than time passes). Longitudinal — needs >= 2
+ * dated reports. Returns false when no thread history is supplied, so the
+ * single-snapshot behavior is unchanged for callers that omit it.
  */
-function detectConflict(
+function detectTimelineCompression(
+  priorTimelines?: Array<{ reported_weeks: number | null; at: string }>
+): boolean {
+  if (!priorTimelines) return false;
+  const pts = priorTimelines
+    .filter((p) => p.reported_weeks !== null && !!p.at)
+    .map((p) => ({ weeks: p.reported_weeks as number, t: Date.parse(p.at) }))
+    .filter((p) => !Number.isNaN(p.t))
+    .sort((a, b) => a.t - b.t);
+  if (pts.length < 2) return false;
+
+  const first = pts[0];
+  const last = pts[pts.length - 1];
+  const elapsedWeeks = (last.t - first.t) / (7 * 86_400_000);
+  const timelineDrop = first.weeks - last.weeks; // positive = window shrinking
+  // Flag when the reported window shrank more than 2 weeks beyond what elapsed
+  // calendar time can account for.
+  return timelineDrop - elapsedWeeks > 2;
+}
+
+/**
+ * Detects a CONFLICT_FLAG between team timeline and OTM estimate.
+ * Triggers when the single-snapshot gap exceeds 2 weeks in either direction,
+ * OR (when thread history is supplied) when the reported timeline is being
+ * compressed below biological healing across successive reports. The optional
+ * priorTimelines arg is purely additive — callers that omit it get the original
+ * single-snapshot behavior.
+ */
+export function detectConflict(
   teamTimelineWeeks: number | null,
-  rtp: ReturnToPlayEstimate
-): { conflict: boolean; reason?: string } {
-  if (teamTimelineWeeks === null) return { conflict: false };
+  rtp: ReturnToPlayEstimate,
+  priorTimelines?: Array<{ reported_weeks: number | null; at: string }>
+): { conflict: boolean; reason?: string; timeline_compression?: boolean } {
+  const snapshot = ((): { conflict: boolean; reason?: string } => {
+    if (teamTimelineWeeks === null) return { conflict: false };
 
-  // "day-to-day" parses to 0, but for serious injuries it means the team
-  // hasn't disclosed a real timeline — not that the athlete returns in days.
-  // Suppress conflict when OTM's minimum estimate is 4+ weeks.
-  if (teamTimelineWeeks === 0 && rtp.min_weeks >= 4) return { conflict: false };
+    // "day-to-day" parses to 0, but for serious injuries it means the team
+    // hasn't disclosed a real timeline — not that the athlete returns in days.
+    // Suppress conflict when OTM's minimum estimate is 4+ weeks.
+    if (teamTimelineWeeks === 0 && rtp.min_weeks >= 4) return { conflict: false };
 
-  const otmMid = (rtp.min_weeks + rtp.max_weeks) / 2;
-  const gap = Math.abs(teamTimelineWeeks - otmMid);
-  if (gap <= 2) return { conflict: false };
+    const otmMid = (rtp.min_weeks + rtp.max_weeks) / 2;
+    const gap = Math.abs(teamTimelineWeeks - otmMid);
+    if (gap <= 2) return { conflict: false };
 
-  const direction =
-    teamTimelineWeeks < otmMid
-      ? `team timeline (~${teamTimelineWeeks}w) is shorter than OTM estimate (${rtp.min_weeks}-${rtp.max_weeks}w)`
-      : `team timeline (~${teamTimelineWeeks}w) is longer than OTM estimate (${rtp.min_weeks}-${rtp.max_weeks}w)`;
-  return {
-    conflict: true,
-    reason: `Reporting conflict: ${direction}.`,
-  };
+    const direction =
+      teamTimelineWeeks < otmMid
+        ? `team timeline (~${teamTimelineWeeks}w) is shorter than OTM estimate (${rtp.min_weeks}-${rtp.max_weeks}w)`
+        : `team timeline (~${teamTimelineWeeks}w) is longer than OTM estimate (${rtp.min_weeks}-${rtp.max_weeks}w)`;
+    return {
+      conflict: true,
+      reason: `Reporting conflict: ${direction}.`,
+    };
+  })();
+
+  if (detectTimelineCompression(priorTimelines)) {
+    const compReason =
+      'Timeline compression: the team has shortened the reported return window across successive reports faster than biological healing allows.';
+    return {
+      conflict: true,
+      reason: snapshot.reason ? `${snapshot.reason} ${compReason}` : compReason,
+      timeline_compression: true,
+    };
+  }
+  return snapshot;
 }
 
 export interface DeepDiveInput {
@@ -199,6 +244,26 @@ export interface DeepDiveInput {
   count: number;
   athletes: string[];
   teams: string[];
+}
+
+/**
+ * Injury-thread context passed to OTM by the Injury Thread Manager (poller),
+ * assembled from the persisted entity + its injury_updates trajectory. Optional
+ * everywhere — when absent, processInjuryEvent behaves exactly as before.
+ */
+export interface InjuryThreadContext {
+  injury_date: string | null;
+  injury_date_confidence: 'unknown' | 'possible' | 'probable' | 'confirmed';
+  surgery_date: string | null;
+  surgery_confirmed: boolean;
+  status: 'ACTIVE' | 'RESOLVED' | 'RETIRED';
+  // Oldest→newest reported timelines for this injury (includes the current event).
+  prior_timelines: Array<{
+    reported_weeks: number | null;
+    otm_min_weeks: number | null;
+    severity: string | null;
+    at: string; // ISO timestamp
+  }>;
 }
 
 let client: Anthropic | null = null;
@@ -221,7 +286,8 @@ function getClient(): Anthropic {
  */
 export async function processInjuryEvent(
   classified: ClassificationResult,
-  parentPostId?: string
+  parentPostId?: string,
+  thread?: InjuryThreadContext
 ): Promise<InjuryPostContent | null> {
   const raw = classified.raw_event;
   const context = `${classified.athlete_name} (${classified.sport}/${classified.team})`;
@@ -234,7 +300,28 @@ export async function processInjuryEvent(
     const month = new Date().getMonth() + 1; // 1-indexed
     const isNFLOffseason = classified.sport === 'NFL' && month >= 4 && month <= 8;
 
-    const userMessage = `Process this injury event into a structured post.
+    // Prepend thread context when the Injury Thread Manager supplied it. When
+    // `thread` is undefined this is '' → the prompt is byte-identical to before.
+    const threadBlock = thread
+      ? `[INJURY THREAD CONTEXT]
+This athlete has an existing tracked injury thread for this injury.
+Resolved injury date: ${thread.injury_date ?? 'not yet resolved'} (confidence: ${thread.injury_date_confidence})
+${thread.surgery_date ? `Surgery date: ${thread.surgery_date}${thread.surgery_confirmed ? ' (confirmed)' : ' (unconfirmed)'}\n` : ''}${
+          thread.prior_timelines.length
+            ? `Prior reported timelines (oldest→newest): ${thread.prior_timelines
+                .map(
+                  (t) =>
+                    `${t.reported_weeks ?? '?'}w team / ${t.otm_min_weeks ?? '?'}w OTM${t.severity ? ` [${t.severity}]` : ''} @ ${t.at.slice(0, 10)}`
+                )
+                .join('; ')}\n`
+            : ''
+        }Use the resolved injury date above as the DATE ANCHOR when its confidence is probable or confirmed — it overrides relative-date inference from this single source. Present RTP as REMAINING time from today given that anchor. Do not treat a possible/unknown-confidence date as authoritative.
+[END INJURY THREAD CONTEXT]
+
+`
+      : '';
+
+    const userMessage = threadBlock + `Process this injury event into a structured post.
 
 Sport: ${classified.sport}
 Athlete: ${classified.athlete_name}
@@ -333,7 +420,11 @@ Follow SKILL.md exactly. Emit your final answer via the emit_injury_post tool.`;
       rawTimelineWeeks !== undefined ? Math.round(rawTimelineWeeks) : undefined;
 
     if (teamTimelineWeeks !== undefined) {
-      const { conflict, reason } = detectConflict(teamTimelineWeeks, validatedRTP);
+      const { conflict, reason } = detectConflict(
+        teamTimelineWeeks,
+        validatedRTP,
+        thread?.prior_timelines
+      );
       if (conflict) {
         contentType = 'CONFLICT_FLAG';
         conflictReason = conflictReason ?? reason;
