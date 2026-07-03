@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { InjuryPostContent } from '../src/types.js';
 
 // Mock the MCP client manager
@@ -184,5 +184,109 @@ describe('publishInjuryPost', () => {
       },
       update_reason: 'Social platform hash writeback',
     });
+  });
+});
+
+describe('publishInjuryPost — dedup envelope handling (F5 regression)', () => {
+  const recentPost = () => ({
+    athlete_name: 'Patrick Mahomes',
+    sport: 'NFL',
+    created_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+  });
+
+  it('detects a duplicate from a real MCP envelope (array payload)', async () => {
+    mockCallTool.mockImplementation(async (_server, tool) => {
+      if (tool === 'web_list_posts') {
+        return { content: [{ type: 'text', text: JSON.stringify([recentPost()]) }] };
+      }
+      return { content: [{ type: 'text', text: 'ok' }] };
+    });
+
+    const result = await publishInjuryPost(makeContent());
+    expect(result.status).toBe('skipped');
+    expect(result.reason).toBe('duplicate');
+  });
+
+  it('detects a duplicate from a {posts:[...]} wrapped envelope', async () => {
+    mockCallTool.mockImplementation(async (_server, tool) => {
+      if (tool === 'web_list_posts') {
+        return { content: [{ type: 'text', text: JSON.stringify({ posts: [recentPost()] }) }] };
+      }
+      return { content: [{ type: 'text', text: 'ok' }] };
+    });
+
+    const result = await publishInjuryPost(makeContent());
+    expect(result.status).toBe('skipped');
+  });
+
+  it('publishes when the only prior post is older than 24h', async () => {
+    mockCallTool.mockImplementation(async (_server, tool) => {
+      if (tool === 'web_list_posts') {
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify([{
+              athlete_name: 'Patrick Mahomes',
+              sport: 'NFL',
+              created_at: new Date(Date.now() - 30 * 60 * 60 * 1000).toISOString(),
+            }]),
+          }],
+        };
+      }
+      if (tool === 'web_create_injury_post') return WEB_CREATE_RESPONSE;
+      if (tool === 'farcaster_publish_thread') return FARCASTER_RESPONSE;
+      if (tool === 'twitter_publish_thread') return TWITTER_RESPONSE;
+      return { content: [{ type: 'text', text: 'ok' }] };
+    });
+
+    const result = await publishInjuryPost(makeContent());
+    expect(result.status).toBe('published');
+  });
+});
+
+describe('publishInjuryPost — MD review gate hardening (F3, F4, F6)', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it.each(['0,75', '75', '-1', 'abc'])(
+    'ignores invalid threshold %j and applies the 0.75 default',
+    async (bad) => {
+      vi.stubEnv('MD_REVIEW_CONFIDENCE_THRESHOLD', bad);
+      // Above default → publishes (proves a bad env did not disable the gate);
+      // below default → routes to review (proves it did not flag everything).
+      const above = await publishInjuryPost(makeContent({ confidence: 0.8 }));
+      expect(above.status).toBe('published');
+      const below = await publishInjuryPost(makeContent({ confidence: 0.7 }));
+      expect(below.status).toBe('pending_review');
+    },
+  );
+
+  it('routes NaN confidence to review (fail closed)', async () => {
+    const result = await publishInjuryPost(makeContent({ confidence: NaN }));
+    expect(result.status).toBe('pending_review');
+  });
+
+  it('publishes when confidence exactly equals the threshold', async () => {
+    vi.stubEnv('MD_REVIEW_CONFIDENCE_THRESHOLD', '0.75');
+    const result = await publishInjuryPost(makeContent({ confidence: 0.75 }));
+    expect(result.status).toBe('published');
+  });
+
+  it('routes to review when md_review_flags is set, even at high confidence', async () => {
+    const result = await publishInjuryPost(
+      makeContent({ confidence: 0.99, md_review_flags: ['rtp_monotonicity_violation'] }),
+    );
+    expect(result.status).toBe('pending_review');
+    expect(result.reason).toContain('rtp_monotonicity_violation');
+  });
+
+  it('forceMDReviewReason overrides a passing confidence check', async () => {
+    const result = await publishInjuryPost(
+      makeContent({ confidence: 0.99 }),
+      { forceMDReviewReason: 'fact_soft_fail:source_tier_low' },
+    );
+    expect(result.status).toBe('pending_review');
+    expect(result.reason).toBe('fact_soft_fail:source_tier_low');
   });
 });

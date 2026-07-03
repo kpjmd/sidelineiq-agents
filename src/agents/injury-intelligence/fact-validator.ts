@@ -24,10 +24,10 @@ export interface ResolvedPlayerInfo {
 export type ValidationCode =
   // Hard codes
   | 'team_mismatch'
-  | 'identity_unresolvable'
   | 'date_future'
   | 'date_stale_breaking'
   // Soft codes
+  | 'identity_unresolvable'
   | 'identity_ambiguous'
   | 'laterality_inconsistent'
   | 'procedure_body_part_mismatch'
@@ -157,7 +157,71 @@ function normalize(s: string): string {
 }
 
 // ── Team-name match ────────────────────────────────────────────────────
+// A full-string Jaro-Winkler match is deliberately NOT used: same-city teams
+// share a normalized prefix and the Winkler boost pushes pairs like
+// "los angeles lakers" / "los angeles clippers" (JW ≈ 0.94) over any usable
+// threshold — the exact class of failure the corroboration guard exists to
+// catch. Instead we distinguish by the nickname token and by abbreviation
+// initials, both of which differ between co-located teams.
 const TEAM_MATCH_THRESHOLD = 0.85;
+
+function lastToken(s: string): string {
+  const parts = s.split(' ').filter(Boolean);
+  return parts[parts.length - 1] ?? '';
+}
+
+// A short, space-free string (e.g. "kc", "gsw") is treated as an abbreviation.
+function looksLikeAbbrev(s: string): boolean {
+  return s.length > 0 && s.length <= 4 && !s.includes(' ');
+}
+
+function wordInitials(s: string): string {
+  return s
+    .split(' ')
+    .filter(Boolean)
+    .map((w) => w[0] ?? '')
+    .join('');
+}
+
+// Is `sub` a subsequence of `full`? Used to match an abbreviation against the
+// word-initials of a full name ("kc" ⊂ "kcc" for "kansas city chiefs";
+// "nyj" ⊄ "nyg" so Jets never matches Giants).
+function isSubsequence(sub: string, full: string): boolean {
+  if (sub.length === 0) return false;
+  let i = 0;
+  for (let j = 0; j < full.length && i < sub.length; j++) {
+    if (sub[i] === full[j]) i++;
+  }
+  return i === sub.length;
+}
+
+function normTeamMatches(reportedNorm: string, candidateNorm: string): boolean {
+  if (!reportedNorm || !candidateNorm) return false;
+  if (reportedNorm === candidateNorm) return true;
+
+  // Abbreviation ↔ full-name via word-initials subsequence.
+  if (looksLikeAbbrev(reportedNorm) && candidateNorm.includes(' ')) {
+    if (isSubsequence(reportedNorm, wordInitials(candidateNorm))) return true;
+  }
+  if (looksLikeAbbrev(candidateNorm) && reportedNorm.includes(' ')) {
+    if (isSubsequence(candidateNorm, wordInitials(reportedNorm))) return true;
+  }
+
+  // Nickname-token match — the distinguishing token between co-located teams.
+  const rTok = lastToken(reportedNorm);
+  const cTok = lastToken(candidateNorm);
+  if (rTok.length >= 4 && cTok.length >= 4) {
+    if (rTok === cTok) return true;
+    if (jaroWinkler(rTok, cTok) >= TEAM_MATCH_THRESHOLD) return true;
+  }
+
+  // Substring only when the contained string is a real nickname (≥ 4 chars),
+  // so a bare "la"/"ny" never matches every co-located team.
+  if (reportedNorm.length >= 4 && candidateNorm.includes(reportedNorm)) return true;
+  if (candidateNorm.length >= 4 && reportedNorm.includes(candidateNorm)) return true;
+
+  return false;
+}
 
 function teamMatches(reported: string, player: ResolvedPlayerInfo): boolean {
   if (!player.current_team_name && !player.current_team_abbreviation) return true; // can't check
@@ -169,12 +233,15 @@ function teamMatches(reported: string, player: ResolvedPlayerInfo): boolean {
     .filter((x): x is string => Boolean(x))
     .map(normalize);
 
-  for (const c of candidates) {
-    if (!c) continue;
-    if (reportedNorm.includes(c) || c.includes(reportedNorm)) return true;
-    if (jaroWinkler(reportedNorm, c) >= TEAM_MATCH_THRESHOLD) return true;
-  }
-  return false;
+  return candidates.some((c) => normTeamMatches(reportedNorm, c));
+}
+
+// Public boolean form for callers that need to re-check a team claim against a
+// resolved player (e.g. the poller re-validating Sonnet's final team output,
+// which is produced downstream of validateEvent). Returns true when the roster
+// carries no team info to check against.
+export function teamClaimMatches(reported: string, player: ResolvedPlayerInfo): boolean {
+  return teamMatches(reported, player);
 }
 
 // ── Body-part / laterality extraction ──────────────────────────────────
@@ -359,16 +426,29 @@ export async function validateEvent(
   }
 
   // ── Team check (only meaningful when player resolved unambiguously) ──
-  if (resolved && resolved.confidence !== 'ambiguous' && resolved.current_team_name) {
-    if (!teamMatches(event.team, resolved)) {
+  const rosterTeam = resolved?.current_team_name ?? resolved?.current_team_abbreviation ?? null;
+  if (resolved && resolved.confidence !== 'ambiguous' && rosterTeam) {
+    const reportedNorm = normalize(event.team ?? '');
+    const reportedIsUnknown = reportedNorm === '' || reportedNorm === 'unknown';
+    if (reportedIsUnknown) {
+      // The source named no team (common for NewsAPI items whose body text
+      // never states one). This is a gap, not a contradiction — fill it from
+      // the roster and let the event through. NOT a hard failure.
+      corrections.push({
+        field: 'team',
+        from: event.team,
+        to: rosterTeam,
+        reason: `reported team unknown; filled from roster (player_id=${resolved.player_id})`,
+      });
+    } else if (!teamMatches(event.team, resolved)) {
       hardFailures.push({
         code: 'team_mismatch',
-        detail: `Reported team "${event.team}" does not match ${resolved.full_name}'s current team "${resolved.current_team_name}"`,
+        detail: `Reported team "${event.team}" does not match ${resolved.full_name}'s current team "${rosterTeam}"`,
       });
       corrections.push({
         field: 'team',
         from: event.team,
-        to: resolved.current_team_name,
+        to: rosterTeam,
         reason: `roster lookup (player_id=${resolved.player_id})`,
       });
     }

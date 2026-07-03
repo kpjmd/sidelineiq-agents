@@ -29,6 +29,11 @@ export interface InjuryPostContent {
   team_timeline_weeks?: number;
   parent_post_id?: string;
   injury_date?: string;
+  // Internal review triggers raised during processing (e.g.
+  // 'rtp_monotonicity_violation'). When non-empty, the publishing pipeline
+  // routes the post to MD review regardless of confidence/severity. Never
+  // published — used only for gating.
+  md_review_flags?: string[];
 }
 
 export interface PlatformResult {

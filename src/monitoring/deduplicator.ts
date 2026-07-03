@@ -65,7 +65,7 @@ function unwrap<T>(raw: unknown): T | null {
   }
 }
 
-function parseListPostsResponse(raw: unknown): ExistingPost[] {
+export function parseListPostsResponse(raw: unknown): ExistingPost[] {
   if (!raw) return [];
   if (Array.isArray(raw)) return raw as ExistingPost[];
   const wrapped = raw as MCPTextResponse;

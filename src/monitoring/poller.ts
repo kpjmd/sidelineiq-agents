@@ -20,6 +20,7 @@ import { callTool, isServerAvailable } from '../utils/mcp-client-manager.js';
 import {
   validateEvent,
   summarizeFailures,
+  teamClaimMatches,
   type ResolvedPlayerInfo,
   type ValidationResult,
 } from '../agents/injury-intelligence/fact-validator.js';
@@ -515,6 +516,18 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
       } else {
         await auditValidation(event, validation, 'fact_validate_pass');
       }
+
+      // Apply any roster-derived team correction before Sonnet runs. validateEvent
+      // records the authoritative roster team in corrections[] when the source named
+      // no team (or a blank/"Unknown" one); carrying that forward stops the agent
+      // from inventing a team downstream. Hard team_mismatch events already dropped above.
+      const teamCorrection = validation.corrections.find((c) => c.field === 'team');
+      if (teamCorrection && teamCorrection.to) {
+        console.log(
+          `[FactValidator] ${sport} — applying team correction for ${context}: "${teamCorrection.from}" → "${teamCorrection.to}"`,
+        );
+        classified.team = teamCorrection.to;
+      }
       // ── End fact validation ─────────────────────────────────────────
 
       const dedup = await checkForExisting(event, {
@@ -546,6 +559,23 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
       if (!post) {
         summary.errors++;
         continue;
+      }
+
+      // Re-check Sonnet's final team against the roster. The agent is told to fill
+      // an unknown team from its own knowledge, which reintroduces the wrong-team
+      // failure mode downstream of the fact validator. On a contradiction, route to
+      // MD review rather than drop — Sonnet may know of a trade the roster missed.
+      if (
+        validation.resolvedPlayer &&
+        validation.resolvedPlayer.confidence !== 'ambiguous' &&
+        !teamClaimMatches(post.team, validation.resolvedPlayer)
+      ) {
+        console.warn(
+          `[FactValidator] ${sport} — post team "${post.team}" mismatches roster for ${context} — routing to MD review`,
+        );
+        forceMDReviewReason = forceMDReviewReason
+          ? `${forceMDReviewReason},post_team_mismatch`
+          : 'fact_soft_fail:post_team_mismatch';
       }
 
       const result = await publishInjuryPost(
