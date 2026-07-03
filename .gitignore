@@ -3,3 +3,6 @@ dist/
 .env
 .DS_Store
 *.tsbuildinfo
+
+# generated script reports (backfill-entities.ts, legacy-fact-sweep.ts)
+*.csv
