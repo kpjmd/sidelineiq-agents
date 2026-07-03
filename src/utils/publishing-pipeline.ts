@@ -1,17 +1,41 @@
 import { callTool, isServerAvailable } from './mcp-client-manager.js';
 import { formatForFarcaster, formatForTwitter, formatForWeb, buildLaunchAnnouncement } from './content-formatter.js';
+import { parseListPostsResponse } from '../monitoring/deduplicator.js';
 import type { InjuryPostContent, PlatformResult, PublishResult } from '../types.js';
 
 const DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
+const DEFAULT_MD_REVIEW_THRESHOLD = 0.75;
 
+// A confidence threshold is only meaningful in (0, 1]. parseFloat silently
+// mangles common misconfigurations — "0,75" (comma decimal) → 0 (gate disabled),
+// "75" (percent) → 75 (everything flagged), negatives (gate disabled) — so we
+// reject anything out of range and fall back to the default with a warning
+// rather than letting a typo quietly turn the MD gate off.
 function getMDReviewThreshold(): number {
-  const val = parseFloat(process.env.MD_REVIEW_CONFIDENCE_THRESHOLD || '0.75');
-  return isNaN(val) ? 0.75 : val;
+  const rawEnv = process.env.MD_REVIEW_CONFIDENCE_THRESHOLD;
+  if (rawEnv === undefined || rawEnv === '') return DEFAULT_MD_REVIEW_THRESHOLD;
+  const val = parseFloat(rawEnv);
+  if (!Number.isFinite(val) || val <= 0 || val > 1) {
+    console.warn(
+      `[Pipeline] MD_REVIEW_CONFIDENCE_THRESHOLD="${rawEnv}" is not a valid probability in (0, 1] — falling back to ${DEFAULT_MD_REVIEW_THRESHOLD}`
+    );
+    return DEFAULT_MD_REVIEW_THRESHOLD;
+  }
+  return val;
 }
 
 function needsMDReview(content: InjuryPostContent): { needed: boolean; reason?: string } {
   if (content.content_type === 'DEEP_DIVE') {
     return { needed: true, reason: 'DEEP_DIVE content always requires MD review' };
+  }
+  // Internal review triggers raised upstream (e.g. RTP monotonicity violation).
+  if (content.md_review_flags && content.md_review_flags.length > 0) {
+    return { needed: true, reason: `internal review flags: ${content.md_review_flags.join(',')}` };
+  }
+  // Fail closed: a non-finite confidence must not slip past the `<` comparison
+  // (NaN < threshold is false), so treat it as needing review outright.
+  if (!Number.isFinite(content.confidence)) {
+    return { needed: true, reason: `confidence is not a finite number (${content.confidence})` };
   }
   const threshold = getMDReviewThreshold();
   if (content.confidence < threshold) {
@@ -352,7 +376,11 @@ export async function publishInjuryPost(
         sport: content.sport,
       });
 
-      const posts = Array.isArray(result) ? result : [];
+      // web_list_posts comes back as an MCP envelope ({content:[{text}]}), not a
+      // bare array — parseListPostsResponse unwraps both shapes. A plain
+      // Array.isArray check here silently yielded [] in production, disabling
+      // this fallback dedup entirely.
+      const posts = parseListPostsResponse(result);
       if (isDuplicate(content, posts as ExistingPost[])) {
         console.log(`[Pipeline] Duplicate detected for ${context}, skipping`);
         return { status: 'skipped', reason: 'duplicate', platform_results: [] };

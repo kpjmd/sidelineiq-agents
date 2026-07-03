@@ -405,6 +405,11 @@ Follow SKILL.md exactly. Emit your final answer via the emit_injury_post tool.`;
         `[Agent] RTP auto-corrected for ${context}: ${validation.warnings.join('; ')}`
       );
     }
+    const reviewFlags: string[] = [];
+    if (validation.requiresReview) {
+      reviewFlags.push('rtp_monotonicity_violation');
+      console.warn(`[Agent] RTP monotonicity violation for ${context} — routing to MD review`);
+    }
 
     // CONFLICT_FLAG detection: compare parsed team timeline to OTM estimate
     let contentType = (input.content_type as ContentType) ?? classified.content_type;
@@ -459,11 +464,15 @@ Follow SKILL.md exactly. Emit your final answer via the emit_injury_post tool.`;
       clinical_summary: String(input.clinical_summary ?? ''),
       return_to_play: validatedRTP,
       source_url: raw.source_url,
-      confidence: Number(input.confidence ?? 0),
+      // Fail closed: a non-finite confidence coerces to 0, which routes to MD
+      // review rather than slipping past the `confidence < threshold` gate
+      // (NaN < threshold is false).
+      confidence: Number.isFinite(Number(input.confidence)) ? Number(input.confidence) : 0,
       ...(conflictReason && { conflict_reason: conflictReason }),
       ...(teamTimelineWeeks !== undefined && { team_timeline_weeks: teamTimelineWeeks }),
       ...(parentPostId && { parent_post_id: parentPostId }),
       ...(injuryDate && { injury_date: injuryDate }),
+      ...(reviewFlags.length > 0 && { md_review_flags: reviewFlags }),
     };
 
     return post;
@@ -584,6 +593,11 @@ Emit your final answer via the emit_injury_post tool with content_type: DEEP_DIV
     if (validation.warnings.length > 0) {
       console.warn(`[Agent] RTP auto-corrected for ${context}: ${validation.warnings.join('; ')}`);
     }
+    const reviewFlags: string[] = [];
+    if (validation.requiresReview) {
+      reviewFlags.push('rtp_monotonicity_violation');
+      console.warn(`[Agent] RTP monotonicity violation for ${context} — routing to MD review`);
+    }
 
     const post: InjuryPostContent = {
       athlete_name: primaryAthlete,
@@ -595,7 +609,8 @@ Emit your final answer via the emit_injury_post tool with content_type: DEEP_DIV
       headline: String(toolInput.headline ?? ''),
       clinical_summary: String(toolInput.clinical_summary ?? ''),
       return_to_play: validatedRTP,
-      confidence: Number(toolInput.confidence ?? 0),
+      confidence: Number.isFinite(Number(toolInput.confidence)) ? Number(toolInput.confidence) : 0,
+      ...(reviewFlags.length > 0 && { md_review_flags: reviewFlags }),
     };
 
     return post;
