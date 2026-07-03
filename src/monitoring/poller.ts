@@ -139,9 +139,13 @@ interface OtmProjection {
   created_at?: string;
 }
 
-function addWeeksIso(baseIso: string, weeks: number): string {
-  const base = Date.parse(`${baseIso}T00:00:00Z`);
-  return new Date(base + weeks * 7 * 86_400_000).toISOString().slice(0, 10);
+export function addWeeksIso(baseIso: string, weeks: number): string | null {
+  // baseIso may arrive as 'YYYY-MM-DD' OR a full ISO timestamp — the DB DATE
+  // column comes back through MCP JSON as 'YYYY-MM-DDT00:00:00.000Z'. new Date
+  // parses both; slicing the result normalizes back to a plain date.
+  const t = new Date(baseIso).getTime();
+  if (Number.isNaN(t)) return null;
+  return new Date(t + weeks * 7 * 86_400_000).toISOString().slice(0, 10);
 }
 
 // Build the projection to freeze on the thread once OTM has produced the post.
@@ -272,6 +276,15 @@ async function resolveThreadAndDates(
       date_resolution_sources: resolution.sources,
       needs_date_review: resolution.injury_date_confidence === 'unknown',
     });
+
+    const webSources = resolution.sources.filter((s) => s.stage === 'web_search').length;
+    console.log(
+      `[ThreadManager] ${event.athlete_name} (${event.sport}) — entity=${entityId} ` +
+        `injury_date=${resolution.injury_date ?? 'none'} confidence=${resolution.injury_date_confidence} ` +
+        `surgery=${resolution.surgery_confirmed ? (resolution.surgery_date ?? 'confirmed') : 'no'} ` +
+        `web_search=${resolution.used_web_search} web_sources=${webSources} ` +
+        `needs_date_review=${resolution.injury_date_confidence === 'unknown'}`,
+    );
 
     // 4. Read the thread back (entity with dates + trajectory) and assemble context.
     const getRes = await callTool('web', 'web_thread_get', { entity_id: entityId });
