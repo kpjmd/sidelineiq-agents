@@ -273,6 +273,15 @@ async function resolveThreadAndDates(
       needs_date_review: resolution.injury_date_confidence === 'unknown',
     });
 
+    const webSources = resolution.sources.filter((s) => s.stage === 'web_search').length;
+    console.log(
+      `[ThreadManager] ${event.athlete_name} (${event.sport}) — entity=${entityId} ` +
+        `injury_date=${resolution.injury_date ?? 'none'} confidence=${resolution.injury_date_confidence} ` +
+        `surgery=${resolution.surgery_confirmed ? (resolution.surgery_date ?? 'confirmed') : 'no'} ` +
+        `web_search=${resolution.used_web_search} web_sources=${webSources} ` +
+        `needs_date_review=${resolution.injury_date_confidence === 'unknown'}`,
+    );
+
     // 4. Read the thread back (entity with dates + trajectory) and assemble context.
     const getRes = await callTool('web', 'web_thread_get', { entity_id: entityId });
     const thread = unwrapMCP<{ entity: ThreadEntityRow; updates: ThreadUpdateRow[] }>(getRes);
