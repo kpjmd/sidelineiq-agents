@@ -24,7 +24,11 @@ async function connectWithRetry(
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const abort = AbortSignal.timeout(CONNECT_TIMEOUT_MS);
-      const transport = new StreamableHTTPClientTransport(new URL(url), { requestInit: { signal: abort } });
+      const secret = process.env.MCP_AUTH_SECRET;
+      const headers = secret ? { Authorization: `Bearer ${secret}` } : undefined;
+      const transport = new StreamableHTTPClientTransport(new URL(url), {
+        requestInit: { signal: abort, headers },
+      });
       const client = new Client({ name: 'sidelineiq-agents', version: '1.0.0' });
       await client.connect(transport);
       return client;
@@ -44,6 +48,10 @@ async function connectWithRetry(
 }
 
 export async function initializeMCPClients(): Promise<void> {
+  if (!process.env.MCP_AUTH_SECRET) {
+    console.warn('[MCP] MCP_AUTH_SECRET not set — requests will be sent unauthenticated and rejected by servers enforcing auth');
+  }
+
   const servers = Object.entries(ENV_MAP) as [MCPServerName, string][];
 
   for (const [name, envVar] of servers) {
