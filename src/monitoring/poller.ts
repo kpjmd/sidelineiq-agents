@@ -573,9 +573,13 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
         console.warn(
           `[FactValidator] ${sport} — post team "${post.team}" mismatches roster for ${context} — routing to MD review`,
         );
-        forceMDReviewReason = forceMDReviewReason
-          ? `${forceMDReviewReason},post_team_mismatch`
-          : 'fact_soft_fail:post_team_mismatch';
+        // The pre-Sonnet tier gate already flags this exact reported-vs-roster
+        // contradiction as team_mismatch_unconfirmed; don't double-count it here.
+        if (!forceMDReviewReason) {
+          forceMDReviewReason = 'fact_soft_fail:post_team_mismatch';
+        } else if (!forceMDReviewReason.includes('team_mismatch_unconfirmed')) {
+          forceMDReviewReason = `${forceMDReviewReason},post_team_mismatch`;
+        }
       }
 
       const result = await publishInjuryPost(
