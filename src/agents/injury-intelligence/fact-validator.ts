@@ -4,6 +4,13 @@
 //
 // Hard failures → drop the event (no Sonnet call, no publish).
 // Soft failures → mark md_review_required=true with reason 'fact_soft_fail:<codes>'.
+//
+// Team-mismatch is tier-gated (guards against a stale roster silently dropping a
+// real trade): a reported team that contradicts the roster HARD-fails only when the
+// report is low-trust (T3/unknown → likely a mis-tag). A high-trust report (T1/T2 →
+// likely a trade the roster hasn't caught up to) SOFT-fails as
+// 'team_mismatch_unconfirmed' — routed to MD review with the reported (new) team
+// preserved, never overwritten by the possibly-stale roster team.
 
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -32,7 +39,8 @@ export type ValidationCode =
   | 'laterality_inconsistent'
   | 'procedure_body_part_mismatch'
   | 'source_tier_low'
-  | 'team_unverified';
+  | 'team_unverified'
+  | 'team_mismatch_unconfirmed';
 
 export interface ValidationFailure {
   code: ValidationCode;
@@ -441,16 +449,33 @@ export async function validateEvent(
         reason: `reported team unknown; filled from roster (player_id=${resolved.player_id})`,
       });
     } else if (!teamMatches(event.team, resolved)) {
-      hardFailures.push({
-        code: 'team_mismatch',
-        detail: `Reported team "${event.team}" does not match ${resolved.full_name}'s current team "${rosterTeam}"`,
-      });
-      corrections.push({
-        field: 'team',
-        from: event.team,
-        to: rosterTeam,
-        reason: `roster lookup (player_id=${resolved.player_id})`,
-      });
+      // The reported team contradicts the roster. Tier-gate the response: a
+      // high-trust source (T1/T2) reporting a different team is more likely a
+      // real trade our roster hasn't caught up to than a mis-tag, so route it to
+      // MD review with the reported (new) team preserved rather than hard-drop it.
+      // A low-trust source (T3/unknown) is most likely the "wrong team tagged"
+      // failure this guard exists for → keep the hard drop + roster correction.
+      const reportTier = sourceTier(event.source_url, tiers);
+      if (reportTier === 'T1' || reportTier === 'T2') {
+        softFailures.push({
+          code: 'team_mismatch_unconfirmed',
+          detail: `Reported team "${event.team}" contradicts ${resolved.full_name}'s roster team "${rosterTeam}", but source is tier ${reportTier} (possible trade) — routing to MD review (player_id=${resolved.player_id})`,
+        });
+        // Intentionally NO team correction: the reported team must survive to
+        // Sonnet and MD review; overwriting it with the possibly-stale roster
+        // team is exactly the false-drop this branch prevents.
+      } else {
+        hardFailures.push({
+          code: 'team_mismatch',
+          detail: `Reported team "${event.team}" does not match ${resolved.full_name}'s current team "${rosterTeam}"`,
+        });
+        corrections.push({
+          field: 'team',
+          from: event.team,
+          to: rosterTeam,
+          reason: `roster lookup (player_id=${resolved.player_id})`,
+        });
+      }
     }
   } else if (event.sport !== 'UFC' && !resolved) {
     softFailures.push({

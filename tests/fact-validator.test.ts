@@ -40,10 +40,13 @@ describe('validateEvent — team corroboration (F1: same-city guard)', () => {
     ['NFL', 'New York Giants', 'New York Jets'],
     ['PREMIER_LEAGUE', 'Manchester United', 'Manchester City'],
   ] as const)(
-    'hard-fails %s when the reported team is a co-located but different team',
+    'hard-fails %s when a low-tier source reports a co-located but different team',
     async (sport, rosterTeam, reportedTeam) => {
+      // A low-tier (T3) source contradicting the roster is treated as a probable
+      // mis-tag → hard drop. (A high-tier source is tier-gated to MD review; see
+      // the "source-tier gating" block below.)
       const res = await validateEvent(
-        makeEvent({ sport, team: reportedTeam }),
+        makeEvent({ sport, team: reportedTeam, source_url: 'https://newsapi.org/story' }),
         makePlayer({ current_team_name: rosterTeam, current_team_abbreviation: null }),
         { now: NOW },
       );
@@ -84,9 +87,55 @@ describe('validateEvent — abbreviation-only roster (F8)', () => {
   });
 
   it('hard-fails a wrong team even when only the abbreviation is known', async () => {
-    const res = await validateEvent(makeEvent({ team: 'Boston Celtics' }), abbrevOnly(), { now: NOW });
+    const res = await validateEvent(
+      makeEvent({ team: 'Boston Celtics', source_url: 'https://newsapi.org/story' }),
+      abbrevOnly(),
+      { now: NOW },
+    );
     expect(res.hardFailures.map((f) => f.code)).toContain('team_mismatch');
   });
+});
+
+describe('validateEvent — team mismatch source-tier gating', () => {
+  // A reported team that contradicts the roster is hard-dropped only for low-trust
+  // sources; a high-trust source (likely reporting a real trade the roster hasn't
+  // caught up to) is routed to MD review with the reported team preserved.
+  it.each([
+    ['T1', 'https://www.espn.com/nba/story'],
+    ['T2', 'https://www.cbssports.com/story'],
+  ] as const)(
+    'soft-fails (routes to MD review) a %s source reporting a different team',
+    async (_tier, sourceUrl) => {
+      const res = await validateEvent(
+        makeEvent({ team: 'Boston Celtics', source_url: sourceUrl }),
+        makePlayer(),
+        { now: NOW },
+      );
+      expect(res.passed).toBe(true);
+      expect(res.hardFailures).toHaveLength(0);
+      expect(res.softFailures.map((f) => f.code)).toContain('team_mismatch_unconfirmed');
+      // The reported (new) team must be preserved — no correction back to the roster.
+      expect(res.corrections.find((c) => c.field === 'team')).toBeUndefined();
+    },
+  );
+
+  it.each([
+    ['T3', 'https://newsapi.org/story'],
+    ['unknown', 'https://randomblog.example/story'],
+  ] as const)(
+    'hard-fails a %s source reporting a different team, with a roster correction',
+    async (_tier, sourceUrl) => {
+      const res = await validateEvent(
+        makeEvent({ team: 'Boston Celtics', source_url: sourceUrl }),
+        makePlayer(),
+        { now: NOW },
+      );
+      expect(res.passed).toBe(false);
+      expect(res.hardFailures.map((f) => f.code)).toContain('team_mismatch');
+      expect(res.softFailures.map((f) => f.code)).not.toContain('team_mismatch_unconfirmed');
+      expect(res.corrections.find((c) => c.field === 'team')?.to).toBe('Los Angeles Lakers');
+    },
+  );
 });
 
 describe('validateEvent — identity resolution', () => {
