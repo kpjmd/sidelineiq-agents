@@ -1,5 +1,13 @@
 import type { RawInjuryEvent, SportKey } from '../../types.js';
 import type { SportDataSource } from './multi-source.js';
+import {
+  INJURY_KEYWORD_RE,
+  buildBlocklist,
+  extractAthleteName as extractAthleteNameShared,
+  extractTeam as extractTeamShared,
+  parseDate,
+  getMaxEventAgeMs,
+} from './text-extraction.js';
 
 // ── NewsAPI response shapes ────────────────────────────────────────
 
@@ -30,81 +38,26 @@ const DOMAINS = 'bleacherreport.com,nfl.com,profootballtalk.nbcsports.com,si.com
 const MIN_NEWSAPI_POLL_EVERY_N_CYCLES = 4;
 const DEFAULT_NEWSAPI_POLL_EVERY_N_CYCLES = 6; // ~16 req/day, ~84/day headroom
 
-const INJURY_KEYWORD_RE =
-  /\b(injur|hurt|torn|sprain|fractur|concuss|sidelin|out\s+for|ACL|MCL|hamstring|knee|ankle|shoulder|achilles|surgery|strain)\b/i;
-
-// ── Athlete name extraction ────────────────────────────────────────
-// Regex: two capitalized words ("FirstName LastName"). Requires first name
-// to have 3+ chars starting with uppercase then lowercase.
-//
-// Known miss rate: this will NOT match all-caps stylized names ("DK Metcalf",
-// "DJ Moore", "TJ Watt") or apostrophe-prefix names ("Za'Darius Smith").
-// Those athletes still arrive via ESPN's structured athlete.displayName feed.
-// Skip-on-failure is the correct behavior — precision over recall.
-const NAME_RE = /\b([A-Z][a-z]{2,})\s+([A-Z][a-zA-Z'.-]+)\b/g;
-
-const NFL_TEAMS = new Set([
-  'Cardinals', 'Falcons', 'Ravens', 'Bills', 'Panthers', 'Bears', 'Bengals', 'Browns',
-  'Cowboys', 'Broncos', 'Lions', 'Packers', 'Texans', 'Colts', 'Jaguars', 'Chiefs',
-  'Raiders', 'Chargers', 'Rams', 'Dolphins', 'Vikings', 'Patriots', 'Saints', 'Giants',
-  'Jets', 'Eagles', 'Steelers', '49ers', 'Seahawks', 'Buccaneers', 'Titans', 'Commanders',
-]);
-
-// Words that look like a first name but aren't — team names, day names,
-// league labels, and common headline words.
-const LEADING_BLOCKLIST = new Set([
-  ...NFL_TEAMS,
-  'NFL', 'National', 'Monday', 'Sunday', 'Thursday', 'Saturday', 'Tuesday', 'Wednesday', 'Friday',
-  'Fantasy', 'Super', 'Injury', 'Report', 'Breaking', 'Update', 'Watch', 'Week',
-  'Sources', 'League', 'Season', 'Coach', 'Pro', 'Wild', 'Hall',
-  'The', 'This', 'That', 'These', 'Those', 'Former', 'After', 'Every', 'Their',
-  'His', 'Her', 'New', 'First', 'Last', 'Best', 'Top', 'Big', 'Round',
-  'College', 'Football', 'Sports', 'Game', 'Reveals', 'Here',
-]);
-
 // Full team names for extractTeam() — short nicknames only, case-sensitive
-const NFL_TEAM_NAMES = [
+export const NFL_TEAM_NAMES = [
   'Cardinals', 'Falcons', 'Ravens', 'Bills', 'Panthers', 'Bears', 'Bengals', 'Browns',
   'Cowboys', 'Broncos', 'Lions', 'Packers', 'Texans', 'Colts', 'Jaguars', 'Chiefs',
   'Raiders', 'Chargers', 'Rams', 'Dolphins', 'Vikings', 'Patriots', 'Saints', 'Giants',
   'Jets', 'Eagles', 'Steelers', '49ers', 'Seahawks', 'Buccaneers', 'Titans', 'Commanders',
 ];
 
+// Words that look like a first name but aren't — NFL team names plus the
+// league label, layered on the sport-agnostic COMMON_BLOCKLIST_WORDS.
+const NFL_BLOCKLIST = buildBlocklist([...NFL_TEAM_NAMES, 'NFL']);
+
 // ── Helpers ────────────────────────────────────────────────────────
 
 function extractAthleteName(title: string, description: string): string | null {
-  for (const text of [title, description]) {
-    if (!text) continue;
-    const matches = [...text.matchAll(NAME_RE)];
-    for (const match of matches) {
-      const first = match[1];
-      if (LEADING_BLOCKLIST.has(first)) continue;
-      // Strip trailing possessive 's (e.g. "Kelly's" → "Kelly")
-      const last = match[2].replace(/'s$/, '');
-      if (last.length < 2) continue;
-      return `${first} ${last}`;
-    }
-  }
-  return null;
+  return extractAthleteNameShared(title, description, NFL_BLOCKLIST);
 }
 
 function extractTeam(text: string): string {
-  for (const team of NFL_TEAM_NAMES) {
-    if (new RegExp(`\\b${team}\\b`).test(text)) return team;
-  }
-  return 'Unknown';
-}
-
-function parseDate(raw: string | undefined): Date | null {
-  if (!raw) return null;
-  const d = new Date(raw);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function getMaxEventAgeMs(): number {
-  const days = parseInt(process.env.MAX_EVENT_AGE_DAYS ?? '', 10);
-  const d = Number.isFinite(days) && days > 0 ? days : 7;
-  return d * 24 * 60 * 60 * 1000;
+  return extractTeamShared(text, NFL_TEAM_NAMES);
 }
 
 function getPollEveryN(): number {

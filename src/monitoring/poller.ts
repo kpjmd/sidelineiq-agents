@@ -140,6 +140,18 @@ interface OtmProjection {
   created_at?: string;
 }
 
+// X-sourced events are held for MD review regardless of confidence score.
+// This is orthogonal to (not a substitute for) the classifier's confidence-
+// vagueness gate: a spoofed but well-written tweet from an impersonator
+// account can score high on information_specificity and still be fake.
+// Gate on source identity, not text quality. Tunable off via
+// X_INSIDER_FORCE_MD_REVIEW=false once impersonation-defense confidence grows.
+export function shouldForceMDReviewForXSource(sourceName: string | undefined): string | undefined {
+  if (!sourceName?.startsWith('X:')) return undefined;
+  if (process.env.X_INSIDER_FORCE_MD_REVIEW === 'false') return undefined;
+  return `x_insider_unverified_source:${sourceName}`;
+}
+
 export function addWeeksIso(baseIso: string, weeks: number): string | null {
   // baseIso may arrive as 'YYYY-MM-DD' OR a full ISO timestamp — the DB DATE
   // column comes back through MCP JSON as 'YYYY-MM-DDT00:00:00.000Z'. new Date
@@ -440,6 +452,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
   // Sequential to avoid races on dedup lookups for the same athlete
   for (const event of events) {
     const context = `${event.athlete_name} (${sport}/${event.team})`;
+    let forceMDReviewReason: string | undefined = shouldForceMDReviewForXSource(event.source_name);
     try {
       if (isObviousNonInjury(event)) {
         summary.pre_filtered++;
@@ -501,7 +514,6 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
         contentTypeHint: classified.content_type,
       });
 
-      let forceMDReviewReason: string | undefined;
       if (!validation.passed) {
         const codes = summarizeFailures(validation.hardFailures);
         console.warn(
@@ -513,7 +525,8 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
       }
       if (validation.softFailures.length > 0) {
         const codes = summarizeFailures(validation.softFailures);
-        forceMDReviewReason = `fact_soft_fail:${codes}`;
+        const reason = `fact_soft_fail:${codes}`;
+        forceMDReviewReason = forceMDReviewReason ? `${forceMDReviewReason},${reason}` : reason;
         summary.soft_failed_fact_validation++;
         console.log(
           `[FactValidator] ${sport} SOFT — ${context} — codes=${codes} (routing to MD review)`,

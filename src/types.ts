@@ -1,4 +1,4 @@
-export type MCPServerName = 'farcaster' | 'twitter' | 'web';
+export type MCPServerName = 'farcaster' | 'twitter' | 'web' | 'x_api';
 
 export type ContentType = 'BREAKING' | 'TRACKING' | 'DEEP_DIVE' | 'CONFLICT_FLAG';
 
@@ -54,6 +54,7 @@ export interface ServerStatusMap {
   farcaster: boolean;
   twitter: boolean;
   web: boolean;
+  x_api: boolean;
 }
 
 export interface MCPToolResult {
