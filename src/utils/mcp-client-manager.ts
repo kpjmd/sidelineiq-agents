@@ -6,6 +6,14 @@ const ENV_MAP: Record<MCPServerName, string> = {
   farcaster: 'FARCASTER_MCP_URL',
   twitter: 'TWITTER_MCP_URL',
   web: 'WEB_MCP_URL',
+  x_api: 'X_API_MCP_URL',
+};
+
+// Servers not listed here authenticate with the shared MCP_AUTH_SECRET (our
+// own sidelineiq-mcp-servers gateway). x_api is X's own hosted MCP server —
+// a different trust boundary — and requires X's app-only bearer token instead.
+const AUTH_ENV_MAP: Partial<Record<MCPServerName, string>> = {
+  x_api: 'X_API_MCP_BEARER_TOKEN',
 };
 
 const clients = new Map<MCPServerName, Client>();
@@ -24,7 +32,7 @@ async function connectWithRetry(
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const abort = AbortSignal.timeout(CONNECT_TIMEOUT_MS);
-      const secret = process.env.MCP_AUTH_SECRET;
+      const secret = process.env[AUTH_ENV_MAP[name] ?? 'MCP_AUTH_SECRET'];
       const headers = secret ? { Authorization: `Bearer ${secret}` } : undefined;
       const transport = new StreamableHTTPClientTransport(new URL(url), {
         requestInit: { signal: abort, headers },
@@ -106,6 +114,7 @@ export function getServerStatus(): ServerStatusMap {
     farcaster: clients.has('farcaster'),
     twitter: clients.has('twitter'),
     web: clients.has('web'),
+    x_api: clients.has('x_api'),
   };
 }
 
