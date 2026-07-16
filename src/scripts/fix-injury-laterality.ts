@@ -83,6 +83,50 @@ function unwrap<T>(res: unknown): T | null {
   }
 }
 
+const PAGE_SIZE = 50;
+
+// The server-side athlete_name/sport filter is the fast path but has never
+// been exercised by any script in this repo before (only unfiltered
+// pagination, per legacy-fact-sweep.ts) — if it returns nothing, fall back to
+// a full paginated scan (the proven-working pattern) and match client-side on
+// the athlete's last name. This tells us definitively whether the filter is
+// the problem or the data genuinely isn't there.
+async function fetchPostsForAthlete(athleteName: string, sport: SportKey): Promise<InjuryPost[]> {
+  const filtered = unwrap<ListPostsResp>(
+    await callTool('web', 'web_list_posts', { athlete_name: athleteName, sport, limit: 200 }),
+  );
+  if (filtered?.posts && filtered.posts.length > 0) {
+    return filtered.posts;
+  }
+
+  console.log('[fix-laterality] server-side athlete_name/sport filter returned 0 — falling back to a full scan');
+  const lastName = athleteName.trim().split(/\s+/).slice(-1)[0]?.toLowerCase() ?? athleteName.toLowerCase();
+  const matched: InjuryPost[] = [];
+  let offset = 0;
+  let scanned = 0;
+  while (true) {
+    const page = unwrap<ListPostsResp>(await callTool('web', 'web_list_posts', { limit: PAGE_SIZE, offset }));
+    if (!page || page.posts.length === 0) break;
+    scanned += page.posts.length;
+    for (const p of page.posts) {
+      if (p.athlete_name?.toLowerCase().includes(lastName)) {
+        matched.push(p);
+      }
+    }
+    if (!page.has_more || page.next_offset === null) break;
+    offset = page.next_offset;
+  }
+  console.log(
+    `[fix-laterality] full scan complete — scanned ${scanned} total post(s), matched ${matched.length} by last name "${lastName}"`,
+  );
+  if (matched.length > 0) {
+    for (const p of matched) {
+      console.log(`[fix-laterality]   match: id=${p.id} athlete_name="${p.athlete_name}" sport=${p.sport} content_type=${p.content_type} created_at=${p.created_at}`);
+    }
+  }
+  return matched;
+}
+
 function parseArgs(argv: string[]) {
   const flag = (name: string, fallback: string) => {
     const prefix = `--${name}=`;
@@ -158,10 +202,7 @@ async function run(): Promise<void> {
   }
   console.log(`[fix-laterality] resolved player_id=${resolveRes.player.player_id}`);
 
-  const listRes = unwrap<ListPostsResp>(
-    await callTool('web', 'web_list_posts', { athlete_name: opts.athlete, sport: opts.sport, limit: 200 }),
-  );
-  const posts = listRes?.posts ?? [];
+  const posts = await fetchPostsForAthlete(opts.athlete, opts.sport);
   console.log(`[fix-laterality] found ${posts.length} post(s) for ${opts.athlete}`);
 
   const report: ReportRow[] = [];
