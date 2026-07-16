@@ -160,7 +160,12 @@ function correctSideOccurrences(
   to: string,
 ): { changed: boolean; text: string } {
   const WINDOW = 4;
-  const tokenRe = /\S+/g;
+  // Tokenize on runs of letters, NOT whitespace — a whitespace-only split
+  // treats "wrist/forearm" as one token that cleans to "wristforearm",
+  // which never equals the body part "wrist", so a slash-joined compound
+  // like "right wrist/forearm surgery" silently fails to match. Splitting
+  // on letter-runs correctly yields separate "wrist" and "forearm" tokens.
+  const tokenRe = /[A-Za-z]+/g;
   const tokens: Array<{ raw: string; start: number; end: number; clean: string }> = [];
   let m: RegExpExecArray | null;
   while ((m = tokenRe.exec(text))) {
@@ -168,7 +173,7 @@ function correctSideOccurrences(
       raw: m[0],
       start: m.index,
       end: m.index + m[0].length,
-      clean: m[0].toLowerCase().replace(/[^a-z]/g, ''),
+      clean: m[0].toLowerCase(),
     });
   }
 
@@ -364,7 +369,30 @@ async function run(): Promise<void> {
       }
     }
   } else if (correctedPostIds.size > 0) {
-    console.warn('[fix-laterality] could not resolve entity for any corrected post — correct manually if needed');
+    console.warn(
+      '[fix-laterality] could not resolve entity via web_get_entity_for_post for any corrected post — checking whether an entity exists for this player at all',
+    );
+    const matchRes = unwrap<{
+      matched: boolean;
+      entity_id: string | null;
+      laterality: string | null;
+    }>(
+      await callTool('web', 'web_find_matching_entity', {
+        player_id: resolveRes.player.player_id,
+        body_part: opts.bodyPart,
+        recency_days: 3650,
+      }),
+    );
+    if (matchRes?.matched && matchRes.entity_id) {
+      console.warn(
+        `[fix-laterality] an entity DOES exist (entity_id=${matchRes.entity_id}, laterality=${matchRes.laterality ?? 'unknown'}) but is not linked to any of the corrected posts — this looks like a post↔entity linkage gap, not a missing entity. Correct entity_id=${matchRes.entity_id} manually, or investigate why web_get_entity_for_post isn't resolving it for these post_ids.`,
+      );
+    } else {
+      console.warn(
+        '[fix-laterality] no entity found for this player at all — entity creation likely never ran for this thread (see maintainEntity() in poller.ts, which fails silently on error). ' +
+          'Try `npx tsx src/scripts/backfill-entities.ts --dry-run` first, which is built exactly for this case (creates/links a missing entity for legacy posts), then re-run this script with --fix-entity.',
+      );
+    }
   }
 
   const csv = [
