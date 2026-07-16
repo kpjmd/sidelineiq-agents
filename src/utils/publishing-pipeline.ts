@@ -6,6 +6,20 @@ import type { InjuryPostContent, PlatformResult, PublishResult } from '../types.
 const DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
 const DEFAULT_MD_REVIEW_THRESHOLD = 0.75;
 
+// Follow-up cadence cooldowns — how long to wait between TRACKING/CONFLICT_FLAG
+// posts for the same entity when nothing materially new has been reported.
+// CONFLICT_FLAG is longer since, by definition, the underlying disagreement
+// (team timeline vs. OTM estimate) typically doesn't resolve for weeks.
+const DEFAULT_CONFLICT_FLAG_COOLDOWN_MS = 14 * 24 * 60 * 60 * 1000;
+const DEFAULT_TRACKING_COOLDOWN_MS = 5 * 24 * 60 * 60 * 1000;
+
+function getCooldownMs(envVar: string, defaultMs: number): number {
+  const raw = process.env[envVar];
+  if (!raw) return defaultMs;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : defaultMs;
+}
+
 // A confidence threshold is only meaningful in (0, 1]. parseFloat silently
 // mangles common misconfigurations — "0,75" (comma decimal) → 0 (gate disabled),
 // "75" (percent) → 75 (everything flagged), negatives (gate disabled) — so we
@@ -52,6 +66,8 @@ interface ExistingPost {
   sport?: string;
   created_at?: string;
   headline?: string;
+  content_type?: string;
+  team_timeline_weeks?: number;
 }
 
 function isDuplicate(content: InjuryPostContent, existingPosts: ExistingPost[]): boolean {
@@ -64,6 +80,56 @@ function isDuplicate(content: InjuryPostContent, existingPosts: ExistingPost[]):
     const postTime = new Date(post.created_at).getTime();
     return now - postTime < DEDUP_WINDOW_MS;
   });
+}
+
+// Throttles TRACKING/CONFLICT_FLAG follow-ups for the same entity when nothing
+// materially new has been reported since the last one — e.g. ESPN refreshing a
+// "day-to-day"/"questionable" status row with no new team-disclosed timeline.
+// A genuine new disclosure (team_timeline_weeks changes) always bypasses the
+// cooldown; only the original/first post for a thread (no parent_post_id) is
+// exempt entirely, since that's never a "follow-up."
+function checkFollowUpCadence(
+  content: InjuryPostContent,
+  existingPosts: ExistingPost[],
+): { throttled: boolean; reason?: string } {
+  if (content.content_type !== 'TRACKING' && content.content_type !== 'CONFLICT_FLAG') {
+    return { throttled: false };
+  }
+  if (!content.parent_post_id) {
+    return { throttled: false };
+  }
+
+  const lastFollowUp = existingPosts
+    .filter((p) => p.athlete_name === content.athlete_name && p.sport === content.sport)
+    .filter((p) => p.content_type === 'TRACKING' || p.content_type === 'CONFLICT_FLAG')
+    .filter((p): p is ExistingPost & { created_at: string } => !!p.created_at)
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+
+  if (!lastFollowUp) return { throttled: false };
+
+  // Material-change override: any change in the team-disclosed timeline
+  // (including a first-time disclosure) always publishes regardless of cooldown.
+  const currentWeeks = content.team_timeline_weeks ?? null;
+  const lastWeeks = lastFollowUp.team_timeline_weeks ?? null;
+  if (currentWeeks !== lastWeeks) {
+    return { throttled: false };
+  }
+
+  const cooldownMs =
+    content.content_type === 'CONFLICT_FLAG'
+      ? getCooldownMs('CONFLICT_FLAG_COOLDOWN_MS', DEFAULT_CONFLICT_FLAG_COOLDOWN_MS)
+      : getCooldownMs('TRACKING_COOLDOWN_MS', DEFAULT_TRACKING_COOLDOWN_MS);
+
+  const age = Date.now() - new Date(lastFollowUp.created_at).getTime();
+  if (age < cooldownMs) {
+    const ageDays = Math.round(age / 86_400_000);
+    const cooldownDays = Math.round(cooldownMs / 86_400_000);
+    return {
+      throttled: true,
+      reason: `follow_up_cooldown: last ${content.content_type} post ${ageDays}d ago (cooldown ${cooldownDays}d), no material change`,
+    };
+  }
+  return { throttled: false };
 }
 
 async function publishToFarcaster(content: InjuryPostContent): Promise<PlatformResult> {
@@ -368,7 +434,7 @@ export async function publishInjuryPost(
   const timestamp = new Date().toISOString();
   const context = `${content.athlete_name} (${content.sport}/${content.team})`;
 
-  // Step 1: Deduplication check
+  // Step 1: Deduplication + follow-up cadence check
   try {
     if (isServerAvailable('web')) {
       const result = await callTool('web', 'web_list_posts', {
@@ -380,15 +446,21 @@ export async function publishInjuryPost(
       // bare array — parseListPostsResponse unwraps both shapes. A plain
       // Array.isArray check here silently yielded [] in production, disabling
       // this fallback dedup entirely.
-      const posts = parseListPostsResponse(result);
-      if (isDuplicate(content, posts as ExistingPost[])) {
+      const posts = parseListPostsResponse(result) as ExistingPost[];
+      if (isDuplicate(content, posts)) {
         console.log(`[Pipeline] Duplicate detected for ${context}, skipping`);
         return { status: 'skipped', reason: 'duplicate', platform_results: [] };
+      }
+
+      const cadence = checkFollowUpCadence(content, posts);
+      if (cadence.throttled) {
+        console.log(`[Pipeline] ${cadence.reason} for ${context}, skipping`);
+        return { status: 'skipped', reason: cadence.reason, platform_results: [] };
       }
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn(`[Pipeline] Dedup check failed for ${context}, proceeding: ${message}`);
+    console.warn(`[Pipeline] Dedup/cadence check failed for ${context}, proceeding: ${message}`);
   }
 
   // Step 2: MD review check (force flag wins over confidence/severity rules)

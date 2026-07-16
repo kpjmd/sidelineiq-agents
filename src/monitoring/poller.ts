@@ -228,6 +228,8 @@ interface ThreadEntityRow {
   surgery_date: string | null;
   surgery_confirmed: boolean;
   status: 'ACTIVE' | 'RESOLVED' | 'RETIRED';
+  body_part: string | null;
+  laterality: 'LEFT' | 'RIGHT' | 'BILATERAL' | 'UNSPECIFIED' | null;
 }
 interface ThreadUpdateRow {
   team_timeline_weeks: number | null;
@@ -324,6 +326,10 @@ async function resolveThreadAndDates(
         surgery_date: entity?.surgery_date ?? resolution.surgery_date,
         surgery_confirmed: entity?.surgery_confirmed ?? resolution.surgery_confirmed,
         status: entity?.status ?? 'ACTIVE',
+        // Prefer the entity's stored (established) values over this event's
+        // freshly-extracted ones — the thread's history is the ground truth.
+        body_part: entity?.body_part ?? metadata.primary_body_part ?? null,
+        laterality: entity?.laterality ?? metadata.laterality ?? null,
         prior_timelines: priorTimelines,
       },
     };
@@ -540,6 +546,25 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
           `[Poller] ${sport} — duplicate skipped: ${context} (decision=${dedup.decision})`,
         );
         continue;
+      }
+
+      // Laterality drift check: the entity match (if any) carries the thread's
+      // established side. If this event's freshly-extracted side contradicts it,
+      // don't let the contradiction silently overwrite the thread — route to review.
+      if (
+        dedup.matchedLaterality &&
+        dedup.matchedLaterality !== 'UNSPECIFIED' &&
+        validation.metadata.laterality !== 'UNSPECIFIED' &&
+        dedup.matchedLaterality !== validation.metadata.laterality
+      ) {
+        console.warn(
+          `[FactValidator] ${sport} — laterality mismatch for ${context}: thread established "${dedup.matchedLaterality}", new report says "${validation.metadata.laterality}" — routing to MD review`,
+        );
+        if (!forceMDReviewReason) {
+          forceMDReviewReason = 'fact_soft_fail:laterality_thread_mismatch';
+        } else if (!forceMDReviewReason.includes('laterality_thread_mismatch')) {
+          forceMDReviewReason = `${forceMDReviewReason},laterality_thread_mismatch`;
+        }
       }
 
       // ── Injury Thread Manager: resolve dates + assemble thread (pre-OTM) ──

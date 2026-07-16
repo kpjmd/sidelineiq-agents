@@ -291,14 +291,38 @@ function extractBodyParts(text: string): string[] {
   return BODY_PARTS.filter((p) => new RegExp(`\\b${p}\\b`).test(lower));
 }
 
+// A body-part lookup set for proximity matching below.
+const BODY_PART_SET = new Set<string>(BODY_PARTS);
+
+// Word-proximity window: "left"/"right" only counts as laterality when a
+// recognized body part appears within this many words on either side.
+// Prevents whole-string keyword matching from misreading non-anatomical uses
+// like "left the floor" or "left the game" as a laterality signal — see
+// skills/references/content-templates.md's own example: "Morant left the
+// floor grabbing his right knee" (verb "left", unrelated to the injury side).
+const LATERALITY_PROXIMITY_WINDOW = 4;
+
 function extractLaterality(text: string): 'left' | 'right' | 'bilateral' | null {
   const lower = text.toLowerCase();
   if (/\bbilateral\b/.test(lower)) return 'bilateral';
-  const left = /\bleft\b/.test(lower);
-  const right = /\bright\b/.test(lower);
-  if (left && right) return 'bilateral';
-  if (left) return 'left';
-  if (right) return 'right';
+
+  const words = lower.split(/\s+/).map((w) => w.replace(/[^a-z]/g, ''));
+  let sawLeft = false;
+  let sawRight = false;
+
+  for (let i = 0; i < words.length; i++) {
+    if (words[i] !== 'left' && words[i] !== 'right') continue;
+    const start = Math.max(0, i - LATERALITY_PROXIMITY_WINDOW);
+    const end = Math.min(words.length, i + LATERALITY_PROXIMITY_WINDOW + 1);
+    const nearbyHasBodyPart = words.slice(start, end).some((w) => BODY_PART_SET.has(w));
+    if (!nearbyHasBodyPart) continue;
+    if (words[i] === 'left') sawLeft = true;
+    else sawRight = true;
+  }
+
+  if (sawLeft && sawRight) return 'bilateral';
+  if (sawLeft) return 'left';
+  if (sawRight) return 'right';
   return null;
 }
 

@@ -42,6 +42,11 @@ export interface DedupResult {
   existingPostId?: string;
   // Set when an entity matched (whether or not we treat it as duplicate).
   entityId?: string;
+  // The entity's stored body_part/laterality, when a match occurred — the thread's
+  // established facts, as opposed to whatever this new event's text says. Callers
+  // use this to detect and flag laterality drift across a thread.
+  matchedBodyPart?: string | null;
+  matchedLaterality?: 'LEFT' | 'RIGHT' | 'BILATERAL' | 'UNSPECIFIED' | null;
   // Diagnostic — what path made the decision.
   decision?: 'entity_match_skip' | 'entity_match_pass_through' | 'entity_miss' | 'fallback_24h' | 'no_match';
 }
@@ -171,6 +176,8 @@ async function entityAwareDedup(
       isDuplicate: false,
       existingPostId: match.canonical_post_id ?? undefined,
       entityId: match.entity_id,
+      matchedBodyPart: match.body_part,
+      matchedLaterality: match.laterality,
       decision: 'entity_match_pass_through',
     };
   }
@@ -180,6 +187,8 @@ async function entityAwareDedup(
     isDuplicate: true,
     existingPostId: match.canonical_post_id ?? undefined,
     entityId: match.entity_id,
+    matchedBodyPart: match.body_part,
+    matchedLaterality: match.laterality,
     decision: 'entity_match_skip',
   };
 }

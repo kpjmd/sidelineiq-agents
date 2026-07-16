@@ -257,6 +257,11 @@ export interface InjuryThreadContext {
   surgery_date: string | null;
   surgery_confirmed: boolean;
   status: 'ACTIVE' | 'RESOLVED' | 'RETIRED';
+  // The thread's established body part/side, set once when the entity was
+  // first created. Anchors Sonnet against silently flipping the side on a
+  // later report (each event is otherwise independently re-read from raw text).
+  body_part: string | null;
+  laterality: 'LEFT' | 'RIGHT' | 'BILATERAL' | 'UNSPECIFIED' | null;
   // Oldest→newest reported timelines for this injury (includes the current event).
   prior_timelines: Array<{
     reported_weeks: number | null;
@@ -302,11 +307,16 @@ export async function processInjuryEvent(
 
     // Prepend thread context when the Injury Thread Manager supplied it. When
     // `thread` is undefined this is '' → the prompt is byte-identical to before.
+    const establishedSide =
+      thread && thread.laterality && thread.laterality !== 'UNSPECIFIED'
+        ? `${thread.laterality} ${thread.body_part ?? 'side'}`.trim()
+        : null;
+
     const threadBlock = thread
       ? `[INJURY THREAD CONTEXT]
 This athlete has an existing tracked injury thread for this injury.
 Resolved injury date: ${thread.injury_date ?? 'not yet resolved'} (confidence: ${thread.injury_date_confidence})
-${thread.surgery_date ? `Surgery date: ${thread.surgery_date}${thread.surgery_confirmed ? ' (confirmed)' : ' (unconfirmed)'}\n` : ''}${
+${establishedSide ? `Established injury: ${establishedSide} (from prior reporting on this thread). Do not contradict this side without an explicit correction signal in the new source (e.g., "corrected to left wrist", "previously misreported").\n` : ''}${thread.surgery_date ? `Surgery date: ${thread.surgery_date}${thread.surgery_confirmed ? ' (confirmed)' : ' (unconfirmed)'}\n` : ''}${
           thread.prior_timelines.length
             ? `Prior reported timelines (oldest→newest): ${thread.prior_timelines
                 .map(
