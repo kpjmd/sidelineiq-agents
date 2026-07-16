@@ -22,14 +22,13 @@ export interface XInsider {
 
 export const X_INSIDER_ALLOWLIST: Record<'NFL' | 'NBA', XInsider[]> = {
   NFL: [
-    // TODO: replace REPLACE_ME with each account's real numeric user ID
-    // (resolve once via the X MCP user-lookup tool, then hardcode).
-    { userId: 'REPLACE_ME', handle: 'AdamSchefter', displayName: 'Adam Schefter' },
-    { userId: 'REPLACE_ME', handle: 'RapSheet', displayName: 'Ian Rapoport' },
-    { userId: 'REPLACE_ME', handle: 'TomPelissero', displayName: 'Tom Pelissero' },
+    // Resolved via the X MCP get_users_by_usernames tool.
+    { userId: '51263592', handle: 'AdamSchefter', displayName: 'Adam Schefter' },
+    { userId: '16403943', handle: 'RapSheet', displayName: 'Ian Rapoport' },
+    { userId: '36089053', handle: 'TomPelissero', displayName: 'Tom Pelissero' },
   ],
   NBA: [
-    { userId: 'REPLACE_ME', handle: 'wojespn', displayName: 'Adrian Wojnarowski' },
-    { userId: 'REPLACE_ME', handle: 'ShamsCharania', displayName: 'Shams Charania' },
+    { userId: '50323173', handle: 'wojespn', displayName: 'Adrian Wojnarowski' },
+    { userId: '178580925', handle: 'ShamsCharania', displayName: 'Shams Charania' },
   ],
 };

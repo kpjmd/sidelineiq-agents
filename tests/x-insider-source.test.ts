@@ -87,6 +87,45 @@ describe('XInsiderNFLSource', () => {
     expect(events).toHaveLength(0);
   });
 
+  it('drops a pure retweet even if its text matches an injury keyword — a retweeted report is not the insider\'s own', async () => {
+    mockCallTool.mockResolvedValue(
+      timelineEnvelope([
+        {
+          id: 't1',
+          text: 'RT @SomeoneElse: Patrick Mahomes out with torn ACL',
+          created_at: new Date().toISOString(),
+          author_id: '111', // X sets this to the retweeter, not the original author
+          referenced_tweets: [{ id: 'orig-1', type: 'retweeted' }],
+        },
+      ])
+    );
+
+    const source = new XInsiderNFLSource();
+    const events = await source.fetchLatestEvents();
+    expect(events).toHaveLength(0);
+  });
+
+  it('keeps a quote-tweet, since its top-level text is the insider\'s own commentary', async () => {
+    mockCallTool.mockImplementation(async (_server, _tool, params) => {
+      if (params.id === '111') {
+        return timelineEnvelope([
+          {
+            id: 't1',
+            text: 'Confirmed: Patrick Mahomes suffers torn ACL, out for season',
+            created_at: new Date().toISOString(),
+            author_id: '111',
+            referenced_tweets: [{ id: 'orig-1', type: 'quoted' }],
+          },
+        ]);
+      }
+      return timelineEnvelope([]);
+    });
+
+    const source = new XInsiderNFLSource();
+    const events = await source.fetchLatestEvents();
+    expect(events).toHaveLength(1);
+  });
+
   it('never throws when callTool rejects — returns [] for that insider', async () => {
     mockCallTool.mockRejectedValue(new Error('network error'));
 

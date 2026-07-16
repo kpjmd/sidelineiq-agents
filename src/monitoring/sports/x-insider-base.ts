@@ -9,10 +9,16 @@ import {
   getMaxEventAgeMs,
 } from './text-extraction.js';
 
-// VERIFY against the live X MCP server's tools/list before go-live — X's tool
-// names are auto-generated from their OpenAPI spec and not fully documented
-// publicly. Overridable without a redeploy if X renames it.
-const TIMELINE_TOOL = process.env.X_API_TIMELINE_TOOL_NAME || 'getUsersIdTweets';
+// Verified against the live X MCP server's tools/list (2026-07-16):
+// get_users_posts — a user's own authored posts, not get_users_timeline
+// (which is that user's home/following feed — wrong semantics for us).
+// Overridable without a redeploy if X renames it.
+const TIMELINE_TOOL = process.env.X_API_TIMELINE_TOOL_NAME || 'get_users_posts';
+
+// X API v2 only returns created_at/author_id when explicitly requested —
+// both fields are required by parseTweets() below (age filtering, spoofing
+// defense-in-depth), so this must be sent on every call.
+const POST_FIELDS = 'created_at,author_id';
 
 const MAX_FETCH_RETRIES = 3;
 
@@ -21,14 +27,14 @@ interface XApiTweet {
   text?: string;
   created_at?: string;
   author_id?: string;
+  referenced_tweets?: Array<{ id?: string; type?: string }>;
 }
 
 /**
  * Unwraps the standard MCP tool-result content envelope, then the X API v2
  * timeline shape (`{ data: [...tweets] }`). Falls back to treating the
  * parsed payload as the tweet array directly, in case the live server
- * returns an unwrapped array — confirm the real shape during the dry-run
- * verification step before this source is wired into production polling.
+ * returns an unwrapped array. Verified against the live server 2026-07-16.
  */
 function parseTimelineResponse(raw: unknown): XApiTweet[] {
   try {
@@ -105,6 +111,7 @@ export abstract class XInsiderSource implements SportDataSource {
       const raw = await callTool('x_api', TIMELINE_TOOL, {
         id: insider.userId, // numeric ID only — never pass insider.handle here
         max_results: Number(process.env.X_INSIDER_MAX_RESULTS_PER_USER ?? '5'),
+        'post.fields': POST_FIELDS,
       });
       return this.parseTweets(parseTimelineResponse(raw), insider);
     } catch (err) {
@@ -126,6 +133,14 @@ export abstract class XInsiderSource implements SportDataSource {
     const now = Date.now();
 
     for (const tweet of tweets) {
+      // Pure retweets carry the retweeter's author_id even though the words
+      // are someone else's — an insider retweeting another account's report
+      // is not the same signal as reporting it themselves, and the author_id
+      // check below would not catch this (X sets it to the retweeter, not
+      // the original author). Quote-tweets are fine to keep: their top-level
+      // text is the insider's own added commentary.
+      if (tweet.referenced_tweets?.some((rt) => rt.type === 'retweeted')) continue;
+
       const text = tweet.text ?? '';
       if (!INJURY_KEYWORD_RE.test(text)) continue;
 
