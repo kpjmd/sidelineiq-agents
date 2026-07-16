@@ -145,31 +145,61 @@ function parseArgs(argv: string[]) {
 }
 
 // Whole-word, case-preserving replacement of the wrong side with the correct
-// one, only within FIELD_TEXT — never touches unrelated words.
-function replaceSide(text: string, from: string, to: string): string {
-  const re = new RegExp(`\\b${from}\\b`, 'gi');
-  return text.replace(re, (match) => {
-    if (match === match.toUpperCase()) return to.toUpperCase();
-    if (match[0] === match[0].toUpperCase()) return to[0].toUpperCase() + to.slice(1).toLowerCase();
-    return to.toLowerCase();
-  });
-}
-
-// Only treat a field as needing correction when the wrong-side word and the
-// target body part appear near each other — avoids rewriting an unrelated
-// "right" elsewhere in the same paragraph (e.g. "right on schedule").
-function fieldNeedsCorrection(text: string, bodyPart: string, from: string): boolean {
-  const lower = text.toLowerCase();
-  const words = lower.split(/\s+/).map((w) => w.replace(/[^a-z]/g, ''));
-  const fromLower = from.toLowerCase();
+// one, but ONLY for occurrences of `from` that sit near the target body part
+// — checked per-occurrence, not once for the whole field. A field-level check
+// (any "right" near "wrist" anywhere → replace every "right" in the field) is
+// wrong: it also rewrites unrelated occurrences like "make the right call"
+// (an idiom, not a laterality claim) into "make the left call" — a real bug
+// caught reviewing a --dry-run report against a DEEP_DIVE post, which used
+// "right" once for the injury side and once idiomatically. Body-part-adjacent
+// occurrences (e.g. "his right wrist") are still corrected; distant ones are not.
+function correctSideOccurrences(
+  text: string,
+  bodyPart: string,
+  from: string,
+  to: string,
+): { changed: boolean; text: string } {
   const WINDOW = 4;
-  for (let i = 0; i < words.length; i++) {
-    if (words[i] !== fromLower) continue;
-    const start = Math.max(0, i - WINDOW);
-    const end = Math.min(words.length, i + WINDOW + 1);
-    if (words.slice(start, end).some((w) => w === bodyPart)) return true;
+  const tokenRe = /\S+/g;
+  const tokens: Array<{ raw: string; start: number; end: number; clean: string }> = [];
+  let m: RegExpExecArray | null;
+  while ((m = tokenRe.exec(text))) {
+    tokens.push({
+      raw: m[0],
+      start: m.index,
+      end: m.index + m[0].length,
+      clean: m[0].toLowerCase().replace(/[^a-z]/g, ''),
+    });
   }
-  return false;
+
+  const fromLower = from.toLowerCase();
+  const replaceIndices: number[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i].clean !== fromLower) continue;
+    const start = Math.max(0, i - WINDOW);
+    const end = Math.min(tokens.length, i + WINDOW + 1);
+    if (tokens.slice(start, end).some((t) => t.clean === bodyPart)) {
+      replaceIndices.push(i);
+    }
+  }
+
+  if (replaceIndices.length === 0) return { changed: false, text };
+
+  const wordRe = new RegExp(`\\b${from}\\b`, 'i');
+  let result = '';
+  let cursor = 0;
+  for (const idx of replaceIndices) {
+    const tok = tokens[idx];
+    result += text.slice(cursor, tok.start);
+    result += tok.raw.replace(wordRe, (match) => {
+      if (match === match.toUpperCase()) return to.toUpperCase();
+      if (match[0] === match[0].toUpperCase()) return to[0].toUpperCase() + to.slice(1).toLowerCase();
+      return to.toLowerCase();
+    });
+    cursor = tok.end;
+  }
+  result += text.slice(cursor);
+  return { changed: true, text: result };
 }
 
 interface ReportRow {
@@ -213,11 +243,8 @@ async function run(): Promise<void> {
     for (const field of FIELDS) {
       const value = post[field];
       if (!value) continue;
-      if (!fieldNeedsCorrection(value, opts.bodyPart, opts.from)) {
-        continue;
-      }
-      const newValue = replaceSide(value, opts.from, opts.to);
-      if (newValue === value) continue;
+      const { changed, text: newValue } = correctSideOccurrences(value, opts.bodyPart, opts.from, opts.to);
+      if (!changed || newValue === value) continue;
 
       if (opts.dryRun) {
         report.push({
@@ -293,37 +320,51 @@ async function run(): Promise<void> {
   // established call shape for this in the codebase (web_apply_correction has
   // only ever been called with a post_id target) — report it either way, and
   // only attempt a live call behind the explicit --fix-entity flag.
-  const firstCorrected = posts.find((p) => report.some((r) => r.post_id === p.id && r.action !== 'skipped_no_match'));
-  if (firstCorrected) {
-    const entityRes = unwrap<{ entity: { id: string; laterality?: string } | null }>(
-      await callTool('web', 'web_get_entity_for_post', { post_id: firstCorrected.id }),
+  //
+  // DEEP_DIVE posts are topic-level (educational content about an injury
+  // type across multiple athletes) and are not linked to a per-athlete
+  // injury_entities thread the way BREAKING/TRACKING/CONFLICT_FLAG posts are
+  // — web_get_entity_for_post correctly returns nothing for them. Try every
+  // corrected post, not just the first in list order, until one resolves.
+  const correctedPostIds = new Set(
+    report.filter((r) => r.action !== 'skipped_no_match').map((r) => r.post_id),
+  );
+  let entityRes: { entity: { id: string; laterality?: string } | null } | null = null;
+  for (const post of posts) {
+    if (!correctedPostIds.has(post.id)) continue;
+    const res = unwrap<{ entity: { id: string; laterality?: string } | null }>(
+      await callTool('web', 'web_get_entity_for_post', { post_id: post.id }),
     );
-    if (entityRes?.entity) {
-      console.log(
-        `[fix-laterality] entity_id=${entityRes.entity.id} stored laterality=${entityRes.entity.laterality ?? 'unknown'} — ` +
-          (opts.fixEntity && !opts.dryRun
-            ? 'attempting live correction'
-            : 'NOT corrected automatically (pass --fix-entity on a live run, or correct manually)'),
-      );
-      if (opts.fixEntity && !opts.dryRun) {
-        try {
-          await callTool('web', 'web_apply_correction', {
-            entity_id: entityRes.entity.id,
-            field: 'laterality',
-            new_value: opts.to,
-            note: `entity laterality corrected from ${opts.from} to ${opts.to} (fix-injury-laterality script)`,
-          });
-          console.log(`[fix-laterality] entity ${entityRes.entity.id} laterality correction call sent — verify result manually`);
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          console.error(
-            `[fix-laterality] entity correction call failed for entity=${entityRes.entity.id}: ${message} — correct manually`,
-          );
-        }
-      }
-    } else {
-      console.warn('[fix-laterality] could not resolve entity for the corrected thread — correct manually if needed');
+    if (res?.entity) {
+      entityRes = res;
+      break;
     }
+  }
+  if (entityRes?.entity) {
+    console.log(
+      `[fix-laterality] entity_id=${entityRes.entity.id} stored laterality=${entityRes.entity.laterality ?? 'unknown'} — ` +
+        (opts.fixEntity && !opts.dryRun
+          ? 'attempting live correction'
+          : 'NOT corrected automatically (pass --fix-entity on a live run, or correct manually)'),
+    );
+    if (opts.fixEntity && !opts.dryRun) {
+      try {
+        await callTool('web', 'web_apply_correction', {
+          entity_id: entityRes.entity.id,
+          field: 'laterality',
+          new_value: opts.to,
+          note: `entity laterality corrected from ${opts.from} to ${opts.to} (fix-injury-laterality script)`,
+        });
+        console.log(`[fix-laterality] entity ${entityRes.entity.id} laterality correction call sent — verify result manually`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(
+          `[fix-laterality] entity correction call failed for entity=${entityRes.entity.id}: ${message} — correct manually`,
+        );
+      }
+    }
+  } else if (correctedPostIds.size > 0) {
+    console.warn('[fix-laterality] could not resolve entity for any corrected post — correct manually if needed');
   }
 
   const csv = [
