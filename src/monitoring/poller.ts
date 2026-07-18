@@ -16,6 +16,7 @@ import {
   getDeferConfig,
 } from '../agents/injury-intelligence/significance.js';
 import { evictExpired, handleDeferDecision } from './defer-queue.js';
+import { maybeProposeReturnWatch } from './return-watch.js';
 import { callTool, isServerAvailable } from '../utils/mcp-client-manager.js';
 import {
   validateEvent,
@@ -222,6 +223,16 @@ async function maintainEntity(
         entity_id: entityId,
         otm_projection: opts.otmProjection,
       });
+    }
+    try {
+      await maybeProposeReturnWatch(entityId, updateKind, {
+        athleteName: event.athlete_name,
+        sport: event.sport,
+        sourceUrl: event.source_url,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[EntityMaint] Return Watch check failed for entity=${entityId}: ${message}`);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

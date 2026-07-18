@@ -1,4 +1,5 @@
 import { callTool, isServerAvailable } from '../utils/mcp-client-manager.js';
+import { maybeProposeReturnWatch } from './return-watch.js';
 import type { RawInjuryEvent } from '../types.js';
 import type {
   ExtractedInjuryMetadata,
@@ -168,6 +169,17 @@ async function entityAwareDedup(
     console.warn(
       `[Dedup] entity update append failed for entity=${match.entity_id}: ${message}`,
     );
+  }
+
+  try {
+    await maybeProposeReturnWatch(match.entity_id, updateKind, {
+      athleteName: event.athlete_name,
+      sport: event.sport,
+      sourceUrl: event.source_url,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[Dedup] Return Watch check failed for entity=${match.entity_id}: ${message}`);
   }
 
   // is_update from ESPN means "this is a status change" → allow a TRACKING post.
