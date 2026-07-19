@@ -3,7 +3,7 @@ import { ESPNInjurySource, type ESPNTeam, type ESPNRosterAthlete } from './sport
 import { ESPNNFLSource } from './sports/espn-nfl.js';
 import { ESPNNBASource } from './sports/espn-nba.js';
 import { ESPNPremierLeagueSource } from './sports/espn-premier-league.js';
-import { callTool } from '../utils/mcp-client-manager.js';
+import { callToolWithRetry } from '../utils/mcp-client-manager.js';
 
 // ESPN roster endpoints exist for NFL/NBA/PremierLeague but not UFC
 // (fighters aren't team-rostered). UFC fact validation handles names without
@@ -33,7 +33,7 @@ interface UpsertTeamResponse {
 
 async function upsertTeam(sport: SportKey, t: ESPNTeam): Promise<string | null> {
   try {
-    const res = (await callTool('web', 'web_upsert_team', {
+    const res = (await callToolWithRetry('web', 'web_upsert_team', {
       sport,
       espn_team_id: t.espn_team_id,
       name: t.name,
@@ -58,7 +58,7 @@ async function upsertPlayer(
   a: ESPNRosterAthlete,
 ): Promise<boolean> {
   try {
-    await callTool('web', 'web_upsert_player', {
+    await callToolWithRetry('web', 'web_upsert_player', {
       sport,
       espn_athlete_id: a.espn_athlete_id,
       full_name: a.full_name,

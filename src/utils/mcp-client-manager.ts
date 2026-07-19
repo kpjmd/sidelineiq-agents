@@ -105,6 +105,32 @@ export async function callTool(
   }
 }
 
+export async function callToolWithRetry(
+  server: MCPServerName,
+  toolName: string,
+  params: Record<string, unknown>,
+  maxRetries = MAX_RETRIES
+): Promise<unknown> {
+  let lastError: Error | undefined;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await callTool(server, toolName, params);
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt < maxRetries) {
+        const delay = BASE_DELAY_MS * Math.pow(2, attempt - 1);
+        console.warn(
+          `[MCP] ${server}.${toolName} attempt ${attempt}/${maxRetries} failed — retrying in ${delay}ms`
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+  }
+
+  throw lastError ?? new Error(`${server}.${toolName} failed after ${maxRetries} attempts`);
+}
+
 export function isServerAvailable(server: MCPServerName): boolean {
   return clients.has(server);
 }
