@@ -28,12 +28,12 @@ const TEST_CONFIG = {
     DEEP_DIVE:     { process: 40, defer: 25 },
     CONFLICT_FLAG: { always_process: true },
   },
-  sport_multipliers: {
+  sport_seasons: {
     NBA: [
-      { window: 'playoffs', from: '04-15', to: '06-30', multiplier: 1.1 },
+      { window: 'playoffs', from: '04-15', to: '06-30', threshold_delta: -5 },
     ],
   },
-  default_sport_multiplier: 1.0,
+  default_threshold_delta: 0,
   defer: {
     ttl_hours: 6,
     promotion_cap: 3,
@@ -64,7 +64,8 @@ function makeClassified(overrides: Partial<ClassificationResult> = {}): Classifi
     },
     significance: {
       raw_score: 40,
-      sport_multiplier: 1.0,
+      season_window: 'none',
+      season_threshold_delta: 0,
       composite_score: 40,
       triage_decision: 'DEFER',
       athlete_tier: 2,
@@ -228,7 +229,8 @@ describe('handleDeferDecision — corroboration', () => {
     const highScoreClassified = makeClassified({
       significance: {
         raw_score: 58,
-        sport_multiplier: 1.1,
+        season_window: 'playoffs',
+        season_threshold_delta: -5,
         composite_score: 64,  // close enough to trigger with bonus
         triage_decision: 'DEFER',
         athlete_tier: 2,

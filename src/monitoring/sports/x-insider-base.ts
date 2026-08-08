@@ -1,6 +1,6 @@
 import { callTool, isServerAvailable } from '../../utils/mcp-client-manager.js';
 import type { RawInjuryEvent, SportKey } from '../../types.js';
-import type { SportDataSource } from './multi-source.js';
+import type { SportDataSource, SourceFetchReport } from './multi-source.js';
 import type { XInsider } from '../../config/x-insiders.js';
 import {
   INJURY_KEYWORD_RE,
@@ -67,10 +67,20 @@ export abstract class XInsiderSource implements SportDataSource {
   protected abstract readonly blocklist: Set<string>;
   private cycleCount = 0;
 
+  private report: SourceFetchReport = { status: 'skipped' };
+
+  lastFetchReport(): SourceFetchReport {
+    return this.report;
+  }
+
   async fetchLatestEvents(): Promise<RawInjuryEvent[]> {
-    if (process.env.X_INSIDER_SOURCE_ENABLED === 'false') return [];
+    if (process.env.X_INSIDER_SOURCE_ENABLED === 'false') {
+      this.report = { status: 'skipped', detail: 'disabled' };
+      return [];
+    }
     if (!isServerAvailable('x_api')) {
       console.warn(`[${this.name}] x_api MCP unavailable — skipping`);
+      this.report = { status: 'skipped', detail: 'x_api MCP unavailable' };
       return [];
     }
 
@@ -78,6 +88,7 @@ export abstract class XInsiderSource implements SportDataSource {
     const cycle = this.cycleCount++;
     if (cycle % n !== 0) {
       console.log(`[${this.name}] skipping cycle ${cycle} (runs every ${n})`);
+      this.report = { status: 'skipped', detail: `off-cycle ${cycle % n}/${n}` };
       return [];
     }
 
@@ -89,20 +100,36 @@ export abstract class XInsiderSource implements SportDataSource {
       return true;
     });
 
+    if (activeInsiders.length === 0) {
+      this.report = { status: 'skipped', detail: 'no insiders configured' };
+      return [];
+    }
+
     const results = await Promise.allSettled(
       activeInsiders.map((insider) => this.fetchForInsider(insider))
     );
 
     const events: RawInjuryEvent[] = [];
+    let failed = 0;
     results.forEach((result, idx) => {
       if (result.status === 'fulfilled') {
         events.push(...result.value);
       } else {
+        failed++;
         console.warn(`[${this.name}] ${activeInsiders[idx].handle} failed: ${result.reason}`);
       }
     });
 
     console.log(`[${this.name}] ${events.length} events after filtering (${activeInsiders.length} insiders polled)`);
+    // Partial insider failures are worth surfacing without treating the whole
+    // source as down; a total failure is a real error.
+    if (failed === activeInsiders.length) {
+      this.report = { status: 'error', detail: `all ${failed} insiders failed` };
+    } else if (failed > 0) {
+      this.report = { status: 'degraded', detail: `${failed}/${activeInsiders.length} insiders failed` };
+    } else {
+      this.report = events.length > 0 ? { status: 'ok' } : { status: 'empty' };
+    }
     return events;
   }
 

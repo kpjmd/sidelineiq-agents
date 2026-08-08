@@ -61,6 +61,8 @@ describe('publishInjuryPost', () => {
     expect(result.status).toBe('published');
     expect(result.platform_results).toHaveLength(3);
     expect(result.platform_results.every((r) => r.success)).toBe(true);
+    // The poller gates entity maintenance on this — see poller.ts maintainEntity call.
+    expect(result.post_id).toBe('post-abc-123');
 
     // Sequence: dedup + web create + farcaster + twitter + web update = 5 calls
     expect(mockCallTool).toHaveBeenCalledTimes(5);
@@ -83,6 +85,7 @@ describe('publishInjuryPost', () => {
 
     expect(result.status).toBe('pending_review');
     expect(result.reason).toContain('confidence');
+    expect(result.post_id).toBe('post-abc-123');
 
     const callArgs = mockCallTool.mock.calls.map((c) => `${c[0]}.${c[1]}`);
     expect(callArgs).not.toContain('farcaster.farcaster_publish_cast');
@@ -119,6 +122,8 @@ describe('publishInjuryPost', () => {
 
     expect(result.status).toBe('skipped');
     expect(result.reason).toBe('duplicate');
+    // No post was created, so no entity maintenance should be attempted.
+    expect(result.post_id).toBeUndefined();
     expect(mockCallTool).toHaveBeenCalledTimes(1);
   });
 
@@ -141,6 +146,8 @@ describe('publishInjuryPost', () => {
     // No hash write-back since web create failed (no post ID)
     const callTools = mockCallTool.mock.calls.map((c) => c[1]);
     expect(callTools).not.toContain('web_update_injury_post');
+    // ...and nothing to hang an entity off, so the poller must skip maintenance.
+    expect(result.post_id).toBeUndefined();
   });
 
   it('continues publishing when one platform is unavailable', async () => {

@@ -1,5 +1,5 @@
 import type { RawInjuryEvent, SportKey } from '../../types.js';
-import type { SportDataSource } from './multi-source.js';
+import type { SportDataSource, SourceFetchReport } from './multi-source.js';
 
 /**
  * Shared shape for ESPN's per-sport injury endpoints.
@@ -132,6 +132,12 @@ export abstract class ESPNInjurySource implements SportDataSource {
   // Used to build roster endpoint URLs. Override per sport.
   protected readonly leaguePath: string | null = null;
 
+  private report: SourceFetchReport = { status: 'empty' };
+
+  lastFetchReport(): SourceFetchReport {
+    return this.report;
+  }
+
   async fetchLatestEvents(): Promise<RawInjuryEvent[]> {
     try {
       const res = await fetch(this.url, {
@@ -139,15 +145,29 @@ export abstract class ESPNInjurySource implements SportDataSource {
       });
       if (!res.ok) {
         console.warn(`[${this.name}] HTTP ${res.status} from ${this.url}`);
+        this.report = { status: 'error', detail: `HTTP ${res.status}` };
         return [];
       }
       const feed = (await res.json()) as ESPNInjuryFeed;
-      return this.parse(feed);
+      const events = this.parse(feed);
+      // An upstream that answers 200 with an empty feed is a data gap, not a
+      // failure — ESPN's soccer injuries endpoint does exactly this. Reporting
+      // it as 'empty' rather than staying silent is what surfaces the gap.
+      this.report =
+        events.length > 0 ? { status: 'ok' } : { status: 'empty', detail: this.emptyDetail(feed) };
+      return events;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.warn(`[${this.name}] fetch failed: ${message}`);
+      this.report = { status: 'error', detail: message.slice(0, 80) };
       return [];
     }
+  }
+
+  /** Distinguishes "upstream sent no rows" from "our filters removed them all". */
+  private emptyDetail(feed: ESPNInjuryFeed): string {
+    const rows = (feed.injuries ?? []).reduce((n, g) => n + (g.injuries?.length ?? 0), 0);
+    return rows === 0 ? 'no rows upstream' : `${rows} rows filtered out`;
   }
 
   protected parse(feed: ESPNInjuryFeed): RawInjuryEvent[] {

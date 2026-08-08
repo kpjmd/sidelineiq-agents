@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   computeRawScore,
   decideTriage,
-  resolveSportMultiplier,
+  resolveSeasonDelta,
   lookupAthleteTier,
   computeFingerprint,
   computeSignificance,
@@ -24,18 +24,18 @@ const TEST_CONFIG = {
     DEEP_DIVE:     { process: 40, defer: 25 },
     CONFLICT_FLAG: { always_process: true },
   },
-  sport_multipliers: {
+  sport_seasons: {
     NFL: [
-      { window: 'offseason',      from: '03-01', to: '08-31', multiplier: 0.7 },
-      { window: 'regular_season', from: '09-01', to: '02-28', multiplier: 1.0 },
+      { window: 'offseason',      from: '03-01', to: '08-31', threshold_delta:  5 },
+      { window: 'regular_season', from: '09-01', to: '02-28', threshold_delta:  0 },
     ],
     NBA: [
-      { window: 'playoffs',       from: '04-15', to: '06-30', multiplier: 1.1 },
-      { window: 'regular_season', from: '10-15', to: '04-14', multiplier: 1.0 },
-      { window: 'offseason',      from: '07-01', to: '10-14', multiplier: 0.7 },
+      { window: 'playoffs',       from: '04-15', to: '06-30', threshold_delta: -5 },
+      { window: 'regular_season', from: '10-15', to: '04-14', threshold_delta:  0 },
+      { window: 'offseason',      from: '07-01', to: '10-14', threshold_delta:  5 },
     ],
   },
-  default_sport_multiplier: 1.0,
+  default_threshold_delta: 0,
   defer: {
     ttl_hours: 6,
     promotion_cap: 3,
@@ -98,42 +98,56 @@ describe('computeRawScore', () => {
   });
 });
 
-// ── resolveSportMultiplier ───────────────────────────────────────────────────
+// ── resolveSeasonDelta ───────────────────────────────────────────────────────
 
-describe('resolveSportMultiplier', () => {
-  it('applies NFL offseason multiplier in April', () => {
-    const date = new Date('2026-04-29');
-    expect(resolveSportMultiplier('NFL', date)).toBe(0.7);
+describe('resolveSeasonDelta', () => {
+  it('raises the bar during the NFL offseason in April', () => {
+    expect(resolveSeasonDelta('NFL', new Date('2026-04-29'))).toEqual({
+      window: 'offseason',
+      delta: 5,
+    });
   });
 
-  it('applies NFL regular season multiplier in October', () => {
-    const date = new Date('2026-10-15');
-    expect(resolveSportMultiplier('NFL', date)).toBe(1.0);
+  it('leaves the bar alone during the NFL regular season in October', () => {
+    expect(resolveSeasonDelta('NFL', new Date('2026-10-15'))).toEqual({
+      window: 'regular_season',
+      delta: 0,
+    });
   });
 
-  it('applies NFL regular season multiplier in January (year-wrap window)', () => {
-    const date = new Date('2027-01-15');
-    expect(resolveSportMultiplier('NFL', date)).toBe(1.0);
+  it('resolves the NFL regular season in January (year-wrap window)', () => {
+    expect(resolveSeasonDelta('NFL', new Date('2027-01-15'))).toEqual({
+      window: 'regular_season',
+      delta: 0,
+    });
   });
 
-  it('applies NBA playoffs multiplier in May', () => {
-    const date = new Date('2026-05-10');
-    expect(resolveSportMultiplier('NBA', date)).toBe(1.1);
+  it('lowers the bar during the NBA playoffs in May', () => {
+    expect(resolveSeasonDelta('NBA', new Date('2026-05-10'))).toEqual({
+      window: 'playoffs',
+      delta: -5,
+    });
   });
 
-  it('applies NBA regular season multiplier in November', () => {
-    const date = new Date('2026-11-01');
-    expect(resolveSportMultiplier('NBA', date)).toBe(1.0);
+  it('leaves the bar alone during the NBA regular season in November', () => {
+    expect(resolveSeasonDelta('NBA', new Date('2026-11-01'))).toEqual({
+      window: 'regular_season',
+      delta: 0,
+    });
   });
 
-  it('applies NBA offseason multiplier in August', () => {
-    const date = new Date('2026-08-15');
-    expect(resolveSportMultiplier('NBA', date)).toBe(0.7);
+  it('raises the bar during the NBA offseason in August', () => {
+    expect(resolveSeasonDelta('NBA', new Date('2026-08-15'))).toEqual({
+      window: 'offseason',
+      delta: 5,
+    });
   });
 
-  it('returns default multiplier for unknown sport', () => {
-    const date = new Date('2026-04-29');
-    expect(resolveSportMultiplier('PREMIER_LEAGUE', date)).toBe(1.0);
+  it('falls back to the default delta for a sport with no windows', () => {
+    expect(resolveSeasonDelta('PREMIER_LEAGUE', new Date('2026-04-29'))).toEqual({
+      window: 'none',
+      delta: 0,
+    });
   });
 });
 
@@ -173,8 +187,17 @@ describe('decideTriage — TRACKING', () => {
     expect(decideTriage(70, 'TRACKING', 2)).toBe('PROCESS');
   });
 
-  it('DEFER (not PROCESS) at score=70 for Tier 3 — tier requirement fails', () => {
-    expect(decideTriage(70, 'TRACKING', 3)).toBe('DEFER');
+  // Deferring these used to be the behaviour, but the defer queue re-scores with
+  // the same tier, so require_tier_1_or_2 blocks PROCESS forever — the entry just
+  // churned MCP state until its TTL expired. Drop immediately instead.
+  it('DROP (not DEFER) at score=70 for Tier 3 — tier requirement can never be met', () => {
+    expect(decideTriage(70, 'TRACKING', 3)).toBe('DROP');
+  });
+
+  it('DROP at any score for Tier 4 TRACKING', () => {
+    expect(decideTriage(100, 'TRACKING', 4)).toBe('DROP');
+    expect(decideTriage(50, 'TRACKING', 4)).toBe('DROP');
+    expect(decideTriage(0, 'TRACKING', 4)).toBe('DROP');
   });
 
   it('DEFER at score=69 for Tier 2 (below PROCESS threshold)', () => {
@@ -327,8 +350,12 @@ describe('computeSignificance', () => {
       'BREAKING', 'NBA',
       new Date('2026-04-29')
     );
-    expect(result.sport_multiplier).toBe(1.1);
+    expect(result.season_window).toBe('playoffs');
+    expect(result.season_threshold_delta).toBe(-5);
     expect(result.triage_decision).toBe('PROCESS');
+    // The score is now the raw score — the playoff window lowers the bar to 50
+    // rather than inflating the score past 55.
+    expect(result.composite_score).toBe(result.raw_score);
     expect(result.composite_score).toBeGreaterThan(55);
   });
 

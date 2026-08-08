@@ -417,7 +417,7 @@ export async function publishApprovedDeepDive(
   const successCount = platformResults.filter((r) => r.success).length;
   console.log(`[Pipeline] Approved DEEP_DIVE social publish for ${context}: ${successCount}/${platformResults.length} platforms`);
 
-  return { status: 'published', platform_results: platformResults };
+  return { status: 'published', post_id: webPostId, platform_results: platformResults };
 }
 
 export interface PublishOptions {
@@ -474,26 +474,27 @@ export async function publishInjuryPost(
     const platformResults = [webResult];
 
     // Flag for MD review if web post succeeded
-    if (webResult.success) {
-      const webPostId = extractWebPostId(webResult.data);
-      if (webPostId) {
-        try {
-          await callTool('web', 'web_flag_for_md_review', {
-            post_id: webPostId,
-            reason: review.reason,
-            confidence_score: content.confidence,
-            flagged_by: 'injury-intelligence-agent',
-          });
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          console.error(`[Pipeline] Failed to flag for MD review: ${message}`);
-        }
+    const reviewPostId = webResult.success ? extractWebPostId(webResult.data) : null;
+    if (reviewPostId) {
+      try {
+        await callTool('web', 'web_flag_for_md_review', {
+          post_id: reviewPostId,
+          reason: review.reason,
+          confidence_score: content.confidence,
+          flagged_by: 'injury-intelligence-agent',
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`[Pipeline] Failed to flag for MD review: ${message}`);
       }
     }
 
     return {
       status: 'pending_review',
       reason: review.reason,
+      // The poller needs this to run entity maintenance — a PENDING_REVIEW post
+      // is a real row in the web DB, so it anchors a thread just like a published one.
+      ...(reviewPostId && { post_id: reviewPostId }),
       platform_results: platformResults,
     };
   }
@@ -548,6 +549,7 @@ export async function publishInjuryPost(
 
   return {
     status: 'published',
+    ...(webPostId && { post_id: webPostId }),
     platform_results: platformResults,
   };
 }

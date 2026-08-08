@@ -1,5 +1,5 @@
 import type { RawInjuryEvent, SportKey } from '../../types.js';
-import type { SportDataSource } from './multi-source.js';
+import type { SportDataSource, SourceFetchReport } from './multi-source.js';
 import {
   INJURY_KEYWORD_RE,
   buildBlocklist,
@@ -73,10 +73,17 @@ export class NewsAPINFLSource implements SportDataSource {
   private readonly sport: SportKey = 'NFL';
   private cycleCount = 0;
 
+  private report: SourceFetchReport = { status: 'skipped' };
+
+  lastFetchReport(): SourceFetchReport {
+    return this.report;
+  }
+
   async fetchLatestEvents(): Promise<RawInjuryEvent[]> {
     const key = process.env.NEWSAPI_KEY;
     if (!key) {
       console.warn(`[${this.name}] NEWSAPI_KEY not set — skipping`);
+      this.report = { status: 'skipped', detail: 'no NEWSAPI_KEY' };
       return [];
     }
 
@@ -85,6 +92,7 @@ export class NewsAPINFLSource implements SportDataSource {
     const cycle = this.cycleCount++;
     if (cycle % n !== 0) {
       console.log(`[${this.name}] skipping cycle ${cycle} (runs every ${n})`);
+      this.report = { status: 'skipped', detail: `off-cycle ${cycle % n}/${n}` };
       return [];
     }
 
@@ -101,17 +109,26 @@ export class NewsAPINFLSource implements SportDataSource {
       });
       if (!res.ok) {
         console.warn(`[${this.name}] HTTP ${res.status} from NewsAPI`);
+        this.report = { status: 'error', detail: `HTTP ${res.status}` };
         return [];
       }
       const body = (await res.json()) as NewsAPIResponse;
       if (body.status && body.status !== 'ok') {
         console.warn(`[${this.name}] NewsAPI error: status=${body.status} code=${body.code ?? ''}`);
+        this.report = { status: 'error', detail: `api ${body.status}/${body.code ?? ''}` };
         return [];
       }
-      return this.parse(body.articles ?? []);
+      const articles = body.articles ?? [];
+      const events = this.parse(articles);
+      this.report =
+        events.length > 0
+          ? { status: 'ok' }
+          : { status: 'empty', detail: `${articles.length} articles, no injury hits` };
+      return events;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.warn(`[${this.name}] fetch failed: ${message}`);
+      this.report = { status: 'error', detail: message.slice(0, 80) };
       return [];
     }
   }

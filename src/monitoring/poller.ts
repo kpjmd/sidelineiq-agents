@@ -1,5 +1,6 @@
 import type { SportKey, RawInjuryEvent, SignificanceAssessment, InjuryPostContent } from '../types.js';
 import { SPORT_SOURCES } from './sports/index.js';
+import { formatSourceReports } from './sports/multi-source.js';
 import { classifyEvent } from '../agents/injury-intelligence/classifier.js';
 import {
   processInjuryEvent,
@@ -7,7 +8,7 @@ import {
   type InjuryThreadContext,
 } from '../agents/injury-intelligence/agent.js';
 import { resolveInjuryDate } from '../agents/injury-intelligence/date-resolution.js';
-import { checkForExisting, type DedupResult } from './deduplicator.js';
+import { checkForExisting, parseListPostsResponse, type DedupResult } from './deduplicator.js';
 import { publishInjuryPost } from '../utils/publishing-pipeline.js';
 import {
   loadSignificanceData,
@@ -59,6 +60,90 @@ function getPollIntervalMs(): number {
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_POLL_INTERVAL_MS;
 }
 
+// ── Publish volume caps ──────────────────────────────────────────────────────
+// The significance gate decides *what* is worth covering; these caps bound *how
+// much* lands in a single cycle or day. Without them a loosened gate turns a
+// 300-event ESPN feed into a posting burst and a Sonnet spend incident.
+
+const DEFAULT_MAX_PUBLISHES_PER_CYCLE = 3; // per sport, per cycle
+const DEFAULT_MAX_AGENT_CALLS_PER_CYCLE = 8; // per sport, per cycle
+const DEFAULT_MAX_PUBLISHES_PER_DAY = 10; // global, rolling 24h
+
+function envInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+export interface PublishBudgetState {
+  /** Sonnet invocations already made this cycle for this sport. */
+  agentCalls: number;
+  /** Posts already landed this cycle for this sport (published or pending review). */
+  cyclePublishes: number;
+  /** Remaining slots in the rolling 24h window; Infinity when unknown. */
+  dayRemaining: number;
+}
+
+export interface PublishBudgetLimits {
+  maxAgentCallsPerCycle: number;
+  maxPublishesPerCycle: number;
+}
+
+/**
+ * Returns a human-readable reason when the budget is spent, or null to proceed.
+ * Pure so it can be unit-tested without standing up the whole poll loop.
+ */
+export function publishBudgetExhausted(
+  state: PublishBudgetState,
+  limits: PublishBudgetLimits,
+): string | null {
+  if (state.agentCalls >= limits.maxAgentCallsPerCycle) {
+    return `agent_call_cap:${state.agentCalls}/${limits.maxAgentCallsPerCycle}`;
+  }
+  if (state.cyclePublishes >= limits.maxPublishesPerCycle) {
+    return `cycle_publish_cap:${state.cyclePublishes}/${limits.maxPublishesPerCycle}`;
+  }
+  if (state.dayRemaining <= 0) {
+    return 'day_publish_cap';
+  }
+  return null;
+}
+
+// Statuses that count against the daily budget. PENDING_REVIEW is included on
+// purpose: it consumed a Sonnet call and created a real row, and it matches how
+// the in-cycle counter is incremented, so the two agree across cycle boundaries.
+const BUDGETED_POST_STATUSES = new Set(['PUBLISHED', 'PENDING_REVIEW']);
+
+/**
+ * Counts posts created in the rolling 24h window across all sports.
+ * Returns null when the count can't be established — callers fail OPEN on the
+ * day cap (the per-cycle cap still bounds the blast radius) rather than going
+ * silent every time the web MCP server hiccups.
+ */
+async function countRecentPublishes(): Promise<number | null> {
+  if (!isServerAvailable('web')) return null;
+  try {
+    // web_list_posts is ORDER BY created_at DESC, so the newest 50 covers the
+    // 24h window with wide margin at any sane MAX_PUBLISHES_PER_DAY.
+    const res = await callTool('web', 'web_list_posts', { limit: 50 });
+    const posts = parseListPostsResponse(res) as Array<{
+      created_at?: string;
+      status?: string;
+    }>;
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    return posts.filter((p) => {
+      if (p.status && !BUDGETED_POST_STATUSES.has(p.status)) return false;
+      const t = p.created_at ? Date.parse(p.created_at) : NaN;
+      return Number.isFinite(t) && t >= cutoff;
+    }).length;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[Poller] Daily publish count unavailable, failing open: ${message}`);
+    return null;
+  }
+}
+
 function isSportEnabled(sport: SportKey): boolean {
   const envVar = SPORT_ENV_FLAGS[sport];
   const raw = process.env[envVar];
@@ -67,7 +152,10 @@ function isSportEnabled(sport: SportKey): boolean {
 }
 
 // Events with clear injury signal — always pass to classifier regardless of other content.
-const INJURY_ANCHOR_RE = /\b(injur|torn?|tear|sprain|fractur|concuss|sidelin|surger|strain|ruptur|acl|mcl|hamstring|achilles|tendon|ligament|hyperextension|disloc|contusion|laceration|bruise|bone|stress fracture)\b/i;
+// Stems need an explicit \w* — a bare stem plus \b never matches (see the note
+// on INJURY_KEYWORD_RE in text-extraction.ts). Without it this anchor missed
+// the word "injury" itself, making the non-injury pre-filter over-aggressive.
+const INJURY_ANCHOR_RE = /\b(injur\w*|torn?|tear\w*|sprain\w*|fractur\w*|concuss\w*|sidelin\w*|surger\w*|strain\w*|ruptur\w*|acl|mcl|hamstring|achilles|tendon|ligament|hyperextension|disloc\w*|contusion|laceration|bruise|bone|stress fracture)\b/i;
 
 // Non-injury signals — drop the event only when no injury anchor is present.
 const NON_INJURY_RE = /\b(load management|personal reasons?|personal leave|family (matter|emergency|reasons?)|contract (extension|signing|negotiation)|suspended|suspension|ejected|ejection|paternity leave|bereavement|rest day)\b/i;
@@ -87,10 +175,17 @@ interface PollSummary {
   deferred: number;
   promoted_from_defer: number;
   expired_from_defer: number;
+  /** Live defer-queue entries after eviction; -1 when the state store is down. */
+  defer_queue_size: number;
   duplicates: number;
   published: number;
   pending_review: number;
   skipped: number;
+  capped: number;
+  /** Fetches that failed outright, as opposed to returning nothing. */
+  source_errors: number;
+  /** Classifier calls that errored — distinct from "classified as not an injury". */
+  classifier_errors: number;
   errors: number;
 }
 
@@ -393,9 +488,9 @@ async function auditValidation(
 }
 
 function logGateDecision(sport: SportKey, athleteName: string, sig: SignificanceAssessment): void {
-  const { triage_decision, composite_score, raw_score, sport_multiplier, athlete_tier, athlete_tier_source, subscores } = sig;
+  const { triage_decision, composite_score, raw_score, season_window, season_threshold_delta, process_threshold, defer_threshold, tier_blocked, athlete_tier, athlete_tier_source, subscores } = sig;
   console.log(
-    `[SignificanceGate] decision=${triage_decision} score=${composite_score} raw=${raw_score} mult=${sport_multiplier.toFixed(2)} athlete="${athleteName}" tier=${athlete_tier}${athlete_tier_source === 'default' ? '?' : ''} sport=${sport} ct_prior=${subscores.content_type_prior} prom=${subscores.athlete_prominence} spec=${subscores.information_specificity} rec=${subscores.event_recency_novelty}`
+    `[SignificanceGate] decision=${triage_decision} score=${composite_score} raw=${raw_score} bar=${tier_blocked ? 'tier_blocked' : process_threshold ?? 'always'} defer_bar=${tier_blocked ? 'n/a' : defer_threshold ?? 'n/a'} season=${season_window}${season_threshold_delta !== 0 ? `(${season_threshold_delta > 0 ? '+' : ''}${season_threshold_delta})` : ''} athlete="${athleteName}" tier=${athlete_tier}${athlete_tier_source === 'default' ? '?' : ''} sport=${sport} ct_prior=${subscores.content_type_prior} prom=${subscores.athlete_prominence} spec=${subscores.information_specificity} rec=${subscores.event_recency_novelty}`
   );
 }
 
@@ -410,10 +505,14 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
     deferred: 0,
     promoted_from_defer: 0,
     expired_from_defer: 0,
+    defer_queue_size: 0,
     duplicates: 0,
     published: 0,
     pending_review: 0,
     skipped: 0,
+    capped: 0,
+    source_errors: 0,
+    classifier_errors: 0,
     errors: 0,
   };
 
@@ -432,8 +531,10 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
 
   // Evict TTL-expired defer queue entries for this sport
   try {
-    const { evicted } = await evictExpired(sport);
+    const { evicted, size, available } = await evictExpired(sport);
     summary.expired_from_defer = evicted;
+    // -1 rather than 0 so "store unreachable" is never mistaken for "queue empty".
+    summary.defer_queue_size = available ? size : -1;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`[SignificanceGate] ${sport} — defer eviction failed: ${message}`);
@@ -448,10 +549,19 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
   console.log(`[Poller] ${sport} — fetching from ${source.name}`);
   let events: RawInjuryEvent[] = [];
   try {
-    events = await source.fetchLatestEvents();
+    const fetchResult = await source.fetchLatestEventsWithReport();
+    events = fetchResult.events;
+    summary.source_errors = fetchResult.errorCount;
+    summary.errors += fetchResult.errorCount;
+    console.log(`[Poller] ${sport} — sources: ${formatSourceReports(fetchResult.reports)}`);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[Poller] ${sport} — source fetch failed: ${message}`);
+    // Without this the whole-source failure is invisible: fetched=0 errors=0
+    // reads identically to "upstream had nothing", which is how three weeks of
+    // silence went unnoticed.
+    summary.errors++;
+    summary.source_errors++;
     return summary;
   }
 
@@ -459,6 +569,23 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
   console.log(`[Poller] ${sport} — ${events.length} raw events to process`);
 
   const deferConfig = getDeferConfig();
+
+  // Volume budget for this cycle. The day count is global (all sports share the
+  // rolling 24h window); the cycle counts are per-sport.
+  const limits: PublishBudgetLimits = {
+    maxAgentCallsPerCycle: envInt('MAX_AGENT_CALLS_PER_CYCLE', DEFAULT_MAX_AGENT_CALLS_PER_CYCLE),
+    maxPublishesPerCycle: envInt('MAX_PUBLISHES_PER_CYCLE', DEFAULT_MAX_PUBLISHES_PER_CYCLE),
+  };
+  const maxPerDay = envInt('MAX_PUBLISHES_PER_DAY', DEFAULT_MAX_PUBLISHES_PER_DAY);
+  const recentCount = await countRecentPublishes();
+  const budget: PublishBudgetState = {
+    agentCalls: 0,
+    cyclePublishes: 0,
+    dayRemaining: recentCount === null ? Infinity : Math.max(0, maxPerDay - recentCount),
+  };
+  console.log(
+    `[Poller] ${sport} — budget: cycle_publishes=${limits.maxPublishesPerCycle} agent_calls=${limits.maxAgentCallsPerCycle} day_remaining=${budget.dayRemaining === Infinity ? 'unknown' : budget.dayRemaining}`,
+  );
 
   // Sequential to avoid races on dedup lookups for the same athlete
   for (const event of events) {
@@ -477,6 +604,15 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
         athleteTier: tierInfo.tier,
         athleteTierSource: tierInfo.source,
       });
+
+      // A classifier failure returns a synthetic is_injury_event:false, so
+      // without this check an expired API key or a retired model id would show
+      // up as "nothing was newsworthy" — skipped high, errors zero.
+      if (classified.classification_error) {
+        summary.classifier_errors++;
+        summary.errors++;
+        continue;
+      }
 
       if (!classified.is_injury_event) {
         summary.skipped++;
@@ -604,6 +740,17 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
         }
       }
 
+      // Budget check goes here — after everything free, before the first paid
+      // step. A capped event costs nothing and is re-served by the source next
+      // cycle (ESPN keeps rows for MAX_EVENT_AGE_DAYS), so nothing is lost.
+      const capReason = publishBudgetExhausted(budget, limits);
+      if (capReason) {
+        summary.capped++;
+        console.log(`[Poller] ${sport} — ${capReason}, deferring ${context} to next cycle`);
+        continue;
+      }
+
+      budget.agentCalls++;
       const post = await processInjuryEvent(classified, dedup.existingPostId, thread);
       if (!post) {
         summary.errors++;
@@ -639,6 +786,13 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
       else if (result.status === 'pending_review') summary.pending_review++;
       else summary.skipped++;
 
+      // Both published and pending-review posts consume budget — a review-queue
+      // post is a real row that an MD may approve later, so it counts as output.
+      if (result.status === 'published' || result.status === 'pending_review') {
+        budget.cyclePublishes++;
+        if (budget.dayRemaining !== Infinity) budget.dayRemaining--;
+      }
+
       // ── Entity bookkeeping (after the post lands) ────────────────────
       // On entity miss → create the entity + INITIAL update linked to the post.
       // On entity match (status-update pass-through) → append a TRACKING
@@ -670,7 +824,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
   }
 
   console.log(
-    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} dropped_fact=${summary.dropped_fact_validation} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} expired=${summary.expired_from_defer} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} skipped=${summary.skipped} errors=${summary.errors}`
+    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} dropped_fact=${summary.dropped_fact_validation} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} expired=${summary.expired_from_defer} defer_q=${summary.defer_queue_size} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} skipped=${summary.skipped} capped=${summary.capped} source_err=${summary.source_errors} classifier_err=${summary.classifier_errors} errors=${summary.errors}`
   );
   return summary;
 }

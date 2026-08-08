@@ -1,5 +1,5 @@
 import type { RawInjuryEvent, SportKey } from '../../types.js';
-import type { SportDataSource } from './multi-source.js';
+import type { SportDataSource, SourceFetchReport } from './multi-source.js';
 
 /**
  * UFC has no structured injury feed on ESPN. Instead we poll the news feed
@@ -8,8 +8,10 @@ import type { SportDataSource } from './multi-source.js';
  */
 const UFC_NEWS_URL = 'https://site.api.espn.com/apis/site/v2/sports/mma/ufc/news';
 
+// Stems carry an explicit \w* — see the note on INJURY_KEYWORD_RE in
+// text-extraction.ts for why a bare stem followed by \b never matches.
 const INJURY_KEYWORDS =
-  /\b(injur|out of|withdrew|withdraw|pull(ed)? out|hurt|surgery|torn|tear|broken|fracture|sprain|strain|knee|acl|mcl|hand|foot|ankle|shoulder|concuss|disc|hernia|staph)\b/i;
+  /\b(injur\w*|out of|withdrew|withdraw\w*|pull(ed)? out|hurt|surger\w*|torn|tear\w*|broken|fractur\w*|sprain\w*|strain\w*|knee|acl|mcl|hand|foot|ankle|shoulder|concuss\w*|disc|hernia|staph)\b/i;
 
 interface ESPNNewsFeed {
   articles?: ESPNNewsArticle[];
@@ -27,6 +29,12 @@ export class ESPNUFCSource implements SportDataSource {
   readonly name = 'espn-ufc';
   private readonly sport: SportKey = 'UFC';
 
+  private report: SourceFetchReport = { status: 'empty' };
+
+  lastFetchReport(): SourceFetchReport {
+    return this.report;
+  }
+
   async fetchLatestEvents(): Promise<RawInjuryEvent[]> {
     try {
       const res = await fetch(UFC_NEWS_URL, {
@@ -34,13 +42,20 @@ export class ESPNUFCSource implements SportDataSource {
       });
       if (!res.ok) {
         console.warn(`[${this.name}] HTTP ${res.status} from ${UFC_NEWS_URL}`);
+        this.report = { status: 'error', detail: `HTTP ${res.status}` };
         return [];
       }
       const feed = (await res.json()) as ESPNNewsFeed;
-      return this.parse(feed);
+      const events = this.parse(feed);
+      this.report =
+        events.length > 0
+          ? { status: 'ok' }
+          : { status: 'empty', detail: `${feed.articles?.length ?? 0} articles, no injury hits` };
+      return events;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.warn(`[${this.name}] fetch failed: ${message}`);
+      this.report = { status: 'error', detail: message.slice(0, 80) };
       return [];
     }
   }
