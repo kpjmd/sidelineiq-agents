@@ -44,7 +44,15 @@ interface SportWindow {
   window: string;
   from: string; // "MM-DD"
   to: string;   // "MM-DD"
-  multiplier: number;
+  // Points added to (or subtracted from) the PROCESS/DEFER thresholds inside this
+  // window. Positive = pickier. This used to be a `multiplier` applied to the
+  // score instead; that interacted non-linearly with tier and content-type prior
+  // and silently made whole (content_type × tier) cells unreachable — a x0.7
+  // offseason factor put PROCESS above the maximum achievable score for all
+  // TRACKING and for tier-3/4 BREAKING, which stopped publishing entirely in
+  // July 2026. Shifting the bar instead of scaling the score keeps the two
+  // independent and lets the reachability test verify every cell.
+  threshold_delta: number;
 }
 
 export interface DeferConfig {
@@ -63,8 +71,8 @@ interface SignificanceConfig {
     DEEP_DIVE?: ThresholdConfig;
     CONFLICT_FLAG?: ThresholdConfig;
   };
-  sport_multipliers: Partial<Record<SportKey, SportWindow[]>>;
-  default_sport_multiplier: number;
+  sport_seasons: Partial<Record<SportKey, SportWindow[]>>;
+  default_threshold_delta: number;
   defer: DeferConfig;
 }
 
@@ -137,6 +145,15 @@ export async function loadSignificanceData(): Promise<void> {
 
   if (configResult.status === 'fulfilled') {
     cachedConfig = configResult.value;
+    // A partial rollback that restores the old score-multiplier config would
+    // otherwise be silent: the unknown key is ignored, every window resolves to
+    // delta 0, and the seasonal signal just disappears. Make it loud.
+    if ('sport_multipliers' in (configResult.value as object)) {
+      console.error(
+        '[Significance] significance-config.json still has the legacy `sport_multipliers` key — ' +
+          'seasonal thresholds are NOT being applied. Migrate it to `sport_seasons` with `threshold_delta`.',
+      );
+    }
   } else {
     const reason = configResult.reason instanceof Error ? configResult.reason.message : String(configResult.reason);
     console.error(`[Significance] Failed to load significance-config.json: ${reason}`);
@@ -172,18 +189,74 @@ export function getDeferConfig(): DeferConfig {
   return cachedConfig.defer;
 }
 
-export function resolveSportMultiplier(sport: SportKey, date: Date): number {
-  if (!cachedConfig) return 1.0;
+export interface SeasonDelta {
+  /** Window name for logging/audit, or 'none' when no window matched. */
+  window: string;
+  /** Points added to the PROCESS/DEFER thresholds. Positive = pickier. */
+  delta: number;
+}
 
-  const windows = cachedConfig.sport_multipliers[sport];
-  if (!windows) return cachedConfig.default_sport_multiplier;
+export function resolveSeasonDelta(sport: SportKey, date: Date): SeasonDelta {
+  if (!cachedConfig) return { window: 'none', delta: 0 };
+
+  const windows = cachedConfig.sport_seasons?.[sport];
+  const fallback = cachedConfig.default_threshold_delta ?? 0;
+  if (!windows) return { window: 'none', delta: fallback };
 
   const current = mmDD(date);
   for (const w of windows) {
-    if (isInDateWindow(current, w.from, w.to)) return w.multiplier;
+    if (isInDateWindow(current, w.from, w.to)) return { window: w.window, delta: w.threshold_delta };
   }
 
-  return cachedConfig.default_sport_multiplier;
+  return { window: 'none', delta: fallback };
+}
+
+/**
+ * The highest composite an event of this shape can ever score — prominence and
+ * content-type prior are fixed by (tier, content_type), so only specificity and
+ * recency are free, and both max at 100.
+ *
+ * A PROCESS threshold at or above this number makes the cell unreachable: no
+ * event of that shape can ever publish, no matter how significant it is.
+ */
+export function maxAchievableScore(contentType: ContentType, tier: AthleteTier): number {
+  return computeRawScore({
+    athlete_prominence: TIER_TO_PROMINENCE[tier],
+    information_specificity: 100,
+    event_recency_novelty: 100,
+    content_type_prior: CONTENT_TYPE_PRIOR[contentType],
+  });
+}
+
+/**
+ * Headroom a PROCESS threshold must leave below `maxAchievableScore`. A bar set
+ * at exactly the maximum is technically reachable but requires perfect 100/100
+ * subscores, which Haiku never emits in practice.
+ */
+export const REACHABILITY_MARGIN = 5;
+
+/**
+ * Applies the seasonal delta, then clamps so the bar can never exceed what this
+ * (content_type, tier) can actually score. The clamp is a production safety net;
+ * tests/significance-reachability.test.ts is what keeps the checked-in config
+ * from needing it.
+ */
+function effectiveProcessThreshold(
+  base: number,
+  delta: number,
+  contentType: ContentType,
+  tier: AthleteTier,
+): number {
+  const ceiling = maxAchievableScore(contentType, tier) - REACHABILITY_MARGIN;
+  const wanted = base + delta;
+  if (wanted > ceiling) {
+    console.warn(
+      `[Significance] UNREACHABLE_THRESHOLD ct=${contentType} tier=${tier} wanted=${wanted} ` +
+        `clamped=${ceiling} — fix significance-config.json`,
+    );
+    return ceiling;
+  }
+  return wanted;
 }
 
 export function computeRawScore(subscores: SignificanceSubscores): number {
@@ -195,50 +268,78 @@ export function computeRawScore(subscores: SignificanceSubscores): number {
   return clamp(Math.round(raw), 0, 100);
 }
 
-export function decideTriage(
-  compositeScore: number,
-  contentType: ContentType,
-  tier: AthleteTier
-): TriageDecision {
-  const cfg = cachedConfig?.thresholds;
+export interface EffectiveThresholds {
+  /** Score needed to PROCESS, after the season delta and reachability clamp.
+   *  null when the content type always processes (CONFLICT_FLAG). */
+  process: number | null;
+  /** Score needed to DEFER rather than DROP. null when always processing. */
+  defer: number | null;
+  /** True when the tier rule blocks PROCESS regardless of score. */
+  tier_blocked: boolean;
+}
 
-  // CONFLICT_FLAG always processes when configured (or when no config)
-  if (contentType === 'CONFLICT_FLAG') {
-    if (!cfg || cfg.CONFLICT_FLAG?.always_process !== false) return 'PROCESS';
+/**
+ * The bar this specific event has to clear. Exported so the poll log can print
+ * `score=41 bar=45` — the gap between the two is the only thing that tells you
+ * whether a threshold is set sensibly or is quietly unreachable.
+ */
+export function effectiveThresholds(
+  contentType: ContentType,
+  tier: AthleteTier,
+  seasonDelta = 0,
+): EffectiveThresholds {
+  const cfg = cachedConfig?.thresholds;
+  const bar = (base: number) => effectiveProcessThreshold(base, seasonDelta, contentType, tier);
+  // The DEFER floor moves with the season too, but it is never clamped — an
+  // unreachable defer floor just means "DROP instead", which is a safe outcome.
+  const floor = (base: number) => base + seasonDelta;
+
+  if (contentType === 'CONFLICT_FLAG' && (!cfg || cfg.CONFLICT_FLAG?.always_process !== false)) {
+    return { process: null, defer: null, tier_blocked: false };
   }
 
-  // TRACKING — stricter: require tier 1-2 for PROCESS
   if (contentType === 'TRACKING') {
     const t = cfg?.TRACKING;
-    const processThreshold = t?.process ?? 70;
-    const deferThreshold = t?.defer ?? 35;
     const tierRequired = t?.require_tier_1_or_2 ?? true;
-    const tierOk = !tierRequired || tier <= 2;
-    if (compositeScore >= processThreshold && tierOk) return 'PROCESS';
-    if (compositeScore >= deferThreshold) return 'DEFER';
-    return 'DROP';
+    return {
+      process: bar(t?.process ?? 70),
+      defer: floor(t?.defer ?? 35),
+      tier_blocked: tierRequired && tier > 2,
+    };
   }
 
-  // DEEP_DIVE — lower threshold
   if (contentType === 'DEEP_DIVE') {
     const t = cfg?.DEEP_DIVE;
-    if (compositeScore >= (t?.process ?? 40)) return 'PROCESS';
-    if (compositeScore >= (t?.defer ?? 25)) return 'DEFER';
-    return 'DROP';
+    return { process: bar(t?.process ?? 40), defer: floor(t?.defer ?? 25), tier_blocked: false };
   }
 
-  // BREAKING with Tier 1 athlete — lowered floor
   if (contentType === 'BREAKING' && tier === 1) {
     const t = cfg?.BREAKING_T1;
-    if (compositeScore >= (t?.process ?? 45)) return 'PROCESS';
-    if (compositeScore >= (t?.defer ?? 30)) return 'DEFER';
-    return 'DROP';
+    return { process: bar(t?.process ?? 45), defer: floor(t?.defer ?? 30), tier_blocked: false };
   }
 
   // Default (BREAKING non-T1, and any unhandled content type)
   const d = cfg?.default ?? { process: 55, defer: 35 };
-  if (compositeScore >= d.process) return 'PROCESS';
-  if (compositeScore >= d.defer) return 'DEFER';
+  return { process: bar(d.process), defer: floor(d.defer), tier_blocked: false };
+}
+
+export function decideTriage(
+  compositeScore: number,
+  contentType: ContentType,
+  tier: AthleteTier,
+  seasonDelta = 0,
+): TriageDecision {
+  const t = effectiveThresholds(contentType, tier, seasonDelta);
+
+  if (t.process === null) return 'PROCESS'; // CONFLICT_FLAG always processes
+
+  // Deferring a tier-blocked event is pure waste: the defer queue re-scores with
+  // the same tier, so the block holds forever and the entry just churns MCP
+  // state until its TTL expires. Drop it now.
+  if (t.tier_blocked) return 'DROP';
+
+  if (compositeScore >= t.process) return 'PROCESS';
+  if (t.defer !== null && compositeScore >= t.defer) return 'DEFER';
   return 'DROP';
 }
 
@@ -269,13 +370,16 @@ export function computeSignificance(
   };
 
   const raw_score = computeRawScore(subscores);
-  const sport_multiplier = resolveSportMultiplier(sport, date);
-  const composite_score = clamp(Math.round(raw_score * sport_multiplier), 0, 100);
-  const triage_decision = decideTriage(composite_score, contentType, tier);
+  // The score is a property of the event alone. Seasonal pickiness lives in the
+  // threshold, not here — see the SportWindow comment for why.
+  const composite_score = raw_score;
+  const season = resolveSeasonDelta(sport, date);
+  const thresholds = effectiveThresholds(contentType, tier, season.delta);
+  const triage_decision = decideTriage(composite_score, contentType, tier, season.delta);
 
   const rationale = [
     `${triage_decision} score=${composite_score}`,
-    sport_multiplier !== 1.0 ? `(raw=${raw_score}×${sport_multiplier})` : '',
+    season.delta !== 0 ? `(${season.window} bar${season.delta > 0 ? '+' : ''}${season.delta})` : '',
     `tier=${tier}${tierSource === 'default' ? '?' : ''}`,
     `spec=${subscores.information_specificity}`,
     `rec=${subscores.event_recency_novelty}`,
@@ -286,8 +390,12 @@ export function computeSignificance(
 
   return {
     raw_score,
-    sport_multiplier,
+    season_window: season.window,
+    season_threshold_delta: season.delta,
     composite_score,
+    process_threshold: thresholds.process,
+    defer_threshold: thresholds.defer,
+    tier_blocked: thresholds.tier_blocked,
     triage_decision,
     athlete_tier: tier,
     athlete_tier_source: tierSource,
@@ -376,6 +484,27 @@ export function computePromotionScore(input: PromotionScoreInput): PromotionScor
   ];
 
   return { score, proposed: score >= PROMOTION_PROPOSE_THRESHOLD, reasons };
+}
+
+/**
+ * Read-only view of the loaded config, for audit and for the reachability test
+ * to enumerate every configured season window rather than hard-coding a list
+ * that would drift from the data file.
+ */
+export function getLoadedConfig(): Readonly<SignificanceConfig> | null {
+  return cachedConfig;
+}
+
+/** Base PROCESS threshold for a (content_type, tier), before the season delta. */
+export function baseProcessThreshold(contentType: ContentType, tier: AthleteTier): number | null {
+  const cfg = cachedConfig?.thresholds;
+  if (contentType === 'CONFLICT_FLAG' && (!cfg || cfg.CONFLICT_FLAG?.always_process !== false)) {
+    return null; // always processes — no threshold to check
+  }
+  if (contentType === 'TRACKING') return cfg?.TRACKING?.process ?? 70;
+  if (contentType === 'DEEP_DIVE') return cfg?.DEEP_DIVE?.process ?? 40;
+  if (contentType === 'BREAKING' && tier === 1) return cfg?.BREAKING_T1?.process ?? 45;
+  return cfg?.default?.process ?? 55;
 }
 
 // ── Test helpers (not for production use) ────────────────────────────────────

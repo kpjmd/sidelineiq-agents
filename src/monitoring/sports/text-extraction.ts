@@ -4,8 +4,14 @@
 // athlete.displayName. Precision over recall: skip on ambiguity rather than
 // guess, since a wrong athlete/team match is worse than a missed event.
 
+// Stems take an explicit \w* suffix. A bare stem followed by \b can never
+// match — \binjur\b requires a non-word character after "injur", so it fails on
+// "injury", "injured" and "injuries", i.e. on every word it was written to
+// catch. The same held for fractur/concuss/sidelin/ruptur. Verified against the
+// live ESPN soccer feed: "Man United being 'careful' with Mason Mount after
+// injury scare" matched nothing before this fix.
 export const INJURY_KEYWORD_RE =
-  /\b(injur|hurt|torn|sprain|fractur|concuss|sidelin|out\s+for|ACL|MCL|hamstring|knee|ankle|shoulder|achilles|surgery|strain)\b/i;
+  /\b(injur\w*|hurt|torn|tear\w*|sprain\w*|fractur\w*|concuss\w*|sidelin\w*|ruptur\w*|out\s+for|ACL|MCL|hamstring|knee|ankle|shoulder|achilles|surger\w*|strain\w*)\b/i;
 
 // Regex: two capitalized words ("FirstName LastName"). Requires first name
 // to have 3+ chars starting with uppercase then lowercase.

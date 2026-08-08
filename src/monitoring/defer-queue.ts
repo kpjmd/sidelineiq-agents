@@ -47,18 +47,35 @@ function parseMCPText(raw: unknown): string | null {
   return wrapped.content?.[0]?.text ?? null;
 }
 
-async function loadQueue(sport: SportKey): Promise<DeferQueueEntry[]> {
-  if (!isServerAvailable('web')) return [];
+/**
+ * An empty return from loadQueue is ambiguous: the queue really is empty, or
+ * the state store is unreachable and every DEFER will look brand new forever
+ * (nothing ever corroborates, nothing ever promotes, nothing ever expires).
+ * Callers can't tell those apart from the entry list alone, so say which it was.
+ */
+type QueueLoad = { entries: DeferQueueEntry[]; available: boolean };
+
+async function loadQueue(sport: SportKey): Promise<QueueLoad> {
+  if (!isServerAvailable('web')) {
+    console.warn(
+      `[DeferQueue] ${sport} — web MCP unavailable; treating queue as empty. ` +
+        'Corroboration and TTL expiry are inactive this cycle.',
+    );
+    return { entries: [], available: false };
+  }
   try {
     const raw = await callTool('web', 'web_get_social_state', { key: stateKey(sport) });
     const text = parseMCPText(raw);
-    if (!text) return [];
+    if (!text) return { entries: [], available: true };
     const state = JSON.parse(text) as DeferQueueState;
-    return Array.isArray(state.entries) ? state.entries : [];
+    return {
+      entries: Array.isArray(state.entries) ? state.entries : [],
+      available: true,
+    };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`[DeferQueue] ${sport} — failed to load queue: ${message}`);
-    return [];
+    return { entries: [], available: false };
   }
 }
 
@@ -80,6 +97,11 @@ async function saveQueue(sport: SportKey, entries: DeferQueueEntry[]): Promise<v
 
 export interface EvictResult {
   evicted: number;
+  /** Entries still live after eviction — surfaced so a queue that only ever
+   *  grows, or one stuck at zero because the store is down, is visible. */
+  size: number;
+  /** False when the state store could not be read this cycle. */
+  available: boolean;
 }
 
 /**
@@ -87,8 +109,8 @@ export interface EvictResult {
  * Called at the start of each poll cycle.
  */
 export async function evictExpired(sport: SportKey): Promise<EvictResult> {
-  const entries = await loadQueue(sport);
-  if (entries.length === 0) return { evicted: 0 };
+  const { entries, available } = await loadQueue(sport);
+  if (entries.length === 0) return { evicted: 0, size: 0, available };
 
   const now = Date.now();
   const live: DeferQueueEntry[] = [];
@@ -108,7 +130,7 @@ export async function evictExpired(sport: SportKey): Promise<EvictResult> {
   }
 
   if (evicted > 0) await saveQueue(sport, live);
-  return { evicted };
+  return { evicted, size: live.length, available };
 }
 
 /**
@@ -128,7 +150,7 @@ export async function handleDeferDecision(
 ): Promise<'promoted' | 'deferred'> {
   if (!classified.significance) return 'deferred';
 
-  const entries = await loadQueue(sport);
+  const { entries } = await loadQueue(sport);
   const now = Date.now();
   const existingIdx = entries.findIndex((e) => e.fingerprint === fingerprint);
 
@@ -166,7 +188,10 @@ export async function handleDeferDecision(
       new Date()
     );
 
-    const newDecision = decideTriage(reScored.composite_score, classified.content_type, classified.significance.athlete_tier);
+    // computeSignificance already applied the season threshold delta, so reuse its
+    // decision. Re-deriving it with a bare decideTriage() call would silently drop
+    // the delta and make promotion easier than the gate that deferred this event.
+    const newDecision = reScored.triage_decision;
 
     // Update entry
     existing.source_count = newSourceCount;

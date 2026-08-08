@@ -91,8 +91,20 @@ export interface SignificanceSubscores {
 
 export interface SignificanceAssessment {
   raw_score: number;
-  sport_multiplier: number;
+  /** Season window that was in effect, or 'none'. Audit/logging only. */
+  season_window: string;
+  /** Points the season added to the PROCESS/DEFER thresholds. Positive = pickier. */
+  season_threshold_delta: number;
+  /** Equal to raw_score — the season shifts the threshold, not the score. */
   composite_score: number;
+  /** Score this event had to clear to PROCESS, after the season delta. null
+   *  when the content type always processes. Logged so score-vs-bar is visible. */
+  process_threshold: number | null;
+  /** Score needed to DEFER rather than DROP. */
+  defer_threshold: number | null;
+  /** True when the tier rule blocks PROCESS regardless of score, so the
+   *  thresholds above are not what decided this event. */
+  tier_blocked: boolean;
   triage_decision: TriageDecision;
   athlete_tier: AthleteTier;
   athlete_tier_source: 'lookup' | 'default';
@@ -135,6 +147,11 @@ export interface ClassificationResult {
   raw_event: RawInjuryEvent;
   // Present iff is_injury_event === true
   significance?: SignificanceAssessment;
+  // Set when the classifier call itself failed. The result still carries
+  // is_injury_event:false so callers stay safe, but this distinguishes "Claude
+  // says this isn't an injury" from "we never got an answer" — without it an
+  // expired API key looks exactly like a quiet news day.
+  classification_error?: string;
 }
 
 // ── Social Engagement types ───────────────────────────────────────────

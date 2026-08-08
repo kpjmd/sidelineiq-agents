@@ -258,6 +258,7 @@ ${raw.is_update ? 'Marker: source flagged this as a status update.' : ''}`;
       content_type: 'BREAKING',
       is_new: !raw.is_update,
       raw_event: raw,
+      classification_error: message.slice(0, 200),
     };
   }
 }
