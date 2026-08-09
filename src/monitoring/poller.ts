@@ -13,6 +13,7 @@ import { publishInjuryPost } from '../utils/publishing-pipeline.js';
 import {
   loadSignificanceData,
   lookupAthleteTier,
+  isConcussionTierBlocked,
   computeFingerprint,
   getDeferConfig,
 } from '../agents/injury-intelligence/significance.js';
@@ -170,6 +171,8 @@ interface PollSummary {
   classified_positive: number;
   pre_filtered: number;
   dropped_significance: number;
+  /** Concussion-only events dropped by the tier rule, before any model call. */
+  dropped_concussion: number;
   dropped_fact_validation: number;
   soft_failed_fact_validation: number;
   deferred: number;
@@ -500,6 +503,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
     classified_positive: 0,
     pre_filtered: 0,
     dropped_significance: 0,
+    dropped_concussion: 0,
     dropped_fact_validation: 0,
     soft_failed_fact_validation: 0,
     deferred: 0,
@@ -599,6 +603,18 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
 
       // Resolve athlete tier before classifying — Haiku must not infer prominence
       const tierInfo = lookupAthleteTier(event.athlete_name, event.sport);
+
+      // Concussion on a non-star: OTM cannot produce an RTP for a head injury
+      // (SKILL.md treats that as non-negotiable), so the post is league-protocol
+      // boilerplate whose interest depends entirely on the athlete. Dropped here
+      // rather than at the gate so it costs neither a Haiku nor a Sonnet call.
+      if (gateEnabled && isConcussionTierBlocked(event.injury_description, tierInfo.tier)) {
+        summary.dropped_concussion++;
+        console.log(
+          `[SignificanceGate] decision=DROP reason=concussion_tier athlete="${event.athlete_name}" tier=${tierInfo.tier}${tierInfo.source === 'default' ? '?' : ''} sport=${sport}`,
+        );
+        continue;
+      }
 
       const classified = await classifyEvent(event, {
         athleteTier: tierInfo.tier,
@@ -824,7 +840,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
   }
 
   console.log(
-    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} dropped_fact=${summary.dropped_fact_validation} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} expired=${summary.expired_from_defer} defer_q=${summary.defer_queue_size} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} skipped=${summary.skipped} capped=${summary.capped} source_err=${summary.source_errors} classifier_err=${summary.classifier_errors} errors=${summary.errors}`
+    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} dropped_concussion=${summary.dropped_concussion} dropped_fact=${summary.dropped_fact_validation} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} expired=${summary.expired_from_defer} defer_q=${summary.defer_queue_size} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} skipped=${summary.skipped} capped=${summary.capped} source_err=${summary.source_errors} classifier_err=${summary.classifier_errors} errors=${summary.errors}`
   );
   return summary;
 }

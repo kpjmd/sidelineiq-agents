@@ -73,6 +73,7 @@ interface SignificanceConfig {
   };
   sport_seasons: Partial<Record<SportKey, SportWindow[]>>;
   default_threshold_delta: number;
+  concussion?: { require_tier_1_or_2?: boolean };
   defer: DeferConfig;
 }
 
@@ -209,6 +210,42 @@ export function resolveSeasonDelta(sport: SportKey, date: Date): SeasonDelta {
   }
 
   return { window: 'none', delta: fallback };
+}
+
+// ── Concussion policy ────────────────────────────────────────────────────────
+//
+// Concussion is the one category where OTM cannot deliver its core output:
+// SKILL.md makes "no RTP estimate for CONCUSSION" a non-negotiable boundary.
+// What remains is an explanation of league protocol, which is the same for
+// every athlete — so the post's interest rides almost entirely on who was hurt.
+// For a depth player that is noise, and it publishes readily because the
+// classifier tends to score "in concussion protocol" as highly specific even
+// though a concussion has no grade or structure to disclose.
+//
+// Gated on tier for the same reason TRACKING is.
+
+const CONCUSSION_RE =
+  /\b(concuss\w*|head injur\w*|traumatic brain injur\w*|CTE|sub-?concussive)\b/i;
+
+// Non-head injury signals. When one is present the event is not purely a
+// concussion story — "back from concussion protocol, now a hamstring strain"
+// is a hamstring story and must not be dropped by this rule.
+const NON_HEAD_INJURY_RE =
+  /\b(acl|mcl|pcl|ucl|hamstring|achilles|tendon|ligament|meniscus|labrum|rotator cuff|fractur\w*|sprain\w*|strain\w*|ruptur\w*|disloc\w*|tear\w*|torn|surger\w*|contusion|laceration)\b/i;
+
+/** True when the text is about a head injury and nothing else. */
+export function isConcussionOnlyEvent(text: string): boolean {
+  return CONCUSSION_RE.test(text) && !NON_HEAD_INJURY_RE.test(text);
+}
+
+/**
+ * Whether a concussion-only event should be dropped for this athlete's tier.
+ * Config-driven so the policy can be relaxed without a deploy.
+ */
+export function isConcussionTierBlocked(text: string, tier: AthleteTier): boolean {
+  const required = cachedConfig?.concussion?.require_tier_1_or_2 ?? true;
+  if (!required) return false;
+  return tier > 2 && isConcussionOnlyEvent(text);
 }
 
 /**

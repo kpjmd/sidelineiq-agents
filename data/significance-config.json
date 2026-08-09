@@ -19,6 +19,7 @@
     ]
   },
   "default_threshold_delta": 0,
+  "concussion": { "require_tier_1_or_2": true },
   "defer": {
     "ttl_hours": 6,
     "promotion_cap": 3,
