@@ -25,7 +25,7 @@ function getCooldownMs(envVar: string, defaultMs: number): number {
 // "75" (percent) → 75 (everything flagged), negatives (gate disabled) — so we
 // reject anything out of range and fall back to the default with a warning
 // rather than letting a typo quietly turn the MD gate off.
-function getMDReviewThreshold(): number {
+export function getMDReviewThreshold(): number {
   const rawEnv = process.env.MD_REVIEW_CONFIDENCE_THRESHOLD;
   if (rawEnv === undefined || rawEnv === '') return DEFAULT_MD_REVIEW_THRESHOLD;
   const val = parseFloat(rawEnv);

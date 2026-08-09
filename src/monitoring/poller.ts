@@ -9,7 +9,7 @@ import {
 } from '../agents/injury-intelligence/agent.js';
 import { resolveInjuryDate } from '../agents/injury-intelligence/date-resolution.js';
 import { checkForExisting, parseListPostsResponse, type DedupResult } from './deduplicator.js';
-import { publishInjuryPost } from '../utils/publishing-pipeline.js';
+import { publishInjuryPost, getMDReviewThreshold } from '../utils/publishing-pipeline.js';
 import {
   loadSignificanceData,
   lookupAthleteTier,
@@ -587,8 +587,12 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
     cyclePublishes: 0,
     dayRemaining: recentCount === null ? Infinity : Math.max(0, maxPerDay - recentCount),
   };
+  // md_review_bar is printed alongside the caps because it is the other lever
+  // that decides whether a post reaches social, and it lives in an env var that
+  // is otherwise invisible in the logs — it sat at 0.60 rather than the
+  // documented 0.75 default for an unknown period without anything saying so.
   console.log(
-    `[Poller] ${sport} — budget: cycle_publishes=${limits.maxPublishesPerCycle} agent_calls=${limits.maxAgentCallsPerCycle} day_remaining=${budget.dayRemaining === Infinity ? 'unknown' : budget.dayRemaining}`,
+    `[Poller] ${sport} — budget: cycle_publishes=${limits.maxPublishesPerCycle} agent_calls=${limits.maxAgentCallsPerCycle} day_remaining=${budget.dayRemaining === Infinity ? 'unknown' : budget.dayRemaining} md_review_bar=${getMDReviewThreshold()}`,
   );
 
   // Sequential to avoid races on dedup lookups for the same athlete
