@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   computeRawScore,
   decideTriage,
+  effectiveThresholds,
   resolveSeasonDelta,
   lookupAthleteTier,
   computeFingerprint,
@@ -198,6 +199,37 @@ describe('decideTriage — TRACKING', () => {
     expect(decideTriage(100, 'TRACKING', 4)).toBe('DROP');
     expect(decideTriage(50, 'TRACKING', 4)).toBe('DROP');
     expect(decideTriage(0, 'TRACKING', 4)).toBe('DROP');
+  });
+
+  // A tier-blocked cell reports no threshold, exactly like CONFLICT_FLAG's
+  // always_process. decideTriage must test tier_blocked FIRST — reading the
+  // absent threshold as "always processes" would invert the rule and publish
+  // every low-tier TRACKING event.
+  it('tier-blocked outranks the no-threshold case', () => {
+    const blocked = effectiveThresholds('TRACKING', 3);
+    expect(blocked).toEqual({ process: null, defer: null, tier_blocked: true });
+    expect(decideTriage(100, 'TRACKING', 3)).toBe('DROP');
+
+    const alwaysProcess = effectiveThresholds('CONFLICT_FLAG', 3);
+    expect(alwaysProcess.tier_blocked).toBe(false);
+    expect(decideTriage(0, 'CONFLICT_FLAG', 3)).toBe('PROCESS');
+  });
+
+  // The clamp exists for genuinely misconfigured cells; a tier-blocked cell is
+  // not misconfigured, and warning about a bar that is never applied would log
+  // on most of the feed.
+  it('does not warn UNREACHABLE_THRESHOLD for tier-blocked cells', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      decideTriage(50, 'TRACKING', 3);
+      decideTriage(50, 'TRACKING', 4);
+      const unreachable = warn.mock.calls.filter((c) =>
+        String(c[0]).includes('UNREACHABLE_THRESHOLD'),
+      );
+      expect(unreachable).toEqual([]);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('DEFER at score=69 for Tier 2 (below PROCESS threshold)', () => {

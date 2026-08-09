@@ -301,10 +301,17 @@ export function effectiveThresholds(
   if (contentType === 'TRACKING') {
     const t = cfg?.TRACKING;
     const tierRequired = t?.require_tier_1_or_2 ?? true;
+    if (tierRequired && tier > 2) {
+      // The tier rule decides these outright, so no threshold is consulted.
+      // Running them through the clamp would emit an UNREACHABLE_THRESHOLD
+      // warning about a bar that is never applied — noise on every low-tier
+      // TRACKING event, which is most of the feed.
+      return { process: null, defer: null, tier_blocked: true };
+    }
     return {
       process: bar(t?.process ?? 70),
       defer: floor(t?.defer ?? 35),
-      tier_blocked: tierRequired && tier > 2,
+      tier_blocked: false,
     };
   }
 
@@ -331,12 +338,15 @@ export function decideTriage(
 ): TriageDecision {
   const t = effectiveThresholds(contentType, tier, seasonDelta);
 
-  if (t.process === null) return 'PROCESS'; // CONFLICT_FLAG always processes
-
+  // Must precede the `process === null` check — a tier-blocked cell also has no
+  // threshold, and reading that as "always processes" would invert the rule.
+  //
   // Deferring a tier-blocked event is pure waste: the defer queue re-scores with
   // the same tier, so the block holds forever and the entry just churns MCP
   // state until its TTL expires. Drop it now.
   if (t.tier_blocked) return 'DROP';
+
+  if (t.process === null) return 'PROCESS'; // CONFLICT_FLAG always processes
 
   if (compositeScore >= t.process) return 'PROCESS';
   if (t.defer !== null && compositeScore >= t.defer) return 'DEFER';
