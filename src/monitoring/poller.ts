@@ -14,6 +14,7 @@ import {
   loadSignificanceData,
   lookupAthleteTier,
   isConcussionTierBlocked,
+  isSameAthleteName,
   computeFingerprint,
   getDeferConfig,
 } from '../agents/injury-intelligence/significance.js';
@@ -173,6 +174,8 @@ interface PollSummary {
   dropped_significance: number;
   /** Concussion-only events dropped by the tier rule, before any model call. */
   dropped_concussion: number;
+  /** Events where the classifier's athlete disagreed with the source's. */
+  athlete_name_drift: number;
   dropped_fact_validation: number;
   soft_failed_fact_validation: number;
   deferred: number;
@@ -504,6 +507,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
     pre_filtered: 0,
     dropped_significance: 0,
     dropped_concussion: 0,
+    athlete_name_drift: 0,
     dropped_fact_validation: 0,
     soft_failed_fact_validation: 0,
     deferred: 0,
@@ -639,6 +643,22 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
         continue;
       }
       summary.classified_positive++;
+
+      // The tier — and so athlete_prominence, 35% of the significance score —
+      // was resolved from the SOURCE's name before classification. If the
+      // classifier came back with a different athlete, the score belongs to
+      // someone other than the post's subject, and the post may be about the
+      // wrong player entirely. Neither the score nor the content can be trusted
+      // without a human look.
+      if (!isSameAthleteName(event.athlete_name, classified.athlete_name)) {
+        summary.athlete_name_drift++;
+        console.warn(
+          `[Poller] ${sport} — athlete name drift: source="${event.athlete_name}" classifier="${classified.athlete_name}" (tier resolved from source) — routing to MD review`,
+        );
+        forceMDReviewReason = forceMDReviewReason
+          ? `${forceMDReviewReason},athlete_name_drift`
+          : 'athlete_name_drift';
+      }
 
       // ── Significance gate ────────────────────────────────────────────────
       const sig = classified.significance!;
@@ -844,7 +864,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
   }
 
   console.log(
-    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} dropped_concussion=${summary.dropped_concussion} dropped_fact=${summary.dropped_fact_validation} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} expired=${summary.expired_from_defer} defer_q=${summary.defer_queue_size} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} skipped=${summary.skipped} capped=${summary.capped} source_err=${summary.source_errors} classifier_err=${summary.classifier_errors} errors=${summary.errors}`
+    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} dropped_concussion=${summary.dropped_concussion} name_drift=${summary.athlete_name_drift} dropped_fact=${summary.dropped_fact_validation} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} expired=${summary.expired_from_defer} defer_q=${summary.defer_queue_size} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} skipped=${summary.skipped} capped=${summary.capped} source_err=${summary.source_errors} classifier_err=${summary.classifier_errors} errors=${summary.errors}`
   );
   return summary;
 }

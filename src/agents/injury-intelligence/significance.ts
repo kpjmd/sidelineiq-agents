@@ -183,6 +183,25 @@ export function lookupAthleteTier(
   return match ? { tier: match.tier, source: 'lookup' } : { tier: 3, source: 'default' };
 }
 
+// Suffixes that vary freely between sources for the same person.
+const NAME_SUFFIX_RE = /\b(jr|sr|ii|iii|iv)\b/g;
+
+/**
+ * Whether two spellings denote the same athlete, tolerant of the differences
+ * sources actually disagree on: punctuation ("A.J." vs "AJ"), generational
+ * suffixes, and spacing.
+ *
+ * Matters because the athlete tier — and therefore 35% of the significance
+ * score — is resolved from the SOURCE's name before classification, while the
+ * post is written about the CLASSIFIER's name. When those denote different
+ * people the score was computed for someone other than the post's subject.
+ */
+export function isSameAthleteName(a: string, b: string): boolean {
+  const key = (s: string) =>
+    normalizeText(s).replace(NAME_SUFFIX_RE, '').replace(/\s+/g, '');
+  return key(a) === key(b);
+}
+
 export function getDeferConfig(): DeferConfig {
   if (!cachedConfig) {
     return { ttl_hours: 6, promotion_cap: 3, corroboration_bonus_per_source: 5, corroboration_bonus_max: 20 };
