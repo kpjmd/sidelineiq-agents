@@ -62,12 +62,15 @@ function needsMDReview(content: InjuryPostContent): { needed: boolean; reason?: 
 }
 
 interface ExistingPost {
+  id?: string;
   athlete_name?: string;
   sport?: string;
   created_at?: string;
   headline?: string;
   content_type?: string;
   team_timeline_weeks?: number;
+  status?: string;
+  parent_post_id?: string | null;
 }
 
 function isDuplicate(content: InjuryPostContent, existingPosts: ExistingPost[]): boolean {
@@ -99,9 +102,23 @@ function checkFollowUpCadence(
     return { throttled: false };
   }
 
+  const threadId = content.parent_post_id;
+
   const lastFollowUp = existingPosts
     .filter((p) => p.athlete_name === content.athlete_name && p.sport === content.sport)
-    .filter((p) => p.content_type === 'TRACKING' || p.content_type === 'CONFLICT_FLAG')
+    // Only a post that actually reached the public can justify staying quiet.
+    // web_list_posts returns every status, so without this a PENDING_REVIEW post
+    // — including one an MD rejected — starts a cooldown that suppresses the
+    // next 5 days of updates for an athlete nobody ever heard about.
+    .filter((p) => p.status === 'PUBLISHED')
+    // Same thread only. Scoping by athlete meant an unrelated older injury
+    // throttled a brand-new one: a hamstring follow-up in March could silence
+    // the first update on an ACL tear in October.
+    .filter((p) => p.id === threadId || p.parent_post_id === threadId)
+    // Same type only. Pooling the two and taking the newest let a CONFLICT_FLAG
+    // anchor a TRACKING cooldown and vice versa, so the 14-day conflict window
+    // silently governed routine 5-day updates.
+    .filter((p) => p.content_type === content.content_type)
     .filter((p): p is ExistingPost & { created_at: string } => !!p.created_at)
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
 
@@ -109,9 +126,15 @@ function checkFollowUpCadence(
 
   // Material-change override: any change in the team-disclosed timeline
   // (including a first-time disclosure) always publishes regardless of cooldown.
-  const currentWeeks = content.team_timeline_weeks ?? null;
-  const lastWeeks = lastFollowUp.team_timeline_weeks ?? null;
-  if (currentWeeks !== lastWeeks) {
+  // Coerced because the prior post's value is untyped MCP data — a numeric
+  // column arriving as "2" would make `'2' !== 2` true for every comparison and
+  // turn the whole throttle into a no-op.
+  const weeks = (v: unknown): number | null => {
+    if (v === null || v === undefined || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  if (weeks(content.team_timeline_weeks) !== weeks(lastFollowUp.team_timeline_weeks)) {
     return { throttled: false };
   }
 
