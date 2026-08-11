@@ -37,6 +37,8 @@ interface ThresholdConfig {
   process?: number;
   defer?: number;
   require_tier_1_or_2?: boolean;
+  /** Lowest-prominence tier still eligible to PROCESS; tiers above are blocked. */
+  max_tier?: number;
   always_process?: boolean;
 }
 
@@ -65,7 +67,7 @@ export interface DeferConfig {
 interface SignificanceConfig {
   version: number;
   thresholds: {
-    default: { process: number; defer: number };
+    default: ThresholdConfig & { process: number; defer: number };
     BREAKING_T1?: ThresholdConfig;
     TRACKING?: ThresholdConfig;
     DEEP_DIVE?: ThresholdConfig;
@@ -383,6 +385,13 @@ export function effectiveThresholds(
 
   // Default (BREAKING non-T1, and any unhandled content type)
   const d = cfg?.default ?? { process: 55, defer: 35 };
+  // Tier 4 is the "deep depth / explicitly deprioritised" bucket, and its
+  // ceiling (60) sits below the offseason bar. Blocking it outright says so
+  // honestly; letting the reachability clamp quietly lower the bar instead
+  // would be the same silent-unreachability failure this guardrail exists for.
+  if (d.max_tier !== undefined && tier > d.max_tier) {
+    return { process: null, defer: null, tier_blocked: true };
+  }
   return { process: bar(d.process), defer: floor(d.defer), tier_blocked: false };
 }
 

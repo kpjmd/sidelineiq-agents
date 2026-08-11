@@ -1,7 +1,7 @@
 {
   "version": 2,
   "thresholds": {
-    "default":       { "process": 55, "defer": 35 },
+    "default":       { "process": 60, "defer": 35, "max_tier": 3 },
     "BREAKING_T1":   { "process": 45, "defer": 30 },
     "TRACKING":      { "process": 65, "defer": 40, "require_tier_1_or_2": true },
     "DEEP_DIVE":     { "process": 40, "defer": 25 },

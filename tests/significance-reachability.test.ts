@@ -37,7 +37,13 @@ const TIERS: AthleteTier[] = [1, 2, 3, 4];
  * TRACKING requires a tier 1-2 athlete (`require_tier_1_or_2`), so a routine
  * status update on a depth player is intentionally never published.
  */
-const POLICY_BLOCKED = new Set(['TRACKING|3', 'TRACKING|4']);
+const POLICY_BLOCKED = new Set([
+  'TRACKING|3', // require_tier_1_or_2
+  'TRACKING|4', // require_tier_1_or_2
+  'BREAKING|4', // default.max_tier — tier 4 is deep depth, and its ceiling (60)
+                // sits below the offseason bar, so this is stated as policy
+                // rather than left to the clamp
+]);
 
 interface Probe {
   sport: SportKey;
@@ -153,7 +159,7 @@ describe('significance config — TRACKING thresholds under observation', () => 
 
   it('the other content types are unchanged', () => {
     const th = getLoadedConfig()!.thresholds;
-    expect(th.default).toEqual({ process: 55, defer: 35 });
+    expect(th.default).toEqual({ process: 60, defer: 35, max_tier: 3 });
     expect(th.BREAKING_T1).toMatchObject({ process: 45, defer: 30 });
     expect(th.DEEP_DIVE).toMatchObject({ process: 40, defer: 25 });
     expect(th.CONFLICT_FLAG).toMatchObject({ always_process: true });

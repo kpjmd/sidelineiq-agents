@@ -272,6 +272,30 @@ describe('decideTriage — BREAKING Tier 1', () => {
     expect(decideTriage(44, 'BREAKING', 1)).toBe('DEFER');
   });
 
+  // Tier 4 is the deep-depth bucket, and its BREAKING ceiling (60) sits below
+  // the offseason bar (65). Blocking it by policy states that; leaving it to
+  // the reachability clamp would silently lower the bar instead.
+  it('DROP for Tier 4 BREAKING when default.max_tier is set', () => {
+    _setConfigForTesting({
+      ...TEST_CONFIG,
+      thresholds: { ...TEST_CONFIG.thresholds, default: { process: 60, defer: 35, max_tier: 3 } },
+    } as Parameters<typeof _setConfigForTesting>[0]);
+
+    expect(effectiveThresholds('BREAKING', 4)).toEqual({
+      process: null,
+      defer: null,
+      tier_blocked: true,
+    });
+    expect(decideTriage(100, 'BREAKING', 4)).toBe('DROP');
+    // Tier 3 still scores normally against the raised bar.
+    expect(decideTriage(60, 'BREAKING', 3)).toBe('PROCESS');
+    expect(decideTriage(59, 'BREAKING', 3)).toBe('DEFER');
+  });
+
+  it('ignores max_tier when the config omits it', () => {
+    expect(effectiveThresholds('BREAKING', 4).tier_blocked).toBe(false);
+  });
+
   it('uses default threshold (55) for Tier 2 BREAKING', () => {
     expect(decideTriage(54, 'BREAKING', 2)).toBe('DEFER');
     expect(decideTriage(55, 'BREAKING', 2)).toBe('PROCESS');
