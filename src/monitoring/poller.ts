@@ -36,6 +36,7 @@ import {
   type ResolvedPlayerInfo,
   type ValidationResult,
 } from '../agents/injury-intelligence/fact-validator.js';
+import { refreshSalarySnapshotIfStale } from '../agents/injury-intelligence/salary-snapshot.js';
 
 const DEFAULT_POLL_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -608,6 +609,10 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
 
   // Refresh significance data (athlete tiers + config) at the start of every cycle
   await loadSignificanceData();
+  // Separate call, and separate TTL: the tier/config files are local reads that
+  // are cheap every cycle, while the salary snapshot is ~18 MCP calls over data
+  // that only changes when roster-sync runs. No-ops inside its window.
+  await refreshSalarySnapshotIfStale();
 
   if (!gateEnabled) {
     console.warn(
@@ -700,6 +705,16 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
       // hard-dropping on that guess would bury a star's concussion outright —
       // the same distrust of the source's name that routes drift to MD review.
       // Those events are re-checked below with the classifier's spelling too.
+      //
+      // 'salary' is DELIBERATELY absent from this condition, and the omission is
+      // load-bearing rather than an oversight — do not "complete" the union.
+      // Salary is promote-only, so a salary-sourced tier is always <= 3, which
+      // means adding it here could never RESCUE a concussion (tiers 1-2 already
+      // fail isConcussionTierBlocked) and could only ever create NEW pre-model
+      // drops: every salary-tier-3 athlete — the majority, since most salaries
+      // sit below both bands — would stop reaching the post-classification
+      // re-check they get today. That is the one way this feature could take
+      // away coverage that currently publishes, so it stays out.
       const concussionBlocked =
         gateEnabled && isConcussionTierBlocked(event.injury_description, tierInfo.tier);
       if (concussionBlocked && tierInfo.source === 'lookup') {

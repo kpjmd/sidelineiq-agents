@@ -42,6 +42,7 @@ import {
 } from '../agents/injury-intelligence/significance.js';
 import { resolveSourceTier } from '../agents/injury-intelligence/fact-validator.js';
 import type { SportKey, CorroborationTier, PromotionScore } from '../types.js';
+import { refreshSalarySnapshotIfStale } from '../agents/injury-intelligence/salary-snapshot.js';
 
 // A conflict is "real" when the team timeline exceeds the OTM ceiling by at
 // least this many weeks. Mirrors the delta-rule spirit used in dedup.
@@ -197,6 +198,7 @@ async function main(): Promise<void> {
 
   await initializeMCPClients();
   await loadSignificanceData();
+  await refreshSalarySnapshotIfStale();
 
   const posts = await fetchAllConflictFlags();
   console.log(`[replay] fetched ${posts.length} CONFLICT_FLAG posts`);

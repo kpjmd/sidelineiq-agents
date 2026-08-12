@@ -10,6 +10,7 @@ import {
   computePromotionScore,
   PROMOTION_PROPOSE_THRESHOLD,
   _setTiersForTesting,
+  _setSalarySnapshotForTesting,
   _setConfigForTesting,
 } from '../src/agents/injury-intelligence/significance.js';
 import type { SignificanceSubscores } from '../src/types.js';
@@ -62,6 +63,11 @@ const TEST_TIERS = {
 beforeEach(() => {
   _setConfigForTesting(TEST_CONFIG as Parameters<typeof _setConfigForTesting>[0]);
   _setTiersForTesting(TEST_TIERS as Parameters<typeof _setTiersForTesting>[0]);
+  // Stated rather than assumed: the "genuinely unknown athlete" assertions
+  // below would pass without this, but only because no salary snapshot is
+  // installed in this process. Salary coverage is exercised in
+  // tests/salary-tier.test.ts.
+  _setSalarySnapshotForTesting(null);
 });
 
 // ── computeRawScore ──────────────────────────────────────────────────────────

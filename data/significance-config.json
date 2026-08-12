@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "thresholds": {
     "default":       { "process": 60, "defer": 35, "max_tier": 3 },
     "BREAKING_T1":   { "process": 45, "defer": 30 },
@@ -19,6 +19,13 @@
     ]
   },
   "default_threshold_delta": 0,
+  "salary_tiers": {
+    "currency": "USD",
+    "bands": {
+      "NFL": { "tier_1_min": 25000000, "tier_2_min": 8000000 },
+      "NBA": { "tier_1_min": 45000000, "tier_2_min": 15000000 }
+    }
+  },
   "concussion": { "require_tier_1_or_2": true },
   "defer": {
     "ttl_hours": 6,

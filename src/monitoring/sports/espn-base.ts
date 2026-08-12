@@ -83,6 +83,8 @@ export interface ESPNRosterAthlete {
   full_name: string;
   position?: string;
   jersey?: string;
+  /** Whole USD. Undefined when ESPN reports no contract — see extractSalary. */
+  salary?: number;
 }
 
 interface ESPNTeamsResponse {
@@ -111,12 +113,19 @@ interface ESPNRosterGroup {
   items?: ESPNRawAthlete[];
 }
 
-interface ESPNRawAthlete {
+export interface ESPNRawAthlete {
   id?: string | number;
   displayName?: string;
   fullName?: string;
   jersey?: string;
   position?: { abbreviation?: string };
+  // ESPN serves contract data under two different keys depending on the
+  // endpoint's mood, and both appear in live NFL and NBA responses. Neither
+  // appears at all in soccer/eng.1, where athletes carry no contract field.
+  contract?: { salary?: unknown };
+  contracts?: Array<{ salary?: unknown }>;
+  // Needed only to detect rookies, whose `salary` means something different.
+  experience?: { years?: unknown };
 }
 
 /**
@@ -299,6 +308,56 @@ export abstract class ESPNInjurySource implements SportDataSource {
   }
 }
 
+/**
+ * ESPN's reported annual contract salary in whole USD, or undefined when it
+ * reports none.
+ *
+ * Two shapes, both live: `contract.salary` (a single object) covers ~62% of
+ * NFL and NBA athletes, and falling back to `contracts[0].salary` (an array)
+ * lifts that to 68% NFL / 74% NBA. Reading only the first would leave a tenth
+ * of each league silently unsalaried. soccer/eng.1 athletes carry neither key,
+ * which is why PREMIER_LEAGUE has no salary bands at all.
+ *
+ * Rejects anything that is not already a positive finite number rather than
+ * coercing. A string "20000000" would coerce fine, but a "$20M" variant would
+ * coerce to 20 — a salary of twenty dollars, which bands to the flat default
+ * and is therefore indistinguishable from "no contract" in every log and every
+ * output. Failing to read a new shape is recoverable; misreading one is not.
+ *
+ * ROOKIES ARE EXCLUDED, because for them `salary` means something else.
+ * Verified against live rosters: Fernando Mendoza (experience 0) reports
+ * salary $38,996,344 with yearsRemaining 3 and signedThrough 2029 — that is
+ * the TOTAL value of his rookie deal, not an annual figure. Saquon Barkley
+ * (experience 11) reports $16,750,100 with salaryRemaining $35,200,100, which
+ * is plainly annual. Mixing the two units put five incoming NFL rookies into
+ * tier 1 ahead of most of the league, which the dry-run caught before ship.
+ *
+ * salaryRemaining < salary looks like a cleaner discriminator and is not: the
+ * NBA reports salaryRemaining as 0 for essentially every athlete, so it would
+ * reject that whole league, and it also flags genuine veterans in a contract's
+ * final years. Experience year 0 is the honest signal, and it costs 71 of 1851
+ * salaried NFL athletes (5 would-be tier-1s, 17 tier-2s) and 1 of 322 in the
+ * NBA. Those rookies fall back to tier 3 — the pre-existing default — and the
+ * genuinely prominent ones are what athlete-tiers.json is for.
+ *
+ * A missing experience field is treated as "not a rookie". If ESPN stopped
+ * sending it, rejecting instead would silently disable the feature league-wide,
+ * which is far worse than re-admitting ~22 inflated rookies.
+ *
+ * Exported for direct unit testing — no network, no MCP, following the
+ * diffCoverage precedent in roster-sync.
+ */
+export function extractSalary(raw: ESPNRawAthlete): number | undefined {
+  const years = raw?.experience?.years;
+  if (typeof years === 'number' && years === 0) return undefined;
+
+  const single = raw?.contract?.salary;
+  const fromArray = Array.isArray(raw?.contracts) ? raw.contracts[0]?.salary : undefined;
+  const value = typeof single === 'number' ? single : fromArray;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return undefined;
+  return Math.round(value);
+}
+
 function normalizeRosterAthlete(
   raw: ESPNRawAthlete,
   groupPosition?: string,
@@ -311,6 +370,7 @@ function normalizeRosterAthlete(
     full_name: fullName,
     position: raw.position?.abbreviation ?? groupPosition,
     jersey: raw.jersey,
+    salary: extractSalary(raw),
   };
 }
 
