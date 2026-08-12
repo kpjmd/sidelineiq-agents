@@ -14,6 +14,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   isConcussionOnlyEvent,
   isConcussionTierBlocked,
+  lookupAthleteTier,
   loadSignificanceData,
   _setConfigForTesting,
   getLoadedConfig,
@@ -95,5 +96,31 @@ describe('isConcussionTierBlocked', () => {
 describe('shipped config', () => {
   it('has the concussion tier rule enabled', () => {
     expect(getLoadedConfig()!.concussion).toEqual({ require_tier_1_or_2: true });
+  });
+});
+
+// The gate drops before any model call, using a tier resolved from the SOURCE's
+// spelling of the athlete's name. That tier is only trustworthy when it came
+// from athlete-tiers.json: a miss returns tier 3 `default`, which is a guess,
+// and hard-dropping on a guess buries a star's concussion outright. The poller
+// therefore only drops pre-classification on a `lookup` tier — a `default` one
+// is re-checked against the classifier's spelling first. These pin the lookup
+// behaviour the poller's two-stage gate depends on.
+describe('tier resolution the concussion gate depends on', () => {
+  it('a punctuation variant of a listed star no longer defaults to tier 3', () => {
+    // Ja'Marr Chase is tier 1 in the shipped file; a source writing "JaMarr
+    // Chase" used to resolve to tier 3 default and get his concussion dropped.
+    const result = lookupAthleteTier('JaMarr Chase', 'NFL');
+    expect(result.source).toBe('lookup');
+    expect(result.tier).toBeLessThanOrEqual(2);
+    expect(isConcussionTierBlocked('Entered the concussion protocol', result.tier)).toBe(false);
+  });
+
+  it('an unlisted athlete still resolves to a tier-3 GUESS, not a confirmed tier', () => {
+    // The distinction the poller keys on: source==='default' means "we don't
+    // know", so the drop is deferred until the classifier's name is available.
+    const result = lookupAthleteTier('Xavier Weaver', 'NFL');
+    expect(result.source).toBe('default');
+    expect(isConcussionTierBlocked('Entered the concussion protocol', result.tier)).toBe(true);
   });
 });

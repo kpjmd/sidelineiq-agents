@@ -59,7 +59,18 @@ function followUp(overrides: Partial<InjuryPostContent> = {}): InjuryPostContent
   };
 }
 
-/** A prior post as web_list_posts would return it — every status included. */
+/**
+ * A prior post as web_list_posts would return it — every status included.
+ *
+ * `created_at` is deliberately 2 days old, not 1. publishInjuryPost runs a
+ * blanket 24h `isDuplicate` check on (athlete, sport) BEFORE the cadence check
+ * and with no status filter, so any fixture inside 24h short-circuits to
+ * `skipped`/`duplicate` and never reaches the code these tests exist to pin.
+ * A 1-day fixture sits exactly on that boundary and passes only by the
+ * milliseconds between building the fixture and the comparison. Every test
+ * that expects a throttle therefore also asserts the REASON, so a duplicate
+ * skip can never masquerade as a cadence skip.
+ */
 function priorPost(overrides: Record<string, unknown> = {}) {
   return {
     id: 'post-prior',
@@ -68,7 +79,7 @@ function priorPost(overrides: Record<string, unknown> = {}) {
     content_type: 'TRACKING',
     status: 'PUBLISHED',
     parent_post_id: THREAD_ID,
-    created_at: daysAgo(1),
+    created_at: daysAgo(2),
     team_timeline_weeks: 3,
     ...overrides,
   };
@@ -130,13 +141,29 @@ describe('follow-up cadence — defect 1: unpublished posts must not anchor a co
   });
 
   it('still throttles when a PUBLISHED post exists alongside an unpublished one', async () => {
+    // The PENDING_REVIEW post is the NEWER of the two, so a filter that merely
+    // sorted without excluding it would still anchor on the wrong row.
     withPriorPosts([
-      priorPost({ id: 'p1', status: 'PENDING_REVIEW', created_at: daysAgo(0.5) }),
-      priorPost({ id: 'p2', status: 'PUBLISHED', created_at: daysAgo(1) }),
+      priorPost({ id: 'p1', status: 'PENDING_REVIEW', created_at: daysAgo(1.5) }),
+      priorPost({ id: 'p2', status: 'PUBLISHED', created_at: daysAgo(2) }),
     ]);
     const result = await publishInjuryPost(followUp({ team_timeline_weeks: 3 }));
 
     expect(result.status).toBe('skipped');
+    expect(result.reason).toContain('follow_up_cooldown');
+  });
+
+  // The status filter only governs the CADENCE throttle. publishInjuryPost's
+  // separate 24h duplicate check has no status filter, so inside 24h a
+  // PENDING_REVIEW post still suppresses coverage — as a duplicate, not as a
+  // cooldown. Pinned here so the distinction is deliberate rather than a
+  // surprise the next reader has to rediscover.
+  it('is still suppressed as a DUPLICATE (not a cooldown) inside 24h', async () => {
+    withPriorPosts([priorPost({ status: 'PENDING_REVIEW', created_at: daysAgo(0.5) })]);
+    const result = await publishInjuryPost(followUp({ team_timeline_weeks: 3 }));
+
+    expect(result.status).toBe('skipped');
+    expect(result.reason).toBe('duplicate');
   });
 });
 
@@ -156,6 +183,7 @@ describe('follow-up cadence — defect 2: cooldowns are per-injury, not per-athl
     const result = await publishInjuryPost(followUp({ team_timeline_weeks: 3 }));
 
     expect(result.status).toBe('skipped');
+    expect(result.reason).toContain('follow_up_cooldown');
   });
 });
 
@@ -186,6 +214,7 @@ describe('follow-up cadence — defect 3: content types must not anchor each oth
 
     // 7 days < 14-day cooldown, same type, same thread → throttled
     expect(result.status).toBe('skipped');
+    expect(result.reason).toContain('follow_up_cooldown');
   });
 });
 
@@ -198,6 +227,7 @@ describe('follow-up cadence — defect 4: material-change comparison is numeric'
     const result = await publishInjuryPost(followUp({ team_timeline_weeks: 3 }));
 
     expect(result.status).toBe('skipped');
+    expect(result.reason).toContain('follow_up_cooldown');
   });
 
   it('publishes when the team timeline actually changes', async () => {
@@ -219,5 +249,6 @@ describe('follow-up cadence — defect 4: material-change comparison is numeric'
     const result = await publishInjuryPost(followUp({ team_timeline_weeks: undefined }));
 
     expect(result.status).toBe('skipped');
+    expect(result.reason).toContain('follow_up_cooldown');
   });
 });
