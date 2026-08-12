@@ -32,7 +32,7 @@ import { callTool, isServerAvailable } from '../utils/mcp-client-manager.js';
 import {
   validateEvent,
   summarizeFailures,
-  teamClaimMatches,
+  teamClaimCheck,
   type ResolvedPlayerInfo,
   type ValidationResult,
 } from '../agents/injury-intelligence/fact-validator.js';
@@ -951,20 +951,33 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
       // an unknown team from its own knowledge, which reintroduces the wrong-team
       // failure mode downstream of the fact validator. On a contradiction, route to
       // MD review rather than drop — Sonnet may know of a trade the roster missed.
-      if (
-        validation.resolvedPlayer &&
-        validation.resolvedPlayer.confidence !== 'ambiguous' &&
-        !teamClaimMatches(post.team, validation.resolvedPlayer)
-      ) {
-        console.warn(
-          `[FactValidator] ${sport} — post team "${post.team}" mismatches roster for ${context} — routing to MD review`,
-        );
-        // The pre-Sonnet tier gate already flags this exact reported-vs-roster
-        // contradiction as team_mismatch_unconfirmed; don't double-count it here.
-        if (!forceMDReviewReason) {
-          forceMDReviewReason = 'fact_soft_fail:post_team_mismatch';
-        } else if (!forceMDReviewReason.includes('team_mismatch_unconfirmed')) {
-          forceMDReviewReason = `${forceMDReviewReason},post_team_mismatch`;
+      if (validation.resolvedPlayer && validation.resolvedPlayer.confidence !== 'ambiguous') {
+        const postTeamCheck = teamClaimCheck(post.team, validation.resolvedPlayer);
+        if (postTeamCheck === 'mismatch') {
+          console.warn(
+            `[FactValidator] ${sport} — post team "${post.team}" mismatches roster for ${context} — routing to MD review`,
+          );
+          // The pre-Sonnet tier gate already flags this exact reported-vs-roster
+          // contradiction as team_mismatch_unconfirmed; don't double-count it here.
+          if (!forceMDReviewReason) {
+            forceMDReviewReason = 'fact_soft_fail:post_team_mismatch';
+          } else if (!forceMDReviewReason.includes('team_mismatch_unconfirmed')) {
+            forceMDReviewReason = `${forceMDReviewReason},post_team_mismatch`;
+          }
+        } else if (postTeamCheck === 'uncheckable' && sport !== 'UFC') {
+          // Sonnet invented a team and the roster carries nothing to compare it
+          // against. Previously this returned true and published unchecked.
+          // validateEvent already emits team_unverifiable for the same roster
+          // gap pre-Sonnet, so suppress the duplicate the way the mismatch
+          // branch above suppresses its own.
+          console.warn(
+            `[FactValidator] ${sport} — post team "${post.team}" is unverifiable (no roster team) for ${context} — routing to MD review`,
+          );
+          if (!forceMDReviewReason) {
+            forceMDReviewReason = 'fact_soft_fail:post_team_unverifiable';
+          } else if (!forceMDReviewReason.includes('team_unverifiable')) {
+            forceMDReviewReason = `${forceMDReviewReason},post_team_unverifiable`;
+          }
         }
       }
 

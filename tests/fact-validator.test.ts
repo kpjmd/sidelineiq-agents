@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   validateEvent,
-  teamClaimMatches,
+  teamClaimCheck,
   type ResolvedPlayerInfo,
 } from '../src/agents/injury-intelligence/fact-validator.js';
 import type { RawInjuryEvent } from '../src/types.js';
@@ -138,6 +138,64 @@ describe('validateEvent — team mismatch source-tier gating', () => {
   );
 });
 
+describe('validateEvent — resolved player carrying no roster team (F9)', () => {
+  // Regression: a player that RESOLVES but has current_team_id IS NULL used to
+  // fall through both branches of the team check — the first requires a truthy
+  // rosterTeam, the second requires !resolved — so no code of any kind was
+  // recorded and the event reached Sonnet with an entirely unchecked team.
+  const teamless = () =>
+    makePlayer({ current_team_id: null, current_team_name: null, current_team_abbreviation: null });
+
+  it('soft-fails team_unverifiable instead of silently passing', async () => {
+    const res = await validateEvent(makeEvent({ team: 'Anything At All' }), teamless(), { now: NOW });
+    expect(res.softFailures.map((f) => f.code)).toContain('team_unverifiable');
+    expect(res.hardFailures).toHaveLength(0);
+    expect(res.passed).toBe(true);
+  });
+
+  it('does not emit team_unverified — the player IS in the roster store', async () => {
+    const res = await validateEvent(makeEvent({ team: 'Anything At All' }), teamless(), { now: NOW });
+    expect(res.softFailures.map((f) => f.code)).not.toContain('team_unverified');
+  });
+
+  it('is not tier-gated — a T1 source is just as uncheckable as a T3 one', async () => {
+    for (const sourceUrl of ['https://www.espn.com/nba/story', 'https://newsapi.org/story']) {
+      const res = await validateEvent(
+        makeEvent({ team: 'Boston Celtics', source_url: sourceUrl }),
+        teamless(),
+        { now: NOW },
+      );
+      expect(res.softFailures.map((f) => f.code)).toContain('team_unverifiable');
+      expect(res.hardFailures.map((f) => f.code)).not.toContain('team_mismatch');
+    }
+  });
+
+  it('makes no team correction — there is nothing to correct toward', async () => {
+    const res = await validateEvent(makeEvent({ team: 'Anything At All' }), teamless(), { now: NOW });
+    expect(res.corrections.find((c) => c.field === 'team')).toBeUndefined();
+  });
+
+  it('does not fire for UFC, where fighters have no team by design', async () => {
+    const res = await validateEvent(
+      makeEvent({ sport: 'UFC', team: 'N/A', athlete_name: 'Some Fighter' }),
+      teamless(),
+      { now: NOW },
+    );
+    expect(res.softFailures.map((f) => f.code)).not.toContain('team_unverifiable');
+  });
+
+  it('does not fire when the player resolved ambiguously (identity_ambiguous covers it)', async () => {
+    const res = await validateEvent(
+      makeEvent({ team: 'Anything At All' }),
+      makePlayer({ ...teamless(), confidence: 'ambiguous', match_count: 2 }),
+      { now: NOW },
+    );
+    const codes = res.softFailures.map((f) => f.code);
+    expect(codes).toContain('identity_ambiguous');
+    expect(codes).not.toContain('team_unverifiable');
+  });
+});
+
 describe('validateEvent — identity resolution', () => {
   it('does not soft-fail identity for an unresolved UFC fighter', async () => {
     const res = await validateEvent(
@@ -197,17 +255,22 @@ describe('validateEvent — soft signals', () => {
   });
 });
 
-describe('teamClaimMatches — post-Sonnet recheck helper (F7)', () => {
-  it('returns true for a correct team claim', () => {
-    expect(teamClaimMatches('Los Angeles Lakers', makePlayer())).toBe(true);
+describe('teamClaimCheck — post-Sonnet recheck helper (F7)', () => {
+  it('returns match for a correct team claim', () => {
+    expect(teamClaimCheck('Los Angeles Lakers', makePlayer())).toBe('match');
   });
 
-  it('returns false for a co-located wrong team claim', () => {
-    expect(teamClaimMatches('Los Angeles Clippers', makePlayer({ current_team_abbreviation: null }))).toBe(false);
+  it('returns mismatch for a co-located wrong team claim', () => {
+    expect(teamClaimCheck('Los Angeles Clippers', makePlayer({ current_team_abbreviation: null }))).toBe(
+      'mismatch',
+    );
   });
 
-  it('returns true (cannot check) when the roster carries no team info', () => {
+  it('returns uncheckable — NOT match — when the roster carries no team info', () => {
+    // This is the F9 fail-open at its most dangerous: the value being checked is
+    // Sonnet's own invented team, so a "match" here means publishing a fabricated
+    // team with nothing to compare it against.
     const player = makePlayer({ current_team_name: null, current_team_abbreviation: null });
-    expect(teamClaimMatches('Anything At All', player)).toBe(true);
+    expect(teamClaimCheck('Anything At All', player)).toBe('uncheckable');
   });
 });

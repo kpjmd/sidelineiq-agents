@@ -11,6 +11,10 @@
 // likely a trade the roster hasn't caught up to) SOFT-fails as
 // 'team_mismatch_unconfirmed' — routed to MD review with the reported (new) team
 // preserved, never overwritten by the possibly-stale roster team.
+//
+// A team that cannot be checked at all is separate from one that contradicts:
+// 'team_unverifiable' (player resolved, but carries no roster team) is soft and
+// NOT tier-gated, because the defect is in our roster rather than in the report.
 
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -39,7 +43,14 @@ export type ValidationCode =
   | 'laterality_inconsistent'
   | 'procedure_body_part_mismatch'
   | 'source_tier_low'
+  // 'team_unverified'   — the player is NOT in the roster store at all.
+  // 'team_unverifiable' — the player IS in the roster store but carries no team
+  //                       to check against. One letter apart, two different data
+  //                       defects with two different remediations: the first is
+  //                       fixed by a roster sync, the second by repairing that
+  //                       player's current_team_id. Do not merge them.
   | 'team_unverified'
+  | 'team_unverifiable'
   | 'team_mismatch_unconfirmed';
 
 export interface ValidationFailure {
@@ -231,8 +242,13 @@ function normTeamMatches(reportedNorm: string, candidateNorm: string): boolean {
   return false;
 }
 
-function teamMatches(reported: string, player: ResolvedPlayerInfo): boolean {
-  if (!player.current_team_name && !player.current_team_abbreviation) return true; // can't check
+// Tri-state, deliberately not a boolean. A boolean cannot distinguish "checked
+// and matched" from "could not check", and collapsing the two is what let a
+// resolved-but-teamless player pass with no verification at all.
+export type TeamCheck = 'match' | 'mismatch' | 'uncheckable';
+
+function checkTeam(reported: string, player: ResolvedPlayerInfo): TeamCheck {
+  if (!player.current_team_name && !player.current_team_abbreviation) return 'uncheckable';
   const reportedNorm = normalize(reported);
   const candidates = [
     player.current_team_name,
@@ -241,15 +257,16 @@ function teamMatches(reported: string, player: ResolvedPlayerInfo): boolean {
     .filter((x): x is string => Boolean(x))
     .map(normalize);
 
-  return candidates.some((c) => normTeamMatches(reportedNorm, c));
+  return candidates.some((c) => normTeamMatches(reportedNorm, c)) ? 'match' : 'mismatch';
 }
 
-// Public boolean form for callers that need to re-check a team claim against a
-// resolved player (e.g. the poller re-validating Sonnet's final team output,
-// which is produced downstream of validateEvent). Returns true when the roster
-// carries no team info to check against.
-export function teamClaimMatches(reported: string, player: ResolvedPlayerInfo): boolean {
-  return teamMatches(reported, player);
+// Public form for callers that need to re-check a team claim against a resolved
+// player (e.g. the poller re-validating Sonnet's final team output, which is
+// produced downstream of validateEvent). Callers must handle 'uncheckable'
+// explicitly — that case is the model's invented team with nothing to compare
+// it against, which is a review trigger, not a pass.
+export function teamClaimCheck(reported: string, player: ResolvedPlayerInfo): TeamCheck {
+  return checkTeam(reported, player);
 }
 
 // ── Body-part / laterality extraction ──────────────────────────────────
@@ -459,10 +476,30 @@ export async function validateEvent(
 
   // ── Team check (only meaningful when player resolved unambiguously) ──
   const rosterTeam = resolved?.current_team_name ?? resolved?.current_team_abbreviation ?? null;
-  if (resolved && resolved.confidence !== 'ambiguous' && rosterTeam) {
+  if (resolved && resolved.confidence !== 'ambiguous') {
+    // NOTE: rosterTeam is checked INSIDE this branch, not in its condition.
+    // Hoisting it back into the `if` reopens the hole this structure closes:
+    // a resolved player with a null team failed `rosterTeam` here and failed
+    // `!resolved` below, so neither branch ran and the event was published
+    // with a completely unverified team and no failure code of any kind.
     const reportedNorm = normalize(event.team ?? '');
     const reportedIsUnknown = reportedNorm === '' || reportedNorm === 'unknown';
-    if (reportedIsUnknown) {
+    if (!rosterTeam) {
+      // The player is in the roster store but carries no team. That is a gap in
+      // OUR data, not a contradiction from the source, so it is soft and it is
+      // NOT tier-gated: source tier speaks to the reporter's reliability, and a
+      // T1 report is exactly as uncheckable against a null as a T3 one. Hard-
+      // dropping here would also be stricter than the treatment of a genuine
+      // conflict below, which would be incoherent.
+      // UFC is exempt — fighters have no team by design (cf. the !resolved
+      // branch below, which carries the same exemption).
+      if (event.sport !== 'UFC') {
+        softFailures.push({
+          code: 'team_unverifiable',
+          detail: `Cannot verify team "${event.team}" — ${resolved.full_name} resolved but carries no roster team (player_id=${resolved.player_id})`,
+        });
+      }
+    } else if (reportedIsUnknown) {
       // The source named no team (common for NewsAPI items whose body text
       // never states one). This is a gap, not a contradiction — fill it from
       // the roster and let the event through. NOT a hard failure.
@@ -472,7 +509,7 @@ export async function validateEvent(
         to: rosterTeam,
         reason: `reported team unknown; filled from roster (player_id=${resolved.player_id})`,
       });
-    } else if (!teamMatches(event.team, resolved)) {
+    } else if (checkTeam(event.team, resolved) === 'mismatch') {
       // The reported team contradicts the roster. Tier-gate the response: a
       // high-trust source (T1/T2) reporting a different team is more likely a
       // real trade our roster hasn't caught up to than a mis-tag, so route it to
