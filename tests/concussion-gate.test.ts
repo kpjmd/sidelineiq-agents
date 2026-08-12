@@ -17,11 +17,18 @@ import {
   lookupAthleteTier,
   loadSignificanceData,
   _setConfigForTesting,
+  _setSalarySnapshotForTesting,
   getLoadedConfig,
 } from '../src/agents/injury-intelligence/significance.js';
 
 beforeEach(async () => {
   await loadSignificanceData();
+  // Stated, not assumed. Without this line the "unlisted athlete" assertions
+  // below would still pass — but only because no salary snapshot happens to be
+  // installed in this process, which is an accident of module state rather
+  // than a property of the gate. The positive counterpart at the bottom of
+  // this file is what actually exercises the salary path.
+  _setSalarySnapshotForTesting(null);
 });
 
 describe('isConcussionOnlyEvent', () => {
@@ -122,5 +129,41 @@ describe('tier resolution the concussion gate depends on', () => {
     const result = lookupAthleteTier('Xavier Weaver', 'NFL');
     expect(result.source).toBe('default');
     expect(isConcussionTierBlocked('Entered the concussion protocol', result.tier)).toBe(true);
+  });
+
+  // The salary layer's effect on this gate, asserted rather than assumed.
+  // Salary is promote-only, so it can only ever RESCUE a concussion here — it
+  // has no way to create a new drop.
+  it('still blocks an unlisted athlete whose salary clears no band', () => {
+    // Weaver is really paid $1.07M, which bands to nothing. The negative
+    // assertion above now proves the bands rather than the absence of data.
+    _setSalarySnapshotForTesting([
+      { full_name: 'Xavier Weaver', sport: 'NFL', salary: 1_070_000 },
+    ]);
+    const result = lookupAthleteTier('Xavier Weaver', 'NFL');
+    expect(result.source).toBe('default');
+    expect(result.tier).toBe(3);
+    expect(isConcussionTierBlocked('Entered the concussion protocol', result.tier)).toBe(true);
+  });
+
+  it('rescues an unlisted star once salary resolves him', () => {
+    // A.J. Brown at $29.0M: not in the shipped override file, so before the
+    // salary layer his concussion was gated exactly like a practice-squad
+    // player's. This is the editorial gap the feature closes.
+    _setSalarySnapshotForTesting([{ full_name: 'A.J. Brown', sport: 'NFL', salary: 29_000_000 }]);
+    const result = lookupAthleteTier('A.J. Brown', 'NFL');
+    expect(result.source).toBe('salary');
+    expect(result.tier).toBe(1);
+    expect(isConcussionTierBlocked('Entered the concussion protocol', result.tier)).toBe(false);
+  });
+
+  it('leaves a salary-derived tier 3 for the post-classification re-check', () => {
+    // poller.ts hard-drops pre-classification ONLY on source==='lookup'.
+    // 'salary' is deliberately excluded: including it would newly drop every
+    // salary-tier-3 athlete before any model call, which is the one way this
+    // feature could remove coverage that publishes today.
+    _setSalarySnapshotForTesting([{ full_name: 'Depth Guy', sport: 'NFL', salary: 1_100_000 }]);
+    const result = lookupAthleteTier('Depth Guy', 'NFL');
+    expect(result.source).not.toBe('lookup');
   });
 });

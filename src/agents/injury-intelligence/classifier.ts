@@ -160,7 +160,7 @@ function getClient(): Anthropic {
 
 export interface TierContext {
   athleteTier: AthleteTier;
-  athleteTierSource: 'lookup' | 'default';
+  athleteTierSource: 'lookup' | 'salary' | 'default';
 }
 
 /**

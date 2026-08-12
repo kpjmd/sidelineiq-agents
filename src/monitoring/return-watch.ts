@@ -19,6 +19,7 @@ import {
 } from '../agents/injury-intelligence/significance.js';
 import { resolveSourceTier } from '../agents/injury-intelligence/fact-validator.js';
 import type { SportKey, PromotionScoreInput } from '../types.js';
+import { refreshSalarySnapshotIfStale } from '../agents/injury-intelligence/salary-snapshot.js';
 
 export type InjuryUpdateKind =
   | 'INITIAL'
@@ -99,6 +100,7 @@ export async function maybeProposeReturnWatch(
   if (!entity) return;
 
   await loadSignificanceData();
+  await refreshSalarySnapshotIfStale();
   const { tier } = lookupAthleteTier(ctx.athleteName, ctx.sport);
   const stalenessDays = Math.max(
     0,

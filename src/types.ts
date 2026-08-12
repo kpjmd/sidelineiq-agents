@@ -107,7 +107,7 @@ export interface SignificanceAssessment {
   tier_blocked: boolean;
   triage_decision: TriageDecision;
   athlete_tier: AthleteTier;
-  athlete_tier_source: 'lookup' | 'default';
+  athlete_tier_source: 'lookup' | 'salary' | 'default';
   subscores: SignificanceSubscores;
   rationale: string;
 }

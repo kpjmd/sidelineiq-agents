@@ -4,6 +4,8 @@ import { ESPNNFLSource } from './sports/espn-nfl.js';
 import { ESPNNBASource } from './sports/espn-nba.js';
 import { ESPNPremierLeagueSource } from './sports/espn-premier-league.js';
 import { callToolWithRetry } from '../utils/mcp-client-manager.js';
+import { hasSalaryBands } from '../agents/injury-intelligence/significance.js';
+import { invalidateSalarySnapshot } from '../agents/injury-intelligence/salary-snapshot.js';
 
 // ESPN roster endpoints exist for NFL/NBA/PremierLeague but not UFC
 // (fighters aren't team-rostered). UFC fact validation handles names without
@@ -66,6 +68,10 @@ async function upsertPlayer(
       position: a.position,
       jersey: a.jersey,
       prominence_source: 'espn',
+      // Omitted, not nulled, when ESPN reports no contract: the server
+      // COALESCEs, so omission preserves a salary an earlier cycle found. A
+      // third of NFL athletes legitimately have none on any given cycle.
+      salary: a.salary,
     });
     return true;
   } catch (err) {
@@ -81,6 +87,11 @@ interface SyncSummary {
   teams_upserted: number;
   players_fetched: number;
   players_upserted: number;
+  /** Athletes ESPN reported a contract salary for. Logged every cycle because
+   *  it is the only thing that would surface an ESPN contract-shape change:
+   *  extractSalary returning undefined league-wide is silent everywhere else,
+   *  and would just look like every athlete quietly reverting to tier 3. */
+  players_with_salary: number;
   errors: number;
   /** In-coverage teams we hold that ESPN's feed no longer returns. -1 means the
    *  check did not run (a precondition failed); 0 means it ran and found none.
@@ -195,6 +206,7 @@ async function syncSport(
     teams_upserted: 0,
     players_fetched: 0,
     players_upserted: 0,
+    players_with_salary: 0,
     errors: 0,
     teams_absent_from_feed: -1,
   };
@@ -219,6 +231,7 @@ async function syncSport(
     for (const athlete of athletes) {
       if (await upsertPlayer(sport, teamId, athlete)) {
         summary.players_upserted++;
+        if (athlete.salary !== undefined) summary.players_with_salary++;
       } else {
         summary.errors++;
       }
@@ -230,8 +243,26 @@ async function syncSport(
   await reportCoverageDrift(sport, source, teams, summary);
 
   console.log(
-    `[RosterSync] ${sport} — teams=${summary.teams_upserted}/${summary.teams_fetched} players=${summary.players_upserted}/${summary.players_fetched} errors=${summary.errors} absent_from_feed=${summary.teams_absent_from_feed}`,
+    `[RosterSync] ${sport} — teams=${summary.teams_upserted}/${summary.teams_fetched} players=${summary.players_upserted}/${summary.players_fetched} salary=${summary.players_with_salary} errors=${summary.errors} absent_from_feed=${summary.teams_absent_from_feed}`,
   );
+
+  // A sport with configured salary bands is one we believe ESPN reports
+  // contracts for. If that collapses, every athlete in it silently reverts to
+  // the flat tier-3 default — a change with no error, no exception and no
+  // other symptom. Live coverage when the bands were calibrated was 68% (NFL)
+  // and 74% (NBA), so 20% is far below any plausible roster churn and can only
+  // mean the contract shape moved under extractSalary.
+  if (hasSalaryBands(sport) && summary.players_upserted > 0) {
+    const pct = (100 * summary.players_with_salary) / summary.players_upserted;
+    if (pct < 20) {
+      console.warn(
+        `[RosterSync] ${sport} — salary coverage ${pct.toFixed(1)}% ` +
+          `(${summary.players_with_salary}/${summary.players_upserted}), expected ~70%. ` +
+          `ESPN's contract shape has probably changed; extractSalary in espn-base.ts ` +
+          `needs updating. Until then every unlisted ${sport} athlete defaults to tier 3.`,
+      );
+    }
+  }
   return summary;
 }
 
@@ -248,6 +279,10 @@ export async function syncAllRosters(): Promise<SyncSummary[]> {
       console.error(`[RosterSync] ${sport} — cycle crashed: ${message}`);
     }
   }
+  // This loop is the only thing that changes salaries, so the snapshot's 6h TTL
+  // is measured from the wrong event without this. Without it a freshly synced
+  // salary could sit unused for most of a TTL window for no reason.
+  invalidateSalarySnapshot();
   return results;
 }
 
