@@ -8,7 +8,7 @@ import { callToolWithRetry } from '../utils/mcp-client-manager.js';
 // ESPN roster endpoints exist for NFL/NBA/PremierLeague but not UFC
 // (fighters aren't team-rostered). UFC fact validation handles names without
 // a current_team requirement — see fact-validator.ts.
-const ESPN_ROSTERED_SOURCES: Record<Exclude<SportKey, 'UFC'>, ESPNInjurySource> = {
+export const ESPN_ROSTERED_SOURCES: Record<Exclude<SportKey, 'UFC'>, ESPNInjurySource> = {
   NFL: new ESPNNFLSource(),
   NBA: new ESPNNBASource(),
   PREMIER_LEAGUE: new ESPNPremierLeagueSource(),
