@@ -350,6 +350,87 @@ describe('lookupAthleteTier', () => {
   });
 });
 
+// ── lookupAthleteTier: spelling variants ─────────────────────────────────────
+//
+// lookupAthleteTier and isSameAthleteName both answer "is this the same
+// athlete?" and used to answer it with different normalizations. normalizeText
+// turns "A.J. Brown" into "a j brown" but "AJ Brown" into "aj brown", so the
+// exact-match lookup missed every punctuation and suffix variant and reported
+// tier 3 `default` for a listed star — while the drift check happily called the
+// two spellings the same person. Since tier drives 35% of the significance
+// score, and the concussion gate drops on tier, that silent disagreement
+// mattered. athlete-tiers.json is full of both shapes ("Ja'Marr Chase",
+// "Amon-Ra St. Brown", "Jaren Jackson Jr.", "Kenneth Walker III").
+
+describe('lookupAthleteTier — spelling variants sources actually produce', () => {
+  const VARIANT_TIERS = {
+    version: 1,
+    updated_at: '2026-08-11',
+    athletes: [
+      { name: 'A.J. Brown',        team: 'Eagles',   sport: 'NFL', tier: 1 as const },
+      { name: 'Jaren Jackson Jr.', team: 'Grizzlies', sport: 'NBA', tier: 1 as const },
+      { name: 'Kenneth Walker III', team: 'Seahawks', sport: 'NFL', tier: 2 as const },
+      { name: "Ja'Marr Chase",     team: 'Bengals',  sport: 'NFL', tier: 1 as const },
+    ],
+  };
+
+  beforeEach(() => {
+    _setTiersForTesting(VARIANT_TIERS as Parameters<typeof _setTiersForTesting>[0]);
+  });
+
+  it.each([
+    ['AJ Brown', 1],
+    ['A J Brown', 1],
+    ['Jaren Jackson Jr', 1],
+    ['Jaren Jackson', 1],
+    ['Kenneth Walker', 2],
+    ['JaMarr Chase', 1],
+  ])('resolves %j from the DB rather than defaulting', (name, tier) => {
+    const result = lookupAthleteTier(name, name === 'Jaren Jackson Jr' ? 'NBA' : 'NFL');
+    expect(result.source).toBe('lookup');
+    expect(result.tier).toBe(tier);
+  });
+
+  it('still defaults for a genuinely unknown athlete', () => {
+    const result = lookupAthleteTier('Dyami Brown', 'NFL');
+    expect(result.source).toBe('default');
+    expect(result.tier).toBe(3);
+  });
+
+  // Suffix stripping can merge real people — Marvin Harrison Jr. is the son of
+  // Marvin Harrison. Guessing between them is worse than admitting we can't
+  // tell, so an ambiguous loose match falls back to the default.
+  it('refuses to guess when suffix stripping is ambiguous', () => {
+    _setTiersForTesting({
+      version: 1,
+      updated_at: '2026-08-11',
+      athletes: [
+        { name: 'Marvin Harrison Jr.', team: 'Cardinals', sport: 'NFL', tier: 1 as const },
+        { name: 'Marvin Harrison Sr.', team: 'Colts',     sport: 'NFL', tier: 4 as const },
+      ],
+    } as Parameters<typeof _setTiersForTesting>[0]);
+
+    const result = lookupAthleteTier('Marvin Harrison', 'NFL');
+    expect(result.source).toBe('default');
+    expect(result.tier).toBe(3);
+  });
+
+  it('still prefers an exact match over a loose one', () => {
+    _setTiersForTesting({
+      version: 1,
+      updated_at: '2026-08-11',
+      athletes: [
+        { name: 'Marvin Harrison Jr.', team: 'Cardinals', sport: 'NFL', tier: 1 as const },
+        { name: 'Marvin Harrison',     team: 'Colts',     sport: 'NFL', tier: 4 as const },
+      ],
+    } as Parameters<typeof _setTiersForTesting>[0]);
+
+    // Exact hit wins outright — no ambiguity check, no default.
+    expect(lookupAthleteTier('Marvin Harrison', 'NFL')).toEqual({ tier: 4, source: 'lookup' });
+    expect(lookupAthleteTier('Marvin Harrison Jr.', 'NFL')).toEqual({ tier: 1, source: 'lookup' });
+  });
+});
+
 // ── computeFingerprint ───────────────────────────────────────────────────────
 
 describe('computeFingerprint', () => {

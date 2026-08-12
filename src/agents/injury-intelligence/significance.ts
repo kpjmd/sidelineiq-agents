@@ -166,27 +166,22 @@ export async function loadSignificanceData(): Promise<void> {
 
 // ── Public: lookup and scoring ───────────────────────────────────────────────
 
-export function lookupAthleteTier(
-  name: string,
-  sport: SportKey
-): { tier: AthleteTier; source: 'lookup' | 'default' } {
-  if (!cachedTiers) return { tier: 3, source: 'default' };
-
-  const normName = normalizeText(name);
-  const normSport = sport.toLowerCase();
-
-  // Try exact sport+name match first, then name-only fallback
-  const match =
-    cachedTiers.athletes.find(
-      (a) => normalizeText(a.name) === normName && a.sport.toLowerCase() === normSport
-    ) ??
-    cachedTiers.athletes.find((a) => normalizeText(a.name) === normName);
-
-  return match ? { tier: match.tier, source: 'lookup' } : { tier: 3, source: 'default' };
-}
-
 // Suffixes that vary freely between sources for the same person.
 const NAME_SUFFIX_RE = /\b(jr|sr|ii|iii|iv)\b/g;
+
+/**
+ * Punctuation-, suffix- and spacing-insensitive identity key for an athlete
+ * name. "A.J. Brown", "AJ Brown" and "A J Brown" all collapse to "ajbrown".
+ *
+ * Shared deliberately by isSameAthleteName and lookupAthleteTier: those two
+ * both answer "is this the same athlete?" and used to answer it with different
+ * normalizations, so the drift check would call two spellings identical while
+ * the tier lookup treated one of them as an unknown athlete and defaulted it
+ * to tier 3.
+ */
+function looseNameKey(s: string): string {
+  return normalizeText(s).replace(NAME_SUFFIX_RE, '').replace(/\s+/g, '');
+}
 
 /**
  * Whether two spellings denote the same athlete, tolerant of the differences
@@ -199,9 +194,41 @@ const NAME_SUFFIX_RE = /\b(jr|sr|ii|iii|iv)\b/g;
  * people the score was computed for someone other than the post's subject.
  */
 export function isSameAthleteName(a: string, b: string): boolean {
-  const key = (s: string) =>
-    normalizeText(s).replace(NAME_SUFFIX_RE, '').replace(/\s+/g, '');
-  return key(a) === key(b);
+  return looseNameKey(a) === looseNameKey(b);
+}
+
+export function lookupAthleteTier(
+  name: string,
+  sport: SportKey
+): { tier: AthleteTier; source: 'lookup' | 'default' } {
+  if (!cachedTiers) return { tier: 3, source: 'default' };
+
+  const normName = normalizeText(name);
+  const normSport = sport.toLowerCase();
+
+  // Exact normalized match first — sport-scoped, then name-only.
+  const exact =
+    cachedTiers.athletes.find(
+      (a) => normalizeText(a.name) === normName && a.sport.toLowerCase() === normSport
+    ) ??
+    cachedTiers.athletes.find((a) => normalizeText(a.name) === normName);
+  if (exact) return { tier: exact.tier, source: 'lookup' };
+
+  // Loose fallback for the spelling variants sources genuinely disagree on.
+  // normalizeText turns "A.J. Brown" into "a j brown" and "AJ Brown" into
+  // "aj brown", so an exact-only lookup misses every punctuation and suffix
+  // variant and reports tier 3 `default` for a listed star.
+  //
+  // Only accepted when unambiguous: stripping suffixes can merge genuinely
+  // different people (Marvin Harrison Jr. and Marvin Harrison are father and
+  // son), and guessing between them is worse than admitting we don't know.
+  const looseKey = looseNameKey(name);
+  const looseMatches = cachedTiers.athletes.filter((a) => looseNameKey(a.name) === looseKey);
+  const sportScoped = looseMatches.filter((a) => a.sport.toLowerCase() === normSport);
+  const candidates = sportScoped.length > 0 ? sportScoped : looseMatches;
+  if (candidates.length === 1) return { tier: candidates[0].tier, source: 'lookup' };
+
+  return { tier: 3, source: 'default' };
 }
 
 export function getDeferConfig(): DeferConfig {

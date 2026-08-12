@@ -1,4 +1,11 @@
-import type { SportKey, RawInjuryEvent, SignificanceAssessment, InjuryPostContent } from '../types.js';
+import type {
+  SportKey,
+  RawInjuryEvent,
+  SignificanceAssessment,
+  InjuryPostContent,
+  AthleteTier,
+  ContentType,
+} from '../types.js';
 import { SPORT_SOURCES } from './sports/index.js';
 import { formatSourceReports } from './sports/multi-source.js';
 import { classifyEvent } from '../agents/injury-intelligence/classifier.js';
@@ -16,6 +23,7 @@ import {
   isConcussionTierBlocked,
   isSameAthleteName,
   computeFingerprint,
+  computeSignificance,
   getDeferConfig,
 } from '../agents/injury-intelligence/significance.js';
 import { evictExpired, handleDeferDecision } from './defer-queue.js';
@@ -112,6 +120,59 @@ export function publishBudgetExhausted(
   return null;
 }
 
+// ── Content-type drift ───────────────────────────────────────────────────────
+// The significance gate scores classified.content_type, but the agent re-types
+// posts after the gate has already run: a CONFLICT_FLAG with no parseable team
+// timeline becomes TRACKING (agent.ts), and anything with a parent post becomes
+// TRACKING. The tier rules are attached to the content type — TRACKING requires
+// tier 1-2, tier 4 never publishes BREAKING, CONFLICT_FLAG skips scoring
+// entirely — so a re-typed post has never been checked against the rules that
+// govern what it actually became. A Haiku CONFLICT_FLAG on a depth player
+// otherwise skips the gate, loses its conflict downstream, and publishes as
+// exactly the tier-blocked TRACKING post the rules exclude.
+
+export type ContentTypeDriftAction =
+  | { action: 'proceed' }
+  | { action: 'drop'; reason: string }
+  | { action: 'md_review'; reason: string };
+
+/**
+ * Re-applies the significance gate under the post's FINAL content type.
+ * Pure so it can be unit-tested without standing up the whole poll loop.
+ */
+export function checkContentTypeDrift(
+  gatedType: ContentType,
+  finalType: ContentType,
+  sig: SignificanceAssessment,
+  sport: SportKey,
+  date: Date,
+): ContentTypeDriftAction & { rescored?: SignificanceAssessment } {
+  if (finalType === gatedType) return { action: 'proceed' };
+
+  const rescored = computeSignificance(
+    sig.athlete_tier,
+    sig.athlete_tier_source,
+    {
+      information_specificity: sig.subscores.information_specificity,
+      event_recency_novelty: sig.subscores.event_recency_novelty,
+    },
+    finalType,
+    sport,
+    date,
+  );
+
+  if (rescored.triage_decision === 'PROCESS') return { action: 'proceed', rescored };
+
+  // A tier-blocked cell is a flat editorial rule — no score clears it, so
+  // dropping is the only honest outcome. A merely-low score is a judgement
+  // call and the Sonnet call is already spent, so that goes to a human rather
+  // than to social.
+  const reason = `content_type_drift:${gatedType}->${finalType}`;
+  return rescored.tier_blocked
+    ? { action: 'drop', reason: `${reason}:tier_blocked`, rescored }
+    : { action: 'md_review', reason, rescored };
+}
+
 // Statuses that count against the daily budget. PENDING_REVIEW is included on
 // purpose: it consumed a Sonnet call and created a real row, and it matches how
 // the in-cycle counter is incremented, so the two agree across cycle boundaries.
@@ -176,6 +237,8 @@ interface PollSummary {
   dropped_concussion: number;
   /** Events where the classifier's athlete disagreed with the source's. */
   athlete_name_drift: number;
+  /** Posts the agent re-typed after the gate had already scored the old type. */
+  content_type_drift: number;
   dropped_fact_validation: number;
   soft_failed_fact_validation: number;
   deferred: number;
@@ -508,6 +571,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
     dropped_significance: 0,
     dropped_concussion: 0,
     athlete_name_drift: 0,
+    content_type_drift: 0,
     dropped_fact_validation: 0,
     soft_failed_fact_validation: 0,
     deferred: 0,
@@ -616,10 +680,18 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
       // (SKILL.md treats that as non-negotiable), so the post is league-protocol
       // boilerplate whose interest depends entirely on the athlete. Dropped here
       // rather than at the gate so it costs neither a Haiku nor a Sonnet call.
-      if (gateEnabled && isConcussionTierBlocked(event.injury_description, tierInfo.tier)) {
+      //
+      // Only when the tier is CONFIRMED from athlete-tiers.json, though. A
+      // `default` tier means the source's spelling simply missed the lookup, and
+      // hard-dropping on that guess would bury a star's concussion outright —
+      // the same distrust of the source's name that routes drift to MD review.
+      // Those events are re-checked below with the classifier's spelling too.
+      const concussionBlocked =
+        gateEnabled && isConcussionTierBlocked(event.injury_description, tierInfo.tier);
+      if (concussionBlocked && tierInfo.source === 'lookup') {
         summary.dropped_concussion++;
         console.log(
-          `[SignificanceGate] decision=DROP reason=concussion_tier athlete="${event.athlete_name}" tier=${tierInfo.tier}${tierInfo.source === 'default' ? '?' : ''} sport=${sport}`,
+          `[SignificanceGate] decision=DROP reason=concussion_tier athlete="${event.athlete_name}" tier=${tierInfo.tier} sport=${sport}`,
         );
         continue;
       }
@@ -643,6 +715,36 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
         continue;
       }
       summary.classified_positive++;
+
+      // Concussion re-check, for the events the pre-classification pass let
+      // through because the source-name tier was only a guess. The classifier
+      // normalizes spelling, so its name may resolve where the source's did
+      // not; take the more prominent of the two and apply the tier rule to
+      // that. A star whose source spelling missed the DB survives; a genuine
+      // depth player still drops, one Haiku call later.
+      if (concussionBlocked) {
+        const classifierTier = lookupAthleteTier(classified.athlete_name, classified.sport);
+        const bestTier = Math.min(tierInfo.tier, classifierTier.tier) as AthleteTier;
+        if (isConcussionTierBlocked(event.injury_description, bestTier)) {
+          summary.dropped_concussion++;
+          console.log(
+            `[SignificanceGate] decision=DROP reason=concussion_tier source_athlete="${event.athlete_name}" ` +
+              `classifier_athlete="${classified.athlete_name}" tier=${bestTier}? sport=${sport}`,
+          );
+          continue;
+        }
+        // Note the residual: significance was already scored with the SOURCE's
+        // tier inside classifyEvent, so a rescued event is under-scored and the
+        // gate below may still drop it. That is deliberate — raising prominence
+        // after the fact would let one athlete's score be rewritten by a second
+        // lookup, which is the failure this whole area is recovering from. The
+        // names necessarily differ for the rescue to have fired, so the drift
+        // check below routes it to MD review anyway.
+        console.log(
+          `[SignificanceGate] concussion_tier not applied — "${classified.athlete_name}" resolves to ` +
+            `tier=${bestTier} via the classifier's spelling (source "${event.athlete_name}" did not resolve)`,
+        );
+      }
 
       // The tier — and so athlete_prominence, 35% of the significance score —
       // was resolved from the SOURCE's name before classification. If the
@@ -692,6 +794,22 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
         // triage_decision === 'PROCESS' or promoted from defer → fall through
       }
       // ── End significance gate ────────────────────────────────────────────
+
+      // Budget check goes here — after every step that is both free and free of
+      // side effects, and before the first one that is neither. It used to sit
+      // below dedup, which made "a capped event costs nothing" untrue: entity
+      // dedup appends an injury_updates row on every match, and ESPN re-serves
+      // the same event every cycle for MAX_EVENT_AGE_DAYS, so a capped event
+      // added a duplicate timeline row every 15 minutes until the budget freed
+      // — rows that then feed compression detection and entity staleness. Fact
+      // validation likewise writes an audit row per pass. Capped here, the
+      // event really does cost nothing and is picked up next cycle.
+      const capReason = publishBudgetExhausted(budget, limits);
+      if (capReason) {
+        summary.capped++;
+        console.log(`[Poller] ${sport} — ${capReason}, deferring ${context} to next cycle`);
+        continue;
+      }
 
       // ── Fact validation ──────────────────────────────────────────────
       // Runs BEFORE Sonnet so hard failures don't burn agent tokens.
@@ -780,21 +898,39 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
         }
       }
 
-      // Budget check goes here — after everything free, before the first paid
-      // step. A capped event costs nothing and is re-served by the source next
-      // cycle (ESPN keeps rows for MAX_EVENT_AGE_DAYS), so nothing is lost.
-      const capReason = publishBudgetExhausted(budget, limits);
-      if (capReason) {
-        summary.capped++;
-        console.log(`[Poller] ${sport} — ${capReason}, deferring ${context} to next cycle`);
-        continue;
-      }
-
       budget.agentCalls++;
       const post = await processInjuryEvent(classified, dedup.existingPostId, thread);
       if (!post) {
         summary.errors++;
         continue;
+      }
+
+      // ── Content-type drift re-check (see checkContentTypeDrift) ──────
+      if (gateEnabled && post.content_type !== classified.content_type) {
+        summary.content_type_drift++;
+        const drift = checkContentTypeDrift(
+          classified.content_type,
+          post.content_type,
+          sig,
+          classified.sport,
+          new Date(),
+        );
+        const rescored = drift.rescored;
+        console.warn(
+          `[SignificanceGate] content_type drift ${classified.content_type}->${post.content_type} for ${context}: ` +
+            `re-scored=${rescored?.composite_score} bar=${rescored?.tier_blocked ? 'tier_blocked' : rescored?.process_threshold ?? 'always'} ` +
+            `decision=${rescored?.triage_decision} action=${drift.action}`,
+        );
+        if (drift.action === 'drop') {
+          summary.dropped_significance++;
+          console.log(`[SignificanceGate] decision=DROP reason=${drift.reason} ${context}`);
+          continue;
+        }
+        if (drift.action === 'md_review') {
+          forceMDReviewReason = forceMDReviewReason
+            ? `${forceMDReviewReason},${drift.reason}`
+            : drift.reason;
+        }
       }
 
       // Re-check Sonnet's final team against the roster. The agent is told to fill
@@ -864,7 +1000,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
   }
 
   console.log(
-    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} dropped_concussion=${summary.dropped_concussion} name_drift=${summary.athlete_name_drift} dropped_fact=${summary.dropped_fact_validation} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} expired=${summary.expired_from_defer} defer_q=${summary.defer_queue_size} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} skipped=${summary.skipped} capped=${summary.capped} source_err=${summary.source_errors} classifier_err=${summary.classifier_errors} errors=${summary.errors}`
+    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} dropped_concussion=${summary.dropped_concussion} name_drift=${summary.athlete_name_drift} ct_drift=${summary.content_type_drift} dropped_fact=${summary.dropped_fact_validation} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} expired=${summary.expired_from_defer} defer_q=${summary.defer_queue_size} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} skipped=${summary.skipped} capped=${summary.capped} source_err=${summary.source_errors} classifier_err=${summary.classifier_errors} errors=${summary.errors}`
   );
   return summary;
 }
