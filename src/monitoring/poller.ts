@@ -341,7 +341,8 @@ function buildOtmProjection(post: InjuryPostContent, injuryDate: string | null):
   };
 }
 
-async function maintainEntity(
+// Exported for tests (like shouldForceMDReviewForXSource / checkContentTypeDrift).
+export async function maintainEntity(
   event: RawInjuryEvent,
   player: ResolvedPlayerInfo,
   metadata: import('../agents/injury-intelligence/fact-validator.js').ExtractedInjuryMetadata,
@@ -357,6 +358,12 @@ async function maintainEntity(
   if (!isServerAvailable('web')) return;
   try {
     let entityId = opts?.entityId ?? dedup.entityId;
+    // A reused entity (created pre-publish by the Injury Thread Manager, or
+    // matched by dedup) has no canonical_post_id — it was created before any
+    // post existed. Backfill it with the first post that lands, otherwise the
+    // column stays NULL forever and every follow-up loses its parent_post_id,
+    // which silently exempts the thread from the cadence throttle.
+    const reusedEntity = Boolean(entityId);
     if (!entityId) {
       const createRes = await callTool('web', 'web_create_injury_entity', {
         player_id: player.player_id,
@@ -381,11 +388,17 @@ async function maintainEntity(
       source_url: event.source_url,
       description: event.injury_description.slice(0, 500),
     });
-    // Freeze the OTM projection on the thread (dates are left untouched via COALESCE).
-    if (opts?.otmProjection) {
+    // Freeze the OTM projection and backfill the canonical post in one call
+    // (dates are left untouched via COALESCE). canonical_post_id is fill-if-null
+    // server-side, so re-sending it on a later post is a no-op — the thread
+    // keeps pointing at its originating post, not its most recent one.
+    const threadPatch: Record<string, unknown> = {};
+    if (reusedEntity) threadPatch.canonical_post_id = postId;
+    if (opts?.otmProjection) threadPatch.otm_projection = opts.otmProjection;
+    if (Object.keys(threadPatch).length > 0) {
       await callTool('web', 'web_thread_update_dates', {
         entity_id: entityId,
-        otm_projection: opts.otmProjection,
+        ...threadPatch,
       });
     }
     try {
@@ -434,7 +447,8 @@ async function resolveThreadAndDates(
   if (!player) return null;
   const metadata = validation.metadata;
   try {
-    // 1. Resolve-or-create the entity early (canonical_post_id attached later).
+    // 1. Resolve-or-create the entity early. No canonical_post_id yet — no post
+    //    exists at this point; maintainEntity() backfills it post-publish.
     let entityId = dedup.entityId;
     if (!entityId) {
       const createRes = await callTool('web', 'web_create_injury_entity', {
