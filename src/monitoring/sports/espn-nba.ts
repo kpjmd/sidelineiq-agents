@@ -7,4 +7,6 @@ export class ESPNNBASource extends ESPNInjurySource {
   protected readonly url =
     'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/injuries';
   protected readonly leaguePath = 'basketball/nba';
+  // 30 franchises. 28 leaves headroom for an expansion/relocation transition.
+  readonly expectedMinTeams = 28;
 }

@@ -82,6 +82,107 @@ interface SyncSummary {
   players_fetched: number;
   players_upserted: number;
   errors: number;
+  /** In-coverage teams we hold that ESPN's feed no longer returns. -1 means the
+   *  check did not run (a precondition failed); 0 means it ran and found none.
+   *  Reported, never acted on — see diffCoverage. */
+  teams_absent_from_feed: number;
+}
+
+export interface CoverageTeamRow {
+  espn_team_id: string | null;
+  name: string;
+  last_synced_at?: string | null;
+}
+
+/**
+ * Pure set difference between the in-coverage teams we hold and the teams ESPN
+ * just returned, keyed on espn_team_id.
+ *
+ * Only the DB-minus-feed direction is reported. A team in the feed but not the
+ * DB is a promotion or expansion, and the same cycle's upsert loop already
+ * handles it — reporting it would be pure noise.
+ *
+ * Rows with no espn_team_id are skipped: they were hand-entered and were never
+ * in the feed to begin with, so their absence is not drift.
+ *
+ * Pure so it can be tested without network or MCP.
+ */
+export function diffCoverage(
+  dbInCoverage: CoverageTeamRow[],
+  feed: ESPNTeam[],
+): CoverageTeamRow[] {
+  const feedIds = new Set(feed.map((t) => t.espn_team_id));
+  return dbInCoverage.filter((t) => t.espn_team_id != null && !feedIds.has(t.espn_team_id));
+}
+
+interface ListTeamsResponse {
+  teams: CoverageTeamRow[];
+}
+
+async function listInCoverageTeams(sport: SportKey): Promise<CoverageTeamRow[] | null> {
+  try {
+    const res = (await callToolWithRetry('web', 'web_list_teams', {
+      sport,
+      coverage: 'in',
+      limit: 200,
+    })) as { content?: Array<{ text?: string }> };
+    const text = res?.content?.[0]?.text;
+    if (!text) return null;
+    return (JSON.parse(text) as ListTeamsResponse).teams ?? null;
+  } catch {
+    // Deliberately silent. A drift warning derived from a failed read is worse
+    // than no warning: it would name teams as missing from ESPN on the strength
+    // of our own MCP call failing.
+    return null;
+  }
+}
+
+/**
+ * Reports — never repairs — in-coverage teams that ESPN stopped returning.
+ *
+ * This does not mutate anything, and it must not. fetchTeams returns [] on any
+ * non-OK status, any throw, and any shape change under sports[0].leagues[0], so
+ * its failure mode is spurious ABSENCE: one bad response is indistinguishable
+ * from an entire league being relegated at once. Presence in the feed is
+ * trustworthy (upsertTeam acts on it, which is what makes promotion self-heal);
+ * absence is not, and is only ever acted on by a human running
+ * scripts/reconcile-coverage-scope.ts.
+ */
+async function reportCoverageDrift(
+  sport: SportKey,
+  source: ESPNInjurySource,
+  teams: ESPNTeam[],
+  summary: SyncSummary,
+): Promise<void> {
+  // Every precondition below exists because a partial or degraded cycle cannot
+  // make a claim about the FULL set of teams, which is exactly what a set
+  // difference is.
+  if (summary.errors > 0) return;
+  if (summary.teams_upserted !== summary.teams_fetched) return;
+  if (teams.length < source.expectedMinTeams) {
+    console.warn(
+      `[RosterSync] ${sport} — feed returned ${teams.length} teams, below the ${source.expectedMinTeams} floor; skipping coverage-drift check`,
+    );
+    return;
+  }
+
+  const dbTeams = await listInCoverageTeams(sport);
+  if (dbTeams === null) return;
+
+  const absent = diffCoverage(dbTeams, teams);
+  summary.teams_absent_from_feed = absent.length;
+  if (absent.length === 0) return;
+
+  const lines = absent
+    .map((t) => `  ${t.name} (espn=${t.espn_team_id}, last_synced=${t.last_synced_at ?? 'unknown'})`)
+    .join('\n');
+  // This fires every cycle until someone acts, so it has to carry its own
+  // remediation rather than assume the reader knows what to do with it.
+  console.warn(
+    `[RosterSync] ${sport} — coverage drift: ${absent.length} in-coverage team(s) held in DB but absent from the ESPN feed:\n${lines}\n` +
+      `  → not auto-resolved (absence is not evidence). To investigate:\n` +
+      `    npx tsx src/scripts/reconcile-coverage-scope.ts --sport=${sport}`,
+  );
 }
 
 async function syncSport(
@@ -95,6 +196,7 @@ async function syncSport(
     players_fetched: 0,
     players_upserted: 0,
     errors: 0,
+    teams_absent_from_feed: -1,
   };
 
   const teams = await source.fetchTeams();
@@ -123,8 +225,12 @@ async function syncSport(
     }
   }
 
+  // After the loop: the preconditions read summary.errors and teams_upserted,
+  // which only exist once every team has been attempted.
+  await reportCoverageDrift(sport, source, teams, summary);
+
   console.log(
-    `[RosterSync] ${sport} — teams=${summary.teams_upserted}/${summary.teams_fetched} players=${summary.players_upserted}/${summary.players_fetched} errors=${summary.errors}`,
+    `[RosterSync] ${sport} — teams=${summary.teams_upserted}/${summary.teams_fetched} players=${summary.players_upserted}/${summary.players_fetched} errors=${summary.errors} absent_from_feed=${summary.teams_absent_from_feed}`,
   );
   return summary;
 }

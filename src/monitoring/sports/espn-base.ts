@@ -132,6 +132,14 @@ export abstract class ESPNInjurySource implements SportDataSource {
   // Used to build roster endpoint URLs. Override per sport.
   protected readonly leaguePath: string | null = null;
 
+  // Floor on a plausible /teams response, set below the real league size but
+  // well above any truncation. fetchTeams() reads only sports[0].leagues[0] and
+  // returns [] on any error, so a shape change upstream degrades to a SHORT
+  // list, not an obviously broken one — and a short list is indistinguishable
+  // from a mass relegation. Anything that reasons about which teams are MISSING
+  // must refuse to run below this. Public because roster-sync reads it.
+  readonly expectedMinTeams: number = 0;
+
   private report: SourceFetchReport = { status: 'empty' };
 
   lastFetchReport(): SourceFetchReport {
