@@ -413,6 +413,19 @@ async function reconcile(sport: SportKey, apply: boolean, minFeedTeams: number):
     return summary;
   }
 
+  // Every player classified this run, so nobody is probed or counted twice.
+  //
+  // This is reachable whenever a mover's destination is itself a later
+  // candidate, which is not a corner case: Ward-Prowse moved Burnley -> West
+  // Ham and BOTH clubs were relegated together. Clubs are processed in name
+  // order and repointing happens before flagging, so by the time West Ham's
+  // roster is read he is already on it, and he would be probed a second time
+  // and counted again as 'stayed'. The second pass writes nothing, so this only
+  // ever corrupted the summary — but a summary that reports 86 outcomes for 85
+  // players is exactly the kind of thing that makes an operator distrust a
+  // once-a-year script at the moment they most need to trust it.
+  const processedPlayerIds = new Set<string>();
+
   for (const club of candidates) {
     const clubEspnId = club.espn_team_id as string;
     console.log(`\n[reconcile] ── ${club.name} (espn=${clubEspnId}) ──`);
@@ -425,11 +438,17 @@ async function reconcile(sport: SportKey, apply: boolean, minFeedTeams: number):
       continue;
     }
 
-    const players = await listPlayersForTeam(club.id);
-    console.log(`[reconcile]   confirmed alive in the secondary league; probing ${players.length} players`);
+    const roster = await listPlayersForTeam(club.id);
+    const players = roster.filter((p) => !processedPlayerIds.has(p.id));
+    const alreadySeen = roster.length - players.length;
+    console.log(
+      `[reconcile]   confirmed alive in the secondary league; probing ${players.length} players` +
+        (alreadySeen > 0 ? ` (${alreadySeen} already classified earlier in this run)` : ''),
+    );
 
     const outcomes: PlayerOutcome[] = [];
     for (const player of players) {
+      processedPlayerIds.add(player.id);
       try {
         outcomes.push(await classifyPlayer(sport, player, clubEspnId, teamsByEspnId, inCoverageEspnIds));
       } catch (err) {
@@ -482,6 +501,11 @@ async function reconcile(sport: SportKey, apply: boolean, minFeedTeams: number):
     }
 
     // ── Flag the club, only on a complete picture ──
+    // `outcomes` omits players already classified earlier in this run, which is
+    // safe for this gate and must stay that way: the only players who can reach
+    // a LATER candidate club are ones this run repointed there, and repointing
+    // requires a resolved destination. An 'unknown' or 'no_espn_id' player is
+    // never repointed, so it can never migrate off the club it is blocking.
     const unresolved = outcomes.filter(
       (o) => o.disposition === 'unknown' || o.disposition === 'no_espn_id',
     ).length;
