@@ -22,9 +22,12 @@ const DATA_DIR = join(__dirname, '../../../data');
 
 interface AthleteTierEntry {
   name: string;
-  team: string;
   sport: string;
   tier: AthleteTier;
+  // No `team`. It carried one until v3, read by nothing — the lookup is name +
+  // sport — and stale on 68 of 189 rostered entries by the time it was dropped.
+  // Its only conceivable use, telling two same-named athletes apart, does not
+  // work either: the lookup is name-keyed, so a curated entry promotes both.
 }
 
 interface AthleteTierDB {
@@ -193,7 +196,7 @@ export async function loadSignificanceData(): Promise<void> {
   ]);
 
   if (tiersResult.status === 'fulfilled') {
-    cachedTiers = tiersResult.value;
+    cachedTiers = validateTiers(tiersResult.value);
   } else {
     const reason = tiersResult.reason instanceof Error ? tiersResult.reason.message : String(tiersResult.reason);
     console.error(`[Significance] Failed to load athlete-tiers.json: ${reason}`);
@@ -232,6 +235,56 @@ export async function loadSignificanceData(): Promise<void> {
  * Mutates the cached config in place so that one bad sport cannot take the rest
  * of the file down with it.
  */
+/**
+ * Drops unusable athlete-tier rows and says so, loudly, by name.
+ *
+ * The tiers file is hand-curated — 219 rows a human edits — and until now it was
+ * JSON.parsed straight into the cache with no validation at all, while its
+ * sibling config got two checks. A typo here is not neutral in the direction you
+ * would assume: a malformed TIER 4 row is a lost SUPPRESSION, and that athlete
+ * silently rises to the tier-3 default, where BREAKING becomes scoreable instead
+ * of dropped. Failing quietly upward is the expensive direction.
+ *
+ * Deliberately does not reject the whole file. A single bad row should cost that
+ * row, not every athlete's tier — the same reasoning as the salary snapshot's
+ * bad-row-vs-bad-page split. A file that parses but is entirely malformed still
+ * ends up empty, which behaves exactly like the pre-file default.
+ */
+export function validateTiers(db: AthleteTierDB): AthleteTierDB {
+  if (!Array.isArray(db?.athletes)) {
+    console.error('[Significance] athlete-tiers.json has no `athletes` array — treating as empty.');
+    return { ...db, athletes: [] };
+  }
+  const kept: AthleteTierEntry[] = [];
+  for (const entry of db.athletes) {
+    const name = typeof entry?.name === 'string' ? entry.name.trim() : '';
+    const sport = typeof entry?.sport === 'string' ? entry.sport.trim() : '';
+    const tier = entry?.tier;
+    if (!name || !sport) {
+      console.error(
+        `[Significance] athlete-tiers.json: dropped an entry missing name or sport ` +
+          `(${JSON.stringify(entry)}).`,
+      );
+      continue;
+    }
+    if (tier !== 1 && tier !== 2 && tier !== 3 && tier !== 4) {
+      console.error(
+        `[Significance] athlete-tiers.json: dropped "${name}" (${sport}) — tier ${JSON.stringify(tier)} ` +
+          `is not 1, 2, 3 or 4. They now fall through to the tier-3 default.`,
+      );
+      continue;
+    }
+    kept.push(entry);
+  }
+  if (kept.length !== db.athletes.length) {
+    console.error(
+      `[Significance] athlete-tiers.json: ${db.athletes.length - kept.length} of ` +
+        `${db.athletes.length} entries dropped as malformed.`,
+    );
+  }
+  return { ...db, athletes: kept };
+}
+
 function validateSalaryBands(config: SignificanceConfig | null): void {
   const bands = config?.salary_tiers?.bands;
   if (!config?.salary_tiers) return; // Absent is valid: no sport gets a band.

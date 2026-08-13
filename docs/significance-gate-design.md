@@ -278,7 +278,7 @@ All 87 tests pass (`npm test`).
 
 **R2 — NFL offseason × 0.7 may over-suppress:** If NFL drop rate exceeds 90% in May–August, raise multiplier or narrow the window in `significance-config.json`.
 
-**R3 — Tier seed drift:** Athletes are promoted/demoted each season. Quarterly review of `athlete-tiers.json`. Monthly "top-filtered athletes" log review surfaces miscalibration.
+**R3 — Tier seed drift:** Athletes are promoted/demoted each season. Quarterly review of `athlete-tiers.json`. Monthly "top-filtered athletes" log review surfaces miscalibration. The instrument for the quarterly review is `npx tsx src/scripts/tier-file-audit.ts` (read-only): it reports curated entries whose tier now sits below their contract, entries whose athlete is no longer on any roster and where ESPN says they actually are, same-name collisions, and cross-sport salary attribution. Note what it deliberately does *not* claim — ESPN has no retired status, so it reports INACTIVE and never infers retirement.
 
 **R4 — CONFLICT_FLAG bypass:** Haiku's prompt explicitly discourages setting CONFLICT_FLAG at classification time. Monitor if CONFLICT_FLAG frequency increases anomalously.
 

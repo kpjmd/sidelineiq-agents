@@ -24,7 +24,6 @@ import type { SportKey } from '../types.js';
 
 interface AthleteTierEntry {
   name: string;
-  team?: string;
   sport: string;
   tier: number;
 }

@@ -13,6 +13,30 @@ has reviewed and approved this list. The v1 seed (20 athletes) in
 Founder: please edit tier assignments as needed, mark deletions, and add missing names.
 The goal is ~25 T1, ~50 T2, ~30 T4 per sport.
 
+> **Two amendments from the 2026-08-13 audit** — read before editing tiers.
+>
+> **The ~25 T1 target predates the salary layer.** Salary alone now grants Tier 1
+> to 54 NFL and 28 NBA athletes without any curation. The file's job is no longer
+> to enumerate the tier-1 roster, only to correct salary where salary is wrong —
+> so curated T1 counts of 33 (NFL) and 34 (NBA) are not an overshoot of that line.
+>
+> **The file is a FLOOR, never a ceiling.** It is consulted BEFORE salary, so an
+> entry set below what an athlete is paid caps them there — curation acting as a
+> penalty. That is what the audit found: 17 Tier 2 entries on athletes who had
+> since signed Tier 1 contracts, while uncurated athletes on identical money were
+> getting Tier 1 from salary automatically. Never leave an entry below its salary
+> band; the correct direction to override in is upward (rookie deals,
+> restructured veterans), which is the entire reason the file is authoritative.
+>
+> **Tier 4 does more than deprioritise, and entries are not deletable at will.**
+> It sits above `thresholds.default.max_tier`, so BREAKING is DROPPED outright,
+> not merely ranked lower. Deleting a Tier 4 entry therefore *expands* coverage —
+> the athlete rises to the Tier 3 default and becomes scoreable. Likewise a Tier
+> 1/2 entry is what keeps TRACKING alive (`require_tier_1_or_2` blocks Tier 3),
+> so deleting one ends recovery-update coverage of that athlete's injury history.
+> Entries for athletes who have left a roster are retained deliberately for both
+> reasons. Audit before editing: `npx tsx src/scripts/tier-file-audit.ts`.
+
 ---
 
 ## NFL
@@ -213,4 +237,10 @@ The goal is ~25 T1, ~50 T2, ~30 T4 per sport.
 - [ ] Any active injury cases (Nick Chubb post-ACL, Zion Williamson) worth flagging specially?
 
 Once approved, replace the 20-entry seed in `data/athlete-tiers.json` with this list.
-Keep the format: `{ "name": "...", "team": "...", "sport": "NFL"|"NBA", "tier": 1|2|4 }`.
+Keep the format: `{ "name": "...", "sport": "NFL"|"NBA", "tier": 1|2|4 }`.
+
+`team` was dropped in file v3 (2026-08-13). Nothing ever read it — the lookup
+matches on name + sport — and it was stale on 68 of 189 rostered entries. It
+could not even disambiguate two same-named athletes, because the lookup is
+name-keyed and promotes both regardless. `src/scripts/tier-file-audit.ts`
+reports such collisions instead.
