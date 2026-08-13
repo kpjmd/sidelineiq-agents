@@ -111,10 +111,14 @@ interface SalaryRow {
 /**
  * Name → salary lookup, built from a players-table snapshot.
  *
- * Four maps rather than one because the lookup mirrors athlete-tiers.json's
- * precedence exactly: exact-normalized sport-scoped, then exact-normalized
- * any-sport, then loose key. `count` exists so an ambiguous key can refuse to
- * resolve instead of silently returning whichever row was indexed first.
+ * BOTH maps are sport-scoped, and there is deliberately no any-sport pair. The
+ * lookup used to mirror athlete-tiers.json's precedence exactly — exact
+ * sport-scoped, exact any-sport, loose sport-scoped, loose any-sport — and that
+ * symmetry is what made a cross-league misattribution look principled. It is
+ * not the same problem: see lookupSalaryRow.
+ *
+ * `count` exists so an ambiguous key can refuse to resolve instead of silently
+ * returning whichever row was indexed first.
  */
 interface SalaryIndexEntry {
   row: SalaryRow;
@@ -122,9 +126,7 @@ interface SalaryIndexEntry {
 }
 interface SalaryIndex {
   exactBySport: Map<string, SalaryIndexEntry>;
-  exactAny: Map<string, SalaryIndexEntry>;
   looseBySport: Map<string, SalaryIndexEntry>;
-  looseAny: Map<string, SalaryIndexEntry>;
   size: number;
 }
 
@@ -373,9 +375,7 @@ export function setSalarySnapshot(rows: SalaryRow[] | null): void {
   }
   const index: SalaryIndex = {
     exactBySport: new Map(),
-    exactAny: new Map(),
     looseBySport: new Map(),
-    looseAny: new Map(),
     size: 0,
   };
   const add = (map: Map<string, SalaryIndexEntry>, key: string, row: SalaryRow): void => {
@@ -390,9 +390,7 @@ export function setSalarySnapshot(rows: SalaryRow[] | null): void {
     const loose = looseNameKey(row.full_name);
     if (!exact) continue;
     add(index.exactBySport, `${sportKey}|${exact}`, row);
-    add(index.exactAny, exact, row);
     add(index.looseBySport, `${sportKey}|${loose}`, row);
-    add(index.looseAny, loose, row);
     index.size++;
   }
   cachedSalaries = index;
@@ -404,35 +402,53 @@ export function salarySnapshotSize(): number {
 }
 
 /**
- * The unique salary row for a name, or null when unknown or ambiguous.
+ * The unique salary row for a name IN THAT SPORT, or null when unknown or
+ * ambiguous. Exact-normalized first, then loose — both sport-scoped.
  *
- * Precedence mirrors the override file's: exact sport-scoped, exact any-sport,
- * loose sport-scoped, loose any-sport.
+ * THE SPORT SCOPE IS LOAD-BEARING. This used to fall back to an any-sport key
+ * when the sport-scoped one missed, on the same reasoning the override file
+ * uses: sources mislabel the league more often than they mislabel the person.
+ * That reasoning does not survive contact with this data:
+ *
+ *   • Nothing on the hot path can mislabel the league. Every polled event's
+ *     sport is a hardcoded per-source class constant equal to the poller's own
+ *     loop variable (poller.ts, return-watch.ts) — no source parses a league
+ *     out of news text. The index side is the same shape: salary-snapshot.ts
+ *     pages web_list_players per sport, with a sport filter, in its own loop.
+ *     A sport-scoped lookup is therefore exact by construction.
+ *
+ *   • The uniqueness guard does not catch the cross-league case. The NBA's
+ *     Braden Smith has no NBA salary, so the NFL Colts tackle of the same name
+ *     was the only salaried "Braden Smith", count === 1, and an unrostered-in-
+ *     the-NBA athlete was confidently promoted to tier 2 on another man's
+ *     contract. Across ~2,200 salaried names dominated by Smith/Williams/
+ *     Johnson/Brown, that is the base rate, not bad luck.
+ *
+ *   • It was also the ONLY way a PREMIER_LEAGUE or UFC event could receive a
+ *     salary tier at all, since neither league has a row in this index —
+ *     making 100% of those promotions misattributions from NFL/NBA rows, in a
+ *     lookup whose bands deliberately say those sports have no salary signal.
+ *
+ * The override file KEEPS its any-sport fallback, and that is not an
+ * inconsistency: 219 hand-curated rows where a cross-sport name collision is a
+ * curation bug a human notices, versus a ~3,500-row machine index where it is
+ * simply two different people. Same code shape, opposite base rates.
  *
  * Uniqueness is required at the EXACT stage too, which the override path does
- * not do (it uses .find(), first-wins). The asymmetry is deliberate:
- * athlete-tiers.json is 219 hand-curated rows where an exact duplicate is a
- * curation bug a human would notice, whereas this snapshot is ~3,500
- * machine-generated rows where an exact duplicate is genuinely two different
- * people — the NFL has had several same-named players active at once. Taking
- * whichever was indexed first and promoting the wrong athlete to tier 1 is
- * precisely the failure the loose guard exists to prevent. Being stricter here
- * can only ever produce FEWER promotions, so it cannot break additivity.
+ * not do (it uses .find(), first-wins) — same asymmetry, same reason. Being
+ * stricter here can only ever produce FEWER promotions, so it cannot break
+ * additivity.
  */
 function lookupSalaryRow(name: string, sport: SportKey): SalaryRow | null {
   if (!cachedSalaries) return null;
   const normSport = sport.toLowerCase();
-  const exact = normalizeText(name);
-  const loose = looseNameKey(name);
   const tryKey = (map: Map<string, SalaryIndexEntry>, key: string): SalaryRow | null => {
     const hit = map.get(key);
     return hit && hit.count === 1 ? hit.row : null;
   };
   return (
-    tryKey(cachedSalaries.exactBySport, `${normSport}|${exact}`) ??
-    tryKey(cachedSalaries.exactAny, exact) ??
-    tryKey(cachedSalaries.looseBySport, `${normSport}|${loose}`) ??
-    tryKey(cachedSalaries.looseAny, loose)
+    tryKey(cachedSalaries.exactBySport, `${normSport}|${normalizeText(name)}`) ??
+    tryKey(cachedSalaries.looseBySport, `${normSport}|${looseNameKey(name)}`)
   );
 }
 
@@ -479,14 +495,13 @@ export function lookupAthleteTier(
   if (opts?.allowSalary !== false) {
     const row = lookupSalaryRow(name, sport);
     if (row) {
-      // The MATCHED row's sport governs which bands apply, not the queried
-      // sport. $20M is a tier-1 NFL salary and a middling NBA one; a salary is
-      // denominated in the economy of the league that pays it. This only
-      // differs from `sport` on the any-sport fallback, which exists for the
-      // same reason the override file's does — sources mislabel the league far
-      // more often than they mislabel the person.
-      const rowSport = (row.sport as SportKey) ?? sport;
-      const tier = tierFromSalary(row.salary, rowSport);
+      // `sport`, not `row.sport`. A salary is denominated in the economy of the
+      // league that pays it — $20M is a tier-1 NFL salary and a middling NBA
+      // one — so the two must never diverge. They cannot: lookupSalaryRow is
+      // sport-scoped, so the matched row's sport IS the queried sport. Reading
+      // it back off the row would restore the appearance of supporting a
+      // cross-league match, which is exactly what was wrong before.
+      const tier = tierFromSalary(row.salary, sport);
       if (tier !== null) return { tier, source: 'salary' };
     }
   }

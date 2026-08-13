@@ -752,7 +752,12 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
       // that. A star whose source spelling missed the DB survives; a genuine
       // depth player still drops, one Haiku call later.
       if (concussionBlocked) {
-        const classifierTier = lookupAthleteTier(classified.athlete_name, classified.sport);
+        // classified.athlete_name with event.sport, not classified.sport. The
+        // rescue is about the NAME — the classifier normalizes spelling the
+        // source got wrong. The sport is incidental cargo, and it is the one
+        // field here that a model can get plausibly wrong in a way validation
+        // cannot catch. event.sport is the source class's own constant.
+        const classifierTier = lookupAthleteTier(classified.athlete_name, event.sport);
         const bestTier = Math.min(tierInfo.tier, classifierTier.tier) as AthleteTier;
         if (isConcussionTierBlocked(event.injury_description, bestTier)) {
           summary.dropped_concussion++;
