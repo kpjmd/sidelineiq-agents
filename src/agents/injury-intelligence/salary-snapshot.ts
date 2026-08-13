@@ -109,6 +109,7 @@ export async function refreshSalarySnapshot(): Promise<boolean> {
     let pages = 0;
     let seen = 0;
     let withSalary = 0;
+    let sportMismatches = 0;
 
     while (pages < MAX_PAGES) {
       let parsed: ListPlayersResponse | null;
@@ -146,7 +147,17 @@ export async function refreshSalarySnapshot(): Promise<boolean> {
         if (!r?.full_name || typeof salary !== 'number' || !Number.isFinite(salary) || salary <= 0) {
           continue;
         }
-        accumulated.push({ full_name: r.full_name, sport: r.sport ?? sport, salary });
+        // The LOOP CONSTANT, never r.sport. These rows were requested with a
+        // sport filter, so the loop variable is what we actually know; r.sport
+        // is an unvalidated string off the wire. The index is now sport-scoped
+        // with no any-sport fallback, so a single upstream format change
+        // ("football", "nfl ") would move every key out from under the lookup
+        // and zero that league's salary tiers with no error and no symptom —
+        // the same silent-demotion failure the partial-read guard above exists
+        // to prevent. Until that fallback was removed, exactAny was quietly
+        // absorbing this; nothing is absorbing it now, so it gets counted.
+        if (r.sport && r.sport !== sport) sportMismatches++;
+        accumulated.push({ full_name: r.full_name, sport, salary });
         withSalary++;
       }
 
@@ -159,6 +170,13 @@ export async function refreshSalarySnapshot(): Promise<boolean> {
       console.warn(
         `[SalarySnapshot] ${sport} hit the ${MAX_PAGES}-page ceiling — the snapshot may be ` +
           'truncated. Raise MAX_PAGES or move to a bulk projection tool.',
+      );
+    }
+    if (sportMismatches > 0) {
+      console.warn(
+        `[SalarySnapshot] ${sport} — ${sportMismatches}/${seen} rows came back with a different ` +
+          `sport than the one requested. Indexed under ${sport} regardless. If this is the whole ` +
+          `page, the column's format changed upstream and the filter is no longer meaningful.`,
       );
     }
     perSport.push(`${sport} ${withSalary}/${seen}`);

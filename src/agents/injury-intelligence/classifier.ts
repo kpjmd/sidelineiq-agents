@@ -163,6 +163,30 @@ export interface TierContext {
   athleteTierSource: 'lookup' | 'salary' | 'default';
 }
 
+const KNOWN_SPORTS: readonly string[] = ['NFL', 'NBA', 'PREMIER_LEAGUE', 'UFC'];
+
+/**
+ * The classifier's `sport`, validated, falling back to the source's own.
+ *
+ * Same treatment as the `team` hallucination guard below, for the same reason:
+ * this was a bare `as SportKey` cast of a model-supplied string, and it is the
+ * ONLY sport value in the pipeline that is not a hardcoded per-source constant.
+ * It reaches lookupAthleteTier via the poller's concussion re-check and is
+ * persisted to injury_posts.sport, which /admin re-scores from later. A league
+ * that is not one of ours is a hallucination; `raw.sport` comes from the source
+ * class that produced the event and is right by construction.
+ *
+ * Note the limit, which is why this is a guard and not a fix: it rejects
+ * garbage, not a plausible-but-wrong league. Haiku answering 'NBA' for an NFL
+ * event passes here unchanged. That is why the concussion re-check in poller.ts
+ * passes `event.sport` rather than this field, and why the salary index is
+ * sport-scoped rather than trusting any caller's sport.
+ */
+export function resolveClassifiedSport(raw: unknown, fallback: SportKey): SportKey {
+  const candidate = String(raw ?? '').trim().toUpperCase();
+  return KNOWN_SPORTS.includes(candidate) ? (candidate as SportKey) : fallback;
+}
+
 /**
  * Fast Haiku-based triage of a raw injury event.
  * Returns ClassificationResult with is_injury_event=false if the event is noise.
@@ -212,7 +236,8 @@ ${raw.is_update ? 'Marker: source flagged this as a status update.' : ''}`;
 
     const isInjuryEvent = Boolean(input.is_injury_event);
     const contentType = (input.content_type as ContentType) ?? 'BREAKING';
-    const sport = (input.sport as SportKey) ?? raw.sport;
+
+    const sport = resolveClassifiedSport(input.sport, raw.sport);
 
     const base: ClassificationResult = {
       is_injury_event: isInjuryEvent,

@@ -265,17 +265,57 @@ describe('lookupAthleteTier — name matching', () => {
     expect(lookupAthleteTier('John Smith', 'NFL')).toEqual({ tier: 3, source: 'default' });
   });
 
-  it("bands an any-sport match by the MATCHED row's sport, not the queried one", () => {
-    // $20M is denominated in the economy of the league that pays it: tier 1 in
-    // the NFL, tier 2 in the NBA. Using the queried sport's bands here would
-    // over-promote every cross-sport fallback.
-    _setSalarySnapshotForTesting(salaried([['Crossover Guy', 'NBA', 20 * M]]));
-    expect(lookupAthleteTier('Crossover Guy', 'NFL')).toEqual({ tier: 2, source: 'salary' });
+  it('never takes a same-named athlete\'s salary from another league', () => {
+    // THIS ASSERTION IS THE REVERSE OF THE ONE IT REPLACES, deliberately. The
+    // lookup used to fall back to an any-sport key and band the hit by the
+    // MATCHED row's sport, which read as principled and was not.
+    //
+    // Braden Smith, live in production: the NBA one is rostered, has no NBA
+    // salary and no athlete-tiers.json entry; the NFL Colts tackle of the same
+    // name was therefore the only salaried "Braden Smith" in the index. The
+    // uniqueness guard saw count === 1, the fallback resolved, and an NBA
+    // player was promoted to tier 2 on another man's contract.
+    //
+    // Sport-scoping is the fix. It costs nothing real: every polled event's
+    // sport is a hardcoded per-source constant, and the index is built per
+    // sport from a sport-filtered query, so a sport-scoped hit is exact by
+    // construction. See lookupSalaryRow.
+    _setSalarySnapshotForTesting(salaried([['Braden Smith', 'NFL', 20 * M]]));
+    expect(lookupAthleteTier('Braden Smith', 'NBA')).toEqual({ tier: 3, source: 'default' });
+    // ...while the athlete the salary actually belongs to is unaffected.
+    expect(lookupAthleteTier('Braden Smith', 'NFL')).toEqual({ tier: 2, source: 'salary' });
   });
 
   it('does not promote when the matched row\'s sport has no bands', () => {
+    // Queried as PREMIER_LEAGUE, not NFL. Under the old any-sport fallback the
+    // NFL spelling was the only way to reach tierFromSalary's band check at
+    // all; now a cross-sport query is refused earlier, so asking it that way
+    // would pass for the wrong reason and stop testing the band rule.
     _setSalarySnapshotForTesting(salaried([['Soccer Guy', 'PREMIER_LEAGUE', 50 * M]]));
-    expect(lookupAthleteTier('Soccer Guy', 'NFL')).toEqual({ tier: 3, source: 'default' });
+    expect(lookupAthleteTier('Soccer Guy', 'PREMIER_LEAGUE')).toEqual({
+      tier: 3,
+      source: 'default',
+    });
+  });
+
+  it('leaves PREMIER_LEAGUE and UFC athletes on the flat default', () => {
+    // The exposure sport-scoping closes wholesale. Neither league has a row in
+    // this index (salary-snapshot only pages NFL and NBA), and neither has a
+    // single entry in athlete-tiers.json to shadow a bad hit — so every salary
+    // tier those sports could ever have received was an NFL/NBA
+    // misattribution, in a lookup whose bands deliberately say those sports
+    // have no salary signal.
+    _setSalarySnapshotForTesting(
+      salaried([
+        ['Marcus Rashford', 'NFL', 40 * M],
+        ['Conor McGregor', 'NBA', 50 * M],
+      ]),
+    );
+    expect(lookupAthleteTier('Marcus Rashford', 'PREMIER_LEAGUE')).toEqual({
+      tier: 3,
+      source: 'default',
+    });
+    expect(lookupAthleteTier('Conor McGregor', 'UFC')).toEqual({ tier: 3, source: 'default' });
   });
 });
 

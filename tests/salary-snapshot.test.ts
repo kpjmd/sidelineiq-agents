@@ -108,6 +108,23 @@ describe('paging', () => {
     const sportsQueried = mockCallTool.mock.calls.map((c) => (c[2] as { sport: string }).sport);
     expect(sportsQueried).toEqual(['NFL']);
   });
+
+  it('indexes rows under the requested sport, not the one the row claims', async () => {
+    // These rows were asked for WITH a sport filter, so the loop constant is
+    // what we actually know; the row's own column is an unvalidated string off
+    // the wire. It matters now in a way it did not before: the salary index is
+    // sport-scoped with no any-sport fallback, so if an upstream format change
+    // started returning "football" here, every key would move out from under
+    // the lookup and the whole league's salary tiers would silently zero.
+    // exactAny used to absorb that. Nothing does now.
+    mockCallTool.mockResolvedValue(
+      page([{ full_name: 'Format Drift', sport: 'football', salary: 30 * M }]),
+    );
+
+    await refreshSalarySnapshot();
+
+    expect(lookupAthleteTier('Format Drift', 'NFL')).toEqual({ tier: 1, source: 'salary' });
+  });
 });
 
 describe('failure handling — never commit a partial read', () => {
