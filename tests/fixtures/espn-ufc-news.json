@@ -1,0 +1,728 @@
+{
+  "articles": [
+    {
+      "headline": "Conor McGregor suffered ACL injury in UFC return, Dana White says",
+      "description": "Conor McGregor offered more details on the right leg injury that ended his UFC return earlier this month, saying he suffered ACL and meniscus damage. He also expressed confidence that he could fight again by the summer of 2027.",
+      "published": "2026-07-19T16:21:00Z",
+      "links": {
+        "web": {
+          "href": "https://www.espn.com/mma/story/_/id/49399333/conor-mcgregor-suffered-acl-injury-ufc-return-dana-white-says"
+        }
+      },
+      "categories": [
+        {
+          "type": "league",
+          "description": "MMA"
+        },
+        {
+          "type": "league",
+          "description": "UFC"
+        },
+        {
+          "type": "athlete",
+          "description": "Conor McGregor",
+          "athlete": {
+            "id": 3022677,
+            "description": "Conor McGregor"
+          }
+        },
+        {
+          "type": "topic",
+          "description": "news"
+        }
+      ]
+    },
+    {
+      "headline": "Conor McGregor suffers knee injury in loss to Max Holloway",
+      "description": "Conor McGregor suffers knee injury in loss to Max Holloway",
+      "published": "2026-07-12T15:36:40Z",
+      "links": {
+        "web": {
+          "href": "https://www.espn.com/video/clip/_/id/49340423/conor-mcgregor-suffers-knee-injury-loss-max-holloway"
+        }
+      },
+      "categories": [
+        {
+          "type": "league",
+          "description": "UFC"
+        },
+        {
+          "type": "athlete",
+          "description": "Conor McGregor",
+          "athlete": {
+            "id": 3022677,
+            "description": "Conor McGregor"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Max Holloway",
+          "athlete": {
+            "id": 2614933,
+            "description": "Max Holloway"
+          }
+        }
+      ]
+    },
+    {
+      "headline": "UFC 329 fight grades: Why McGregor's injury didn't drag down the card",
+      "description": "Standout performances from Paddy Pimblett, Gable Steveson and others saved UFC 329 from becoming an afterthought.",
+      "published": "2026-07-13T12:05:07Z",
+      "links": {
+        "web": {
+          "href": "https://www.espn.com/mma/story/_/id/49345889/ufc-329-fight-grades-conor-mcgregor-leg-injury-drag-final-grade"
+        }
+      },
+      "categories": [
+        {
+          "type": "league",
+          "description": "MMA"
+        },
+        {
+          "type": "league",
+          "description": "UFC"
+        },
+        {
+          "type": "athlete",
+          "description": "Conor McGregor",
+          "athlete": {
+            "id": 3022677,
+            "description": "Conor McGregor"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Max Holloway",
+          "athlete": {
+            "id": 2614933,
+            "description": "Max Holloway"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Benoît Saint Denis",
+          "athlete": {
+            "id": 4895362,
+            "description": "Benoît Saint Denis"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Paddy Pimblett",
+          "athlete": {
+            "id": 4008549,
+            "description": "Paddy Pimblett"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Cory Sandhagen",
+          "athlete": {
+            "id": 4294504,
+            "description": "Cory Sandhagen"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Mario Bautista",
+          "athlete": {
+            "id": 4410868,
+            "description": "Mario Bautista"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Brandon Royval",
+          "athlete": {
+            "id": 4239928,
+            "description": "Brandon Royval"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Lone'er Kavanagh",
+          "athlete": {
+            "id": 5147737,
+            "description": "Lone'er Kavanagh"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "King Green",
+          "athlete": {
+            "id": 2502364,
+            "description": "King Green"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Terrance McKinney",
+          "athlete": {
+            "id": 4425604,
+            "description": "Terrance McKinney"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Nikita Krylov",
+          "athlete": {
+            "id": 3026263,
+            "description": "Nikita Krylov"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Robert Whittaker",
+          "athlete": {
+            "id": 3009717,
+            "description": "Robert Whittaker"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Gable Steveson",
+          "athlete": {
+            "id": 5214652,
+            "description": "Gable Steveson"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Elisha Ellison",
+          "athlete": {
+            "id": 5293987,
+            "description": "Elisha Ellison"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Cody Garbrandt",
+          "athlete": {
+            "id": 3163637,
+            "description": "Cody Garbrandt"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Adrian Yañez",
+          "athlete": {
+            "id": 3998248,
+            "description": "Adrian Yañez"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Luke Riley",
+          "athlete": {
+            "id": 5146696,
+            "description": "Luke Riley"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Kai Kamaka III",
+          "athlete": {
+            "id": 4688447,
+            "description": "Kai Kamaka III"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Tracy Cortez",
+          "athlete": {
+            "id": 4243624,
+            "description": "Tracy Cortez"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Wang Cong",
+          "athlete": {
+            "id": 4215200,
+            "description": "Wang Cong"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Damian Pinas",
+          "athlete": {
+            "id": 5292022,
+            "description": "Damian Pinas"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Cesar Almeida",
+          "athlete": {
+            "id": 5144068,
+            "description": "Cesar Almeida"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Farid Basharat",
+          "athlete": {
+            "id": 5016786,
+            "description": "Farid Basharat"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "John Garza",
+          "athlete": {
+            "id": 5369414,
+            "description": "John Garza"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Ryan Gandra",
+          "athlete": {
+            "id": 5291085,
+            "description": "Ryan Gandra"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Zach Reese",
+          "athlete": {
+            "id": 5143223,
+            "description": "Zach Reese"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Alessandro Costa",
+          "athlete": {
+            "id": 5074121,
+            "description": "Alessandro Costa"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Cody Durden",
+          "athlete": {
+            "id": 4686725,
+            "description": "Cody Durden"
+          }
+        },
+        {
+          "type": "contributor",
+          "description": "Andreas Hale"
+        }
+      ]
+    },
+    {
+      "headline": "McGregor's coach says knee 'never an issue' ahead of UFC 329",
+      "description": "Conor McGregor's right knee was \"never an issue\" ahead of UFC 329, according to his longtime head coach John Kavanagh.",
+      "published": "2026-07-12T19:30:29Z",
+      "links": {
+        "web": {
+          "href": "https://www.espn.com/mma/story/_/id/49345063/mcgregor-coach-says-knee-never-issue-ahead-ufc-329"
+        }
+      },
+      "categories": [
+        {
+          "type": "topic",
+          "description": "news"
+        },
+        {
+          "type": "league",
+          "description": "MMA"
+        },
+        {
+          "type": "league",
+          "description": "UFC"
+        },
+        {
+          "type": "athlete",
+          "description": "Conor McGregor",
+          "athlete": {
+            "id": 3022677,
+            "description": "Conor McGregor"
+          }
+        },
+        {
+          "type": "contributor",
+          "description": "Brett Okamoto"
+        }
+      ]
+    },
+    {
+      "headline": "Ex-UFC fighter Anthony Smith arrested on three felony charges",
+      "description": "Former UFC fighter Anthony Smith, who challenged for the light heavyweight title in 2019, was arrested Monday night in Nebraska on charges of domestic violence causing serious bodily injury, terroristic threats and false imprisonment.",
+      "published": "2026-07-29T23:42:10Z",
+      "links": {
+        "web": {
+          "href": "https://www.espn.com/mma/story/_/id/49475267/ex-ufc-fighter-anthony-smith-arrested-three-felony-charges"
+        }
+      },
+      "categories": [
+        {
+          "type": "league",
+          "description": "UFC"
+        },
+        {
+          "type": "athlete",
+          "description": "Anthony Smith",
+          "athlete": {
+            "id": 2512976,
+            "description": "Anthony Smith"
+          }
+        },
+        {
+          "type": "topic",
+          "description": "news"
+        }
+      ]
+    },
+    {
+      "headline": "Askren returns to mat after '25 lung transplant, loses at RAF 11",
+      "description": "A year removed from double lung transplant surgery, Ben Askren returned to the wrestling mat and lost 6-3 to Belal Muhammad in the co-main event of RAF 11 in Milwaukee.",
+      "published": "2026-07-19T11:54:03Z",
+      "links": {
+        "web": {
+          "href": "https://www.espn.com/mma/story/_/id/49396740/askren-returns-mat-25-lung-transplant-loses-raf-11"
+        }
+      },
+      "categories": [
+        {
+          "type": "league",
+          "description": "MMA"
+        },
+        {
+          "type": "league",
+          "description": "UFC"
+        },
+        {
+          "type": "athlete",
+          "description": "Ben Askren",
+          "athlete": {
+            "id": 2500597,
+            "description": "Ben Askren"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Belal Muhammad",
+          "athlete": {
+            "id": 3172112,
+            "description": "Belal Muhammad"
+          }
+        },
+        {
+          "type": "topic",
+          "description": "news"
+        },
+        {
+          "type": "contributor",
+          "description": "Brett Okamoto"
+        }
+      ]
+    },
+    {
+      "headline": "Salkilld submits Gamrot in first round at UFC Fight Night",
+      "description": "Quillan Salkilld submitted Mateusz Gamrot by rear-naked choke for his fourth straight first-round finish Saturday night in his first UFC main event.",
+      "published": "2026-08-09T03:34:30Z",
+      "links": {
+        "web": {
+          "href": "https://www.espn.com/mma/story/_/id/49565279/salkilld-submits-gamrot-first-round-ufc-fight-night"
+        }
+      },
+      "categories": [
+        {
+          "type": "league",
+          "description": "MMA"
+        },
+        {
+          "type": "league",
+          "description": "UFC"
+        },
+        {
+          "type": "athlete",
+          "description": "Quillan Salkilld",
+          "athlete": {
+            "id": 5157667,
+            "description": "Quillan Salkilld"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Mateusz Gamrot",
+          "athlete": {
+            "id": 3068125,
+            "description": "Mateusz Gamrot"
+          }
+        },
+        {
+          "type": "topic",
+          "description": "news"
+        },
+        {
+          "type": "contributor",
+          "description": "Brett Okamoto"
+        }
+      ]
+    },
+    {
+      "headline": "UFC fights we want to see in the second half of 2026",
+      "description": "Van vs. Kape, Topuria vs. Pimblett, Nunes vs. Harrison and more could be on the horizon in the second half.",
+      "published": "2026-07-16T13:52:53Z",
+      "links": {
+        "web": {
+          "href": "https://www.espn.com/mma/story/_/id/49363604/ufc-fights-want-second-half-2026"
+        }
+      },
+      "categories": [
+        {
+          "type": "league",
+          "description": "MMA"
+        },
+        {
+          "type": "league",
+          "description": "UFC"
+        },
+        {
+          "type": "athlete",
+          "description": "Joshua Van",
+          "athlete": {
+            "id": 5120301,
+            "description": "Joshua Van"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Manel Kape",
+          "athlete": {
+            "id": 4236504,
+            "description": "Manel Kape"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Alexander Volkanovski",
+          "athlete": {
+            "id": 3949584,
+            "description": "Alexander Volkanovski"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Movsar Evloev",
+          "athlete": {
+            "id": 4029275,
+            "description": "Movsar Evloev"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Mackenzie Dern",
+          "athlete": {
+            "id": 4021217,
+            "description": "Mackenzie Dern"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Zhang Weili",
+          "athlete": {
+            "id": 4350762,
+            "description": "Zhang Weili"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Jean Claude da Silva",
+          "athlete": {
+            "id": 5315964,
+            "description": "Jean Claude da Silva"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Aaron Pico",
+          "athlete": {
+            "id": 4199009,
+            "description": "Aaron Pico"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Arman Tsarukyan",
+          "athlete": {
+            "id": 4419372,
+            "description": "Arman Tsarukyan"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Mauricio Ruffy",
+          "athlete": {
+            "id": 5122238,
+            "description": "Mauricio Ruffy"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Petr Yan",
+          "athlete": {
+            "id": 4293517,
+            "description": "Petr Yan"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Merab Dvalishvili",
+          "athlete": {
+            "id": 3948572,
+            "description": "Merab Dvalishvili"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Michael Morales",
+          "athlete": {
+            "id": 4869426,
+            "description": "Michael Morales"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Gabriel Bonfim",
+          "athlete": {
+            "id": 4921516,
+            "description": "Gabriel Bonfim"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Tom Aspinall",
+          "athlete": {
+            "id": 4010976,
+            "description": "Tom Aspinall"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Ciryl Gane",
+          "athlete": {
+            "id": 4426000,
+            "description": "Ciryl Gane"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Kayla Harrison",
+          "athlete": {
+            "id": 4332765,
+            "description": "Kayla Harrison"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Ilia Topuria",
+          "athlete": {
+            "id": 4350812,
+            "description": "Ilia Topuria"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Paddy Pimblett",
+          "athlete": {
+            "id": 4008549,
+            "description": "Paddy Pimblett"
+          }
+        },
+        {
+          "type": "contributor",
+          "description": "Brett Okamoto"
+        }
+      ]
+    },
+    {
+      "headline": "Chimaev to wrestle Woodley in Sept. 5 RAF event in Moscow",
+      "description": "A pair of former UFC champions are set to tangle Sept. 5 when Khmazat Chimaev faces Tyron Woodley in the headline bout of an RAF wrestling event in Moscow, Russia.",
+      "published": "2026-07-30T14:50:51Z",
+      "links": {
+        "web": {
+          "href": "https://www.espn.com/mma/story/_/id/49488545/chimaev-wrestle-woodley-sept-5-raf-event-moscow"
+        }
+      },
+      "categories": [
+        {
+          "type": "topic",
+          "description": "news"
+        },
+        {
+          "type": "league",
+          "description": "MMA"
+        },
+        {
+          "type": "league",
+          "description": "UFC"
+        },
+        {
+          "type": "athlete",
+          "description": "Khamzat Chimaev",
+          "athlete": {
+            "id": 4684751,
+            "description": "Khamzat Chimaev"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Tyron Woodley",
+          "athlete": {
+            "id": 2501926,
+            "description": "Tyron Woodley"
+          }
+        },
+        {
+          "type": "contributor",
+          "description": "Brett Okamoto"
+        }
+      ]
+    },
+    {
+      "headline": "Dricus Du Plessis puts on clinic in main-event victory over Kamaru Usman",
+      "description": "Dricus Du Plessis puts on clinic in main event victory over Kamaru Usman",
+      "published": "2026-07-19T04:02:42Z",
+      "links": {
+        "web": {
+          "href": "https://www.espn.com/video/clip/_/id/49396646/dricus-du-plessis-puts-clinic-main-event-victory-kamaru-usman"
+        }
+      },
+      "categories": [
+        {
+          "type": "league",
+          "description": "UFC"
+        },
+        {
+          "type": "athlete",
+          "description": "Dricus Du Plessis",
+          "athlete": {
+            "id": 3166126,
+            "description": "Dricus Du Plessis"
+          }
+        },
+        {
+          "type": "athlete",
+          "description": "Kamaru Usman",
+          "athlete": {
+            "id": 3088812,
+            "description": "Kamaru Usman"
+          }
+        },
+        {
+          "type": "editorialindicator",
+          "description": "League Boost"
+        },
+        {
+          "type": "league",
+          "description": "MMA"
+        }
+      ]
+    }
+  ]
+}

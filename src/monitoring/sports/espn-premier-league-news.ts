@@ -1,10 +1,12 @@
 import type { RawInjuryEvent, SportKey } from '../../types.js';
 import type { SportDataSource, SourceFetchReport } from './multi-source.js';
 import {
+  type ESPNAthleteCategory,
   INJURY_KEYWORD_RE,
   buildBlocklist,
   extractAthleteName,
   extractTeam,
+  resolveTaggedAthlete,
   parseDate,
   getMaxEventAgeMs,
 } from './text-extraction.js';
@@ -23,21 +25,36 @@ import {
  * It is also the roster provider for soccer/eng.1 (see roster-sync.ts), so it
  * must not be removed.
  *
- * One difference from UFC: soccer articles do not tag athletes. Roughly half
- * carry a `categories[].athlete` entry, but on the injury-relevant ones
- * `displayName` is null — today's "Man United being 'careful' with Mason Mount
- * after injury scare" has only a team category. So athlete extraction is a
- * hybrid: use the tag when it is really there, otherwise fall back to parsing
- * the text.
+ * Athlete extraction stays a hybrid, but not for the reason originally written
+ * here. The old comment said soccer articles don't tag athletes — that they
+ * carry a `categories[].athlete` entry whose `displayName` is null. The field
+ * is `description`; `displayName` does not exist on a news category in any
+ * sport, so it read null on every article and the tag branch never fired. See
+ * resolveTaggedAthlete in text-extraction.ts. The genuine reason for the text
+ * fallback is different and still holds: a real share of soccer injury stories
+ * are framed around the club rather than a named player ("Man United being
+ * 'careful' with Mason Mount after injury scare" tags only the team), so when
+ * the tags name nobody the headline still has to be parsed.
  */
 const PL_NEWS_URL = 'https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/news?limit=50';
 
-/** Club names used for the text fallback when no team category is present. */
+/**
+ * Club names used for the text fallback when no team category is present.
+ *
+ * MUST BE REFRESHED EACH SEASON — promotion and relegation replace three clubs
+ * every summer, and a stale list is wrong in both directions: a promoted club
+ * is unrecognised as a team AND its tokens are missing from PL_BLOCKLIST, so
+ * NAME_RE reads "Ipswich Town" as a person. This is the 2026-27 set, taken from
+ * .../soccer/eng.1/teams on 2026-08-15 (out: Burnley, West Ham, Wolves; in:
+ * Coventry City, Hull City, Ipswich Town). The live source of truth is that
+ * endpoint, mirrored in the teams table — `web_list_teams {sport:
+ * 'PREMIER_LEAGUE', coverage:'in'}`.
+ */
 export const PL_TEAM_NAMES = [
-  'Arsenal', 'Aston Villa', 'Bournemouth', 'Brentford', 'Brighton', 'Burnley',
-  'Chelsea', 'Crystal Palace', 'Everton', 'Fulham', 'Leeds', 'Liverpool',
-  'Manchester City', 'Manchester United', 'Newcastle', 'Nottingham Forest',
-  'Sunderland', 'Tottenham', 'West Ham', 'Wolves',
+  'Arsenal', 'Aston Villa', 'Bournemouth', 'Brentford', 'Brighton', 'Chelsea',
+  'Coventry', 'Crystal Palace', 'Everton', 'Fulham', 'Hull', 'Ipswich', 'Leeds',
+  'Liverpool', 'Manchester City', 'Manchester United', 'Newcastle',
+  'Nottingham Forest', 'Sunderland', 'Tottenham',
 ];
 
 /**
@@ -45,14 +62,20 @@ export const PL_TEAM_NAMES = [
  * indistinguishable from people: "Man United" parses as first name "Man", last
  * name "United". Every token of every club name has to be blocked individually,
  * plus the European clubs that show up constantly in PL transfer coverage.
+ *
+ * Relegated clubs stay blocked on purpose. They keep appearing in coverage
+ * long after they leave the division (transfers out, former players, results
+ * elsewhere), and a token that is no longer a PL club is no more a person's
+ * first name than it was before.
  */
 const PL_BLOCKLIST = buildBlocklist([
-  // Premier League clubs, tokenized
+  // Premier League clubs, tokenized — 2026-27 set plus recently relegated
   'Man', 'Manchester', 'United', 'City', 'West', 'Ham', 'Aston', 'Villa',
   'Crystal', 'Palace', 'Nottingham', 'Forest', 'Brighton', 'Hove', 'Albion',
   'Wolves', 'Wolverhampton', 'Newcastle', 'Tottenham', 'Hotspur', 'Spurs',
   'Arsenal', 'Chelsea', 'Liverpool', 'Everton', 'Fulham', 'Brentford',
   'Bournemouth', 'Burnley', 'Leeds', 'Sunderland',
+  'Coventry', 'Hull', 'Ipswich', 'Town',
   // European clubs common in PL transfer/preseason coverage
   'Real', 'Madrid', 'Atletico', 'Barcelona', 'Inter', 'Internazionale', 'Milan',
   'Bayern', 'Munich', 'Borussia', 'Dortmund', 'Paris', 'Getafe', 'Juventus',
@@ -71,11 +94,7 @@ interface ESPNNewsArticle {
   description?: string;
   published?: string;
   links?: { web?: { href?: string } };
-  categories?: Array<{
-    type?: string;
-    athlete?: { displayName?: string };
-    team?: { description?: string };
-  }>;
+  categories?: Array<ESPNAthleteCategory & { team?: { description?: string } }>;
 }
 
 export class ESPNPremierLeagueNewsSource implements SportDataSource {
@@ -149,15 +168,24 @@ export class ESPNPremierLeagueNewsSource implements SportDataSource {
   }
 }
 
-/** Prefer ESPN's own tag; fall back to text parsing when it is absent or null. */
+/**
+ * Prefer ESPN's own tag; fall back to text parsing when the tags name nobody or
+ * name too many to choose between.
+ *
+ * The tag is strictly better than NAME_RE when it resolves: it is ESPN's own
+ * identification, it carries accents and multi-word surnames the regex mangles,
+ * and it cannot mistake a club for a person. The fallback exists for the
+ * club-framed stories that tag only a team.
+ */
 function resolveAthlete(
   article: ESPNNewsArticle,
   headline: string,
   description: string,
 ): string | null {
-  const tagged = article.categories?.find((c) => c.athlete?.displayName)?.athlete?.displayName;
-  if (tagged) return tagged;
-  return extractAthleteName(headline, description, PL_BLOCKLIST);
+  return (
+    resolveTaggedAthlete(article.categories, headline) ??
+    extractAthleteName(headline, description, PL_BLOCKLIST)
+  );
 }
 
 /** Team categories are reliably populated on soccer articles, unlike athletes. */
