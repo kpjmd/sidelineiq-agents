@@ -24,7 +24,7 @@ import type {
   ClassificationResult,
   PromotionScoreInput,
 } from './types.js';
-import { refreshSalarySnapshotIfStale } from './agents/injury-intelligence/salary-snapshot.js';
+import { refreshTierSnapshotsIfStale } from './agents/injury-intelligence/tier-snapshots.js';
 
 const app = express();
 const PORT = process.env.PORT || 3100;
@@ -288,7 +288,7 @@ app.post('/admin/promote/:post_id', async (req, res) => {
   try {
     // Athlete tiers feed the composite proxy; ensure they're loaded.
     await loadSignificanceData();
-    await refreshSalarySnapshotIfStale();
+    await refreshTierSnapshotsIfStale();
 
     const post = unwrapMCP<PromotePost>(await callTool('web', 'web_get_post', { post_id }));
     if (!post) {

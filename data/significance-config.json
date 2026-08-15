@@ -26,6 +26,32 @@
       "NBA": { "tier_1_min": 45000000, "tier_2_min": 15000000 }
     }
   },
+  "derived_tiers": {
+    "PREMIER_LEAGUE": {
+      "kind": "club",
+      "tier_2_clubs": [
+        { "espn_team_id": "359", "name": "Arsenal" },
+        { "espn_team_id": "363", "name": "Chelsea" },
+        { "espn_team_id": "364", "name": "Liverpool" },
+        { "espn_team_id": "382", "name": "Manchester City" },
+        { "espn_team_id": "360", "name": "Manchester United" },
+        { "espn_team_id": "367", "name": "Tottenham Hotspur" }
+      ]
+    },
+    "UFC": {
+      "kind": "card",
+      "window_days_back": 180,
+      "window_days_forward": 90,
+      "slot_tiers": {
+        "champion": 1,
+        "ppv_main_event": 1,
+        "ppv_co_main": 2,
+        "ppv_main_card": 2,
+        "fight_night_main_event": 2,
+        "fight_night_co_main": 2
+      }
+    }
+  },
   "concussion": { "require_tier_1_or_2": true },
   "defer": {
     "ttl_hours": 6,

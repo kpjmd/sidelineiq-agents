@@ -1,0 +1,651 @@
+{
+  "events": [
+    {
+      "name": "UFC 330: Makhachev vs. Machado Garry",
+      "date": "2026-08-15T21:30Z",
+      "competitions": [
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Jeremiah Wells"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Myktybek Orolbai"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Neil Magny"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Ramiz Brahimaj"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Lucas Fernando"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Rafael Tobias"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Vicente Luque"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Tresean Gore"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Eric McConico"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Donte Johnson"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Charles Johnson"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Eduardo Chapolin"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Chidi Njokuani"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Joel Álvarez"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Edson Barboza"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Esteban Ribovics"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Dustin Stoltzfus"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Mansur Abdul-Malik"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Jalin Turner"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Kauê Fernandes"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Mackenzie Dern",
+                "accolades": [
+                  {
+                    "id": "821",
+                    "name": "UFC Women's Strawweight Title",
+                    "type": "Belt"
+                  }
+                ]
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Gillian Robertson"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Islam Makhachev",
+                "accolades": [
+                  {
+                    "id": "381",
+                    "name": "UFC Welterweight Title",
+                    "type": "Belt"
+                  }
+                ]
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Ian Machado Garry"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "UFC 326: Holloway vs. Oliveira 2",
+      "date": "2026-03-07T22:30Z",
+      "competitions": [
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Rodolfo Bellato"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Luke Fernandez"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Diyar Nurgozhay"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Rafael Tobias"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Sumudaerji"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Jesus Aguilar"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Cody Durden"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Nyamjargal Tumendemberel"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Ricky Turcios"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Alberto Montes"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Cody Brundage"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Donte Johnson"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Cody Garbrandt"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Xiao Long"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Gregory Rodrigues"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Brunno Ferreira"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Michael Johnson"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Drew Dober"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Rob Font"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Raul Rosas Jr."
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Reinier de Ridder"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Caio Borralho"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Charles Oliveira"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Max Holloway"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "UFC Fight Night: Strickland vs. Hernandez",
+      "date": "2026-02-21T22:00Z",
+      "competitions": [
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Juliana Miller"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Carli Judice"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Jordan Leavitt"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Yadier del Valle"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Phil Rowe"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Jean-Paul Lebosnoyani"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Ramiz Brahimaj"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Punahele Soriano"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Joselyne Edwards"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Nora Cornolle"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Alden Coria"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Luis Gurule"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Ode' Osbourne"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Alibi Idiris"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Chidi Njokuani"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Carlos Leal"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Michel Pereira"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Zach Reese"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Josiah Harrell"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Jacobe Smith"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Ante Delija"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Serghei Spivac"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Dan Ige"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Melquizael Costa"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Geoff Neal"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Uroš Medić"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Sean Strickland",
+                "accolades": [
+                  {
+                    "id": "380",
+                    "name": "UFC Middleweight Title",
+                    "type": "Belt"
+                  }
+                ]
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Anthony Hernandez"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Dana White's Contender Series: Season 10, Week 1",
+      "date": "2026-08-11T23:00Z",
+      "competitions": [
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Joe Kropschot"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Jon Kunneman"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Tom Pagliarulo"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Ananias Mulumba"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Bilal Hasan"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Mridul Saikia"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Abe Alsaghir"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Fabrizio Escarrega"
+              }
+            }
+          ]
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Anthony Wint"
+              }
+            },
+            {
+              "athlete": {
+                "displayName": "Matt Adams"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

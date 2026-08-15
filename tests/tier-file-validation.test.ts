@@ -44,6 +44,44 @@ describe('validateTiers', () => {
     expect(out.athletes).toHaveLength(1);
   });
 
+  it('accepts all four sports the pipeline actually polls', () => {
+    const out = validateTiers(
+      db([
+        { name: 'A', sport: 'NFL', tier: 1 },
+        { name: 'B', sport: 'NBA', tier: 1 },
+        { name: 'C', sport: 'PREMIER_LEAGUE', tier: 1 },
+        { name: 'D', sport: 'UFC', tier: 1 },
+      ]),
+    );
+    expect(out.athletes).toHaveLength(4);
+    expect(errSpy).not.toHaveBeenCalled();
+  });
+
+  it('drops a row whose sport is not a real SportKey', () => {
+    // A plausible typo used to be INVISIBLE rather than wrong: lookupAthleteTier
+    // compares sport strings, so "PL" is kept, never matches anything, and the
+    // athlete silently falls to the tier-3 default. That is the failing-quietly-
+    // upward direction — and it became a live risk the moment the file gained a
+    // third and fourth league.
+    const out = validateTiers(
+      db([
+        { name: 'Good Row', sport: 'PREMIER_LEAGUE', tier: 1 },
+        { name: 'Typo Sport', sport: 'PL', tier: 1 },
+        { name: 'Spelled Out', sport: 'Premier League', tier: 2 },
+        { name: 'Wrong League', sport: 'UCF', tier: 1 },
+      ]),
+    );
+    expect(out.athletes.map((a) => a.name)).toEqual(['Good Row']);
+    const logged = errSpy.mock.calls.flat().join(' ');
+    expect(logged).toContain('Typo Sport');
+    expect(logged).toContain('tier-3 default');
+  });
+
+  it('is case-insensitive about the sport, matching the lookup', () => {
+    const out = validateTiers(db([{ name: 'Lowercase', sport: 'premier_league', tier: 1 }]));
+    expect(out.athletes).toHaveLength(1);
+  });
+
   it('drops an out-of-range tier and names the athlete', () => {
     const out = validateTiers(
       db([

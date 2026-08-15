@@ -3,6 +3,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import type {
   AthleteTier,
+  AthleteTierSource,
   TriageDecision,
   SignificanceAssessment,
   SignificanceSubscores,
@@ -86,6 +87,67 @@ interface SalaryTierConfig {
   bands?: Partial<Record<SportKey, SalaryBand>>;
 }
 
+/**
+ * The non-salary prominence signals, one per sport that has no salary data.
+ *
+ * Salary is not a universal proxy for prominence — it is the proxy that happens
+ * to be available in the two leagues ESPN publishes contracts for. The other
+ * two sports each need a different one, and forcing them into salary-shaped
+ * bands would be inventing data:
+ *
+ *  - PREMIER_LEAGUE ('club'): ESPN's soccer roster carries no contract field at
+ *    all (0/35 athletes on 2026-08-12). Wages exist in the world but not in any
+ *    feed we can reach, and PL wage variance between top and bottom clubs is so
+ *    much wider than the NFL's or NBA's that one pair of league-wide bands would
+ *    be a poor proxy even with the data. The club IS the signal that survives:
+ *    it is in the roster we already sync every 6h, and it self-refreshes through
+ *    transfers.
+ *  - UFC ('card'): fighter pay is not merely missing, it is structurally
+ *    undisclosed and always will be. Prominence in an individual sport is card
+ *    position — a title fight, a pay-per-view main event — which ESPN publishes
+ *    on the scoreboard for every event.
+ *
+ * A sport absent from this map has no derived signal, exactly as an absent
+ * salary band means no salary signal. Both are promote-only.
+ */
+interface ClubDerivedConfig {
+  kind: 'club';
+  /** Clubs whose players are tier 2. ESPN team ids — names are for humans. */
+  tier_2_clubs?: Array<{ espn_team_id: string; name?: string }>;
+}
+
+/**
+ * Card slots, most prominent first.
+ *
+ * `champion` is a property of the FIGHTER, not the bout: ESPN attaches a
+ * `{type:'Belt'}` accolade to the athlete, and it says "this person holds a
+ * title" — not "this bout is for one". A champion in a non-title bout still
+ * carries the accolade, and there is no field distinguishing the two, so the
+ * honest reading is the athlete-level one. It outranks position because a
+ * reigning champion is the sport's own answer to who matters, wherever they
+ * have been placed on the card. Their opponent gets the positional slot, which
+ * is the point of resolving this per fighter rather than per bout — otherwise a
+ * co-main opponent inherits tier 1 from the belt across the cage.
+ */
+export type CardSlot =
+  | 'champion'
+  | 'ppv_main_event'
+  | 'ppv_co_main'
+  | 'ppv_main_card'
+  | 'fight_night_main_event'
+  | 'fight_night_co_main';
+
+interface CardDerivedConfig {
+  kind: 'card';
+  /** How far back a card still confers prominence. Recovery outlives the fight. */
+  window_days_back?: number;
+  /** How far forward. An announced bout is why an injury matters *now*. */
+  window_days_forward?: number;
+  slot_tiers?: Partial<Record<CardSlot, number>>;
+}
+
+export type DerivedTierConfig = ClubDerivedConfig | CardDerivedConfig;
+
 interface SignificanceConfig {
   version: number;
   thresholds: {
@@ -100,8 +162,40 @@ interface SignificanceConfig {
   // Optional: a config without it behaves exactly as before this feature
   // existed, which is what lets the code ship ahead of the bands.
   salary_tiers?: SalaryTierConfig;
+  // Optional for the same reason salary_tiers is: a config without it behaves
+  // exactly as it did before derived tiers existed.
+  derived_tiers?: Partial<Record<SportKey, DerivedTierConfig>>;
   concussion?: { require_tier_1_or_2?: boolean };
   defer: DeferConfig;
+}
+
+/**
+ * The prominence signal attached to one athlete in the derived snapshot.
+ *
+ * The raw signal is stored, not the tier it maps to, for the same reason
+ * players.salary holds dollars rather than a tier: re-banding then costs a
+ * config edit instead of a re-fetch, and the dry-run can show what actually
+ * drove each promotion.
+ */
+export type DerivedSignal =
+  | { kind: 'club'; espn_team_id: string; team_name?: string }
+  | { kind: 'card'; slot: CardSlot; event_name: string; event_date: string };
+
+export interface DerivedRow {
+  full_name: string;
+  sport: string;
+  signal: DerivedSignal;
+}
+
+interface DerivedIndexEntry {
+  row: DerivedRow;
+  count: number;
+}
+/** Same shape and same sport-scoping rule as SalaryIndex — see lookupSalaryRow. */
+interface DerivedIndex {
+  exactBySport: Map<string, DerivedIndexEntry>;
+  looseBySport: Map<string, DerivedIndexEntry>;
+  size: number;
 }
 
 /** One athlete's salary, as held in the snapshot index. */
@@ -140,6 +234,9 @@ let cachedConfig: SignificanceConfig | null = null;
 // null = no snapshot loaded. Every lookup then behaves exactly as it did before
 // salary existed, which is both the failure mode and the default in tests.
 let cachedSalaries: SalaryIndex | null = null;
+// Same contract as cachedSalaries: null = no snapshot, every lookup behaves as
+// it did before derived tiers existed.
+let cachedDerived: DerivedIndex | null = null;
 
 // ── Hardcoded weights (research decisions — change requires code review) ─────
 
@@ -215,6 +312,7 @@ export async function loadSignificanceData(): Promise<void> {
       );
     }
     validateSalaryBands(cachedConfig);
+    validateDerivedTiers(cachedConfig);
   } else {
     const reason = configResult.reason instanceof Error ? configResult.reason.message : String(configResult.reason);
     console.error(`[Significance] Failed to load significance-config.json: ${reason}`);
@@ -250,6 +348,10 @@ export async function loadSignificanceData(): Promise<void> {
  * bad-row-vs-bad-page split. A file that parses but is entirely malformed still
  * ends up empty, which behaves exactly like the pre-file default.
  */
+/** The four SportKeys, as a lookup. Kept here rather than imported from the
+ *  classifier's KNOWN_SPORTS so validation cannot be broken by an edit there. */
+const KNOWN_TIER_SPORTS = new Set<string>(['NFL', 'NBA', 'PREMIER_LEAGUE', 'UFC']);
+
 export function validateTiers(db: AthleteTierDB): AthleteTierDB {
   if (!Array.isArray(db?.athletes)) {
     console.error('[Significance] athlete-tiers.json has no `athletes` array — treating as empty.');
@@ -264,6 +366,21 @@ export function validateTiers(db: AthleteTierDB): AthleteTierDB {
       console.error(
         `[Significance] athlete-tiers.json: dropped an entry missing name or sport ` +
           `(${JSON.stringify(entry)}).`,
+      );
+      continue;
+    }
+    // The sport has to be one we actually poll. Until now any non-empty string
+    // was accepted, and a plausible typo — "PL", "Premier League", "UCF" — is
+    // invisible rather than wrong: lookupAthleteTier compares
+    // `a.sport.toLowerCase() === sport.toLowerCase()`, so the row is kept, never
+    // matches, and the athlete silently falls to the tier-3 default. That is the
+    // failing-quietly-upward direction this validator exists to catch, and it
+    // became a live risk the moment the file gained a third and fourth league.
+    if (!KNOWN_TIER_SPORTS.has(sport.toUpperCase())) {
+      console.error(
+        `[Significance] athlete-tiers.json: dropped "${name}" — sport ${JSON.stringify(sport)} ` +
+          `is not one of ${[...KNOWN_TIER_SPORTS].join(', ')}. It would never have matched a ` +
+          `lookup, so they fall through to the tier-3 default.`,
       );
       continue;
     }
@@ -333,6 +450,81 @@ function validateSalaryBands(config: SignificanceConfig | null): void {
     .map(([s, b]) => `${s} t1>=$${(b.tier_1_min / 1e6).toFixed(1)}M t2>=$${(b.tier_2_min / 1e6).toFixed(1)}M`)
     .join(' | ');
   console.log(`[Significance] salary bands: ${summary || '(none)'}`);
+}
+
+/**
+ * Rejects malformed derived-tier config at load, mirroring validateSalaryBands.
+ *
+ * The one rule worth stating twice: a slot or a club may map to 1 or 2 and
+ * nothing else. tierFromDerived's return type makes 3 and 4 impossible in code;
+ * this makes an attempt loud in config, because a derived 4 would not
+ * reprioritise an athlete — it would DELETE their coverage, since tier 4 sits
+ * above thresholds.default.max_tier and drops BREAKING outright.
+ *
+ * Rejection drops the sport's whole entry, degrading to the flat tier-3 default
+ * — the previous behaviour, and therefore the safe direction.
+ */
+function validateDerivedTiers(config: SignificanceConfig | null): void {
+  const derived = config?.derived_tiers;
+  if (!derived) return; // Absent is valid: no sport gets a derived signal.
+
+  const summary: string[] = [];
+  for (const [sport, entry] of Object.entries(derived) as [SportKey, DerivedTierConfig][]) {
+    const drop = (why: string): void => {
+      console.error(
+        `[Significance] derived tier config for ${sport} is invalid (${why}) — dropping it. ` +
+          `${sport} athletes will use the flat tier-3 default.`,
+      );
+      delete derived[sport];
+    };
+
+    if (entry?.kind === 'club') {
+      const clubs = entry.tier_2_clubs ?? [];
+      const usable = clubs.filter((c) => typeof c?.espn_team_id === 'string' && c.espn_team_id.trim());
+      if (usable.length !== clubs.length) {
+        console.error(
+          `[Significance] derived tier config for ${sport}: ${clubs.length - usable.length} club ` +
+            `entries have no espn_team_id and were ignored. Names are for humans; the id is the key.`,
+        );
+        entry.tier_2_clubs = usable;
+      }
+      if (usable.length === 0) {
+        drop('no usable tier_2_clubs');
+        continue;
+      }
+      summary.push(`${sport} club: ${usable.length} tier-2 clubs`);
+    } else if (entry?.kind === 'card') {
+      const slots = entry.slot_tiers ?? {};
+      for (const [slot, tier] of Object.entries(slots) as [CardSlot, number][]) {
+        if (tier !== 1 && tier !== 2) {
+          console.error(
+            `[Significance] derived tier config for ${sport}: slot "${slot}" maps to tier ` +
+              `${JSON.stringify(tier)} — only 1 and 2 can be derived, so it was dropped. ` +
+              `A derived tier 3 is the default anyway, and a derived tier 4 would remove ` +
+              `coverage rather than reprioritise it.`,
+          );
+          delete slots[slot];
+        }
+      }
+      if (Object.keys(slots).length === 0) {
+        drop('no usable slot_tiers');
+        continue;
+      }
+      const back = entry.window_days_back ?? 0;
+      const forward = entry.window_days_forward ?? 0;
+      if (!(back > 0) && !(forward > 0)) {
+        drop('window_days_back and window_days_forward are both zero — no card would ever match');
+        continue;
+      }
+      summary.push(`${sport} card: ${Object.keys(slots).length} slots, -${back}d/+${forward}d`);
+    } else {
+      drop(`unknown kind ${JSON.stringify((entry as { kind?: unknown })?.kind)}`);
+    }
+  }
+
+  // Logged every load, for the same reason the salary-band line is: config that
+  // quietly failed to apply has no other symptom.
+  console.log(`[Significance] derived tiers: ${summary.join(' | ') || '(none)'}`);
 }
 
 /** Whether a sport has salary bands configured. Used by roster-sync to decide
@@ -405,6 +597,97 @@ export function tierFromSalary(
   if (salary >= band.tier_1_min) return 1;
   if (salary >= band.tier_2_min) return 2;
   return null;
+}
+
+/**
+ * The derived signal → tier mapping. The ONLY place it exists, and the exact
+ * counterpart of tierFromSalary — including the `1 | 2 | null` return type,
+ * which IS the promote-only invariant. Returning 4 here would be a compile
+ * error rather than a silent policy change that stops publishing a whole sport.
+ *
+ * A club confers tier 2 and never tier 1. Tier 1 swaps the BREAKING bar to
+ * BREAKING_T1's 45, the loosest in the config, so a false tier 1 is the
+ * expensive error — and "plays for Arsenal" is true of the academy goalkeeper
+ * as well as of Saka. Tier 1 for a footballer stays hand-curated in
+ * athlete-tiers.json, which is consulted first.
+ *
+ * A card slot can confer tier 1, because unlike a club it is a statement about
+ * this fighter on this night: main-eventing a numbered pay-per-view, or holding
+ * a belt, is the sport's own declaration of who the audience came for.
+ */
+export function tierFromDerived(
+  signal: DerivedSignal | null | undefined,
+  sport: SportKey,
+): 1 | 2 | null {
+  const cfg = cachedConfig?.derived_tiers?.[sport];
+  if (!cfg || !signal) return null; // Sport has no derived signal (NFL, NBA).
+  if (cfg.kind === 'club' && signal.kind === 'club') {
+    const listed = (cfg.tier_2_clubs ?? []).some((c) => c.espn_team_id === signal.espn_team_id);
+    return listed ? 2 : null;
+  }
+  if (cfg.kind === 'card' && signal.kind === 'card') {
+    const tier = cfg.slot_tiers?.[signal.slot];
+    return tier === 1 || tier === 2 ? tier : null;
+  }
+  // Snapshot and config disagree about what this sport's signal is. That means
+  // a config edit landed without a snapshot refresh; refuse rather than guess.
+  return null;
+}
+
+/**
+ * Installs a derived-signal snapshot. Pass null to clear.
+ *
+ * Index built HERE for the same reason setSalarySnapshot builds its own: it
+ * keeps normalizeText and looseNameKey private to this file, so there is
+ * exactly one answer to "is this the same athlete?".
+ *
+ * Sport-scoped with no any-sport fallback, and `count` guards ambiguity — a
+ * squad list is a machine index like the salary one, not a curated file, so two
+ * players sharing a name are two different people. Premier League squads
+ * genuinely contain them (Danny Ward, Joe Gomez / Joe Rodon collisions across
+ * clubs), and promoting the wrong one on the other's club is exactly the Braden
+ * Smith bug in a new sport.
+ */
+export function setDerivedTierSnapshot(rows: DerivedRow[] | null): void {
+  if (!rows) {
+    cachedDerived = null;
+    return;
+  }
+  const index: DerivedIndex = { exactBySport: new Map(), looseBySport: new Map(), size: 0 };
+  const add = (map: Map<string, DerivedIndexEntry>, key: string, row: DerivedRow): void => {
+    const existing = map.get(key);
+    if (existing) existing.count++;
+    else map.set(key, { row, count: 1 });
+  };
+  for (const row of rows) {
+    if (!row?.full_name || !row.signal) continue;
+    const sportKey = row.sport?.toLowerCase() ?? '';
+    const exact = normalizeText(row.full_name);
+    if (!exact) continue;
+    add(index.exactBySport, `${sportKey}|${exact}`, row);
+    add(index.looseBySport, `${sportKey}|${looseNameKey(row.full_name)}`, row);
+    index.size++;
+  }
+  cachedDerived = index;
+}
+
+/** Number of athletes carrying a derived signal. For logging/audit. */
+export function derivedSnapshotSize(): number {
+  return cachedDerived?.size ?? 0;
+}
+
+/** The unique derived signal for a name IN THAT SPORT — see lookupSalaryRow. */
+function lookupDerivedSignal(name: string, sport: SportKey): DerivedSignal | null {
+  if (!cachedDerived) return null;
+  const normSport = sport.toLowerCase();
+  const tryKey = (map: Map<string, DerivedIndexEntry>, key: string): DerivedRow | null => {
+    const hit = map.get(key);
+    return hit && hit.count === 1 ? hit.row : null;
+  };
+  const row =
+    tryKey(cachedDerived.exactBySport, `${normSport}|${normalizeText(name)}`) ??
+    tryKey(cachedDerived.looseBySport, `${normSport}|${looseNameKey(name)}`);
+  return row?.signal ?? null;
 }
 
 /**
@@ -508,8 +791,8 @@ function lookupSalaryRow(name: string, sport: SportKey): SalaryRow | null {
 export function lookupAthleteTier(
   name: string,
   sport: SportKey,
-  opts?: { allowSalary?: boolean },
-): { tier: AthleteTier; source: 'lookup' | 'salary' | 'default' } {
+  opts?: { allowSalary?: boolean; allowDerived?: boolean },
+): { tier: AthleteTier; source: AthleteTierSource } {
   if (!cachedTiers) return { tier: 3, source: 'default' };
 
   const normName = normalizeText(name);
@@ -557,6 +840,21 @@ export function lookupAthleteTier(
       const tier = tierFromSalary(row.salary, sport);
       if (tier !== null) return { tier, source: 'salary' };
     }
+  }
+
+  // The same question for the sports salary cannot answer. Order relative to
+  // salary is irrelevant in practice — no sport has both a salary band and a
+  // derived config, and validate* would have to be edited for one to — but it
+  // is stated rather than assumed, and pinned by a test: money first, because
+  // where a contract exists it is the more direct measure of how a league
+  // values an athlete.
+  //
+  // Promote-only, exactly as above: tierFromDerived cannot return 3 or 4, so
+  // nothing that publishes today stops publishing because of this block.
+  if (opts?.allowDerived !== false) {
+    const signal = lookupDerivedSignal(name, sport);
+    const tier = tierFromDerived(signal, sport);
+    if (tier !== null && signal) return { tier, source: signal.kind };
   }
 
   return { tier: 3, source: 'default' };
@@ -789,7 +1087,7 @@ export function computeFingerprint(event: RawInjuryEvent): string {
 
 export function computeSignificance(
   tier: AthleteTier,
-  tierSource: 'lookup' | 'salary' | 'default',
+  tierSource: AthleteTierSource,
   haikuSubscores: { information_specificity: number; event_recency_novelty: number },
   contentType: ContentType,
   sport: SportKey,
@@ -813,11 +1111,12 @@ export function computeSignificance(
   const rationale = [
     `${triage_decision} score=${composite_score}`,
     season.delta !== 0 ? `(${season.window} bar${season.delta > 0 ? '+' : ''}${season.delta})` : '',
-    // '?' = guessed (nothing resolved), '~' = derived from salary, bare =
-    // confirmed from athlete-tiers.json. Three states, because "we know" and
-    // "we inferred from what he's paid" are different claims and the gate log
-    // is where a miscalibration gets noticed.
-    `tier=${tier}${tierSource === 'default' ? '?' : tierSource === 'salary' ? '~' : ''}`,
+    // '?' = guessed (nothing resolved), '~' = derived from salary, '+' =
+    // derived from club or card, bare = confirmed from athlete-tiers.json.
+    // Four states, because "we know", "we inferred from what he's paid" and
+    // "we inferred from who he plays for" are different claims, and the gate
+    // log is where a miscalibration gets noticed.
+    `tier=${tier}${tierMarker(tierSource)}`,
     `spec=${subscores.information_specificity}`,
     `rec=${subscores.event_recency_novelty}`,
   ]
@@ -879,6 +1178,17 @@ const CORROBORATION_FRACTION: Record<CorroborationTier, number> = {
 
 // Exposed so the replay/verify harness can reconstruct a composite proxy from
 // athlete tier when the original Haiku subscores were never persisted on a post.
+/**
+ * One character summarising how much a logged tier can be trusted. Shared by
+ * the rationale string and the gate log line so the two never drift.
+ */
+export function tierMarker(source: AthleteTierSource): string {
+  if (source === 'default') return '?';
+  if (source === 'salary') return '~';
+  if (source === 'club' || source === 'card') return '+';
+  return '';
+}
+
 export function prominenceForTier(tier: AthleteTier): number {
   return TIER_TO_PROMINENCE[tier];
 }
@@ -932,6 +1242,15 @@ export function getLoadedConfig(): Readonly<SignificanceConfig> | null {
   return cachedConfig;
 }
 
+/**
+ * The derived-tier providers, post-validation. The snapshot loader reads its
+ * work list from here rather than from the file so that a config entry
+ * validateDerivedTiers rejected is never fetched for.
+ */
+export function getLoadedDerivedConfig(): Readonly<Partial<Record<SportKey, DerivedTierConfig>>> | null {
+  return cachedConfig?.derived_tiers ?? null;
+}
+
 /** Base PROCESS threshold for a (content_type, tier), before the season delta. */
 export function baseProcessThreshold(contentType: ContentType, tier: AthleteTier): number | null {
   const cfg = cachedConfig?.thresholds;
@@ -957,10 +1276,17 @@ export function _setConfigForTesting(config: SignificanceConfig | null): void {
   // source) could install bands the real load path would have rejected, and
   // the thing being asserted would not be the thing that ships.
   validateSalaryBands(cachedConfig);
+  validateDerivedTiers(cachedConfig);
 }
 
 /** Install (or clear) the salary snapshot. Clearing restores the exact
  *  behaviour this module had before salary existed. */
 export function _setSalarySnapshotForTesting(rows: SalaryRow[] | null): void {
   setSalarySnapshot(rows);
+}
+
+/** Install (or clear) the derived-signal snapshot. Clearing restores the exact
+ *  behaviour this module had before derived tiers existed. */
+export function _setDerivedSnapshotForTesting(rows: DerivedRow[] | null): void {
+  setDerivedTierSnapshot(rows);
 }

@@ -25,6 +25,7 @@ import {
   computeFingerprint,
   computeSignificance,
   getDeferConfig,
+  tierMarker,
 } from '../agents/injury-intelligence/significance.js';
 import { evictExpired, handleDeferDecision } from './defer-queue.js';
 import { maybeProposeReturnWatch } from './return-watch.js';
@@ -36,7 +37,7 @@ import {
   type ResolvedPlayerInfo,
   type ValidationResult,
 } from '../agents/injury-intelligence/fact-validator.js';
-import { refreshSalarySnapshotIfStale } from '../agents/injury-intelligence/salary-snapshot.js';
+import { refreshTierSnapshotsIfStale } from '../agents/injury-intelligence/tier-snapshots.js';
 
 const DEFAULT_POLL_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -574,7 +575,7 @@ async function auditValidation(
 function logGateDecision(sport: SportKey, athleteName: string, sig: SignificanceAssessment): void {
   const { triage_decision, composite_score, raw_score, season_window, season_threshold_delta, process_threshold, defer_threshold, tier_blocked, athlete_tier, athlete_tier_source, subscores } = sig;
   console.log(
-    `[SignificanceGate] decision=${triage_decision} score=${composite_score} raw=${raw_score} bar=${tier_blocked ? 'tier_blocked' : process_threshold ?? 'always'} defer_bar=${tier_blocked ? 'n/a' : defer_threshold ?? 'n/a'} season=${season_window}${season_threshold_delta !== 0 ? `(${season_threshold_delta > 0 ? '+' : ''}${season_threshold_delta})` : ''} athlete="${athleteName}" tier=${athlete_tier}${athlete_tier_source === 'default' ? '?' : ''} sport=${sport} ct_prior=${subscores.content_type_prior} prom=${subscores.athlete_prominence} spec=${subscores.information_specificity} rec=${subscores.event_recency_novelty}`
+    `[SignificanceGate] decision=${triage_decision} score=${composite_score} raw=${raw_score} bar=${tier_blocked ? 'tier_blocked' : process_threshold ?? 'always'} defer_bar=${tier_blocked ? 'n/a' : defer_threshold ?? 'n/a'} season=${season_window}${season_threshold_delta !== 0 ? `(${season_threshold_delta > 0 ? '+' : ''}${season_threshold_delta})` : ''} athlete="${athleteName}" tier=${athlete_tier}${tierMarker(athlete_tier_source)} sport=${sport} ct_prior=${subscores.content_type_prior} prom=${subscores.athlete_prominence} spec=${subscores.information_specificity} rec=${subscores.event_recency_novelty}`
   );
 }
 
@@ -612,7 +613,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
   // Separate call, and separate TTL: the tier/config files are local reads that
   // are cheap every cycle, while the salary snapshot is ~18 MCP calls over data
   // that only changes when roster-sync runs. No-ops inside its window.
-  await refreshSalarySnapshotIfStale();
+  await refreshTierSnapshotsIfStale();
 
   if (!gateEnabled) {
     console.warn(
