@@ -4,6 +4,7 @@ import type {
   ClassificationResult,
   ContentType,
   AthleteTier,
+  AthleteTierSource,
   SignificanceSubscores,
 } from '../types.js';
 import {
@@ -15,7 +16,7 @@ import {
 interface ClassificationSnapshot {
   content_type: ContentType;
   athlete_tier: AthleteTier;
-  athlete_tier_source: 'lookup' | 'salary' | 'default';
+  athlete_tier_source: AthleteTierSource;
   subscores: SignificanceSubscores;
   sport: SportKey;
 }

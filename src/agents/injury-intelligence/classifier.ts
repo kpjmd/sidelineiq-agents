@@ -1,5 +1,12 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { RawInjuryEvent, ClassificationResult, SportKey, ContentType, AthleteTier } from '../../types.js';
+import type {
+  RawInjuryEvent,
+  ClassificationResult,
+  SportKey,
+  ContentType,
+  AthleteTier,
+  AthleteTierSource,
+} from '../../types.js';
 import { computeSignificance } from './significance.js';
 
 const MODEL = 'claude-haiku-4-5-20251001';
@@ -160,7 +167,7 @@ function getClient(): Anthropic {
 
 export interface TierContext {
   athleteTier: AthleteTier;
-  athleteTierSource: 'lookup' | 'salary' | 'default';
+  athleteTierSource: AthleteTierSource;
 }
 
 const KNOWN_SPORTS: readonly string[] = ['NFL', 'NBA', 'PREMIER_LEAGUE', 'UFC'];

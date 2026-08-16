@@ -5,7 +5,7 @@ import { ESPNNBASource } from './sports/espn-nba.js';
 import { ESPNPremierLeagueSource } from './sports/espn-premier-league.js';
 import { callToolWithRetry } from '../utils/mcp-client-manager.js';
 import { hasSalaryBands } from '../agents/injury-intelligence/significance.js';
-import { invalidateSalarySnapshot } from '../agents/injury-intelligence/salary-snapshot.js';
+import { invalidateTierSnapshots } from '../agents/injury-intelligence/tier-snapshots.js';
 
 // ESPN roster endpoints exist for NFL/NBA/PremierLeague but not UFC
 // (fighters aren't team-rostered). UFC fact validation handles names without
@@ -282,7 +282,7 @@ export async function syncAllRosters(): Promise<SyncSummary[]> {
   // This loop is the only thing that changes salaries, so the snapshot's 6h TTL
   // is measured from the wrong event without this. Without it a freshly synced
   // salary could sit unused for most of a TTL window for no reason.
-  invalidateSalarySnapshot();
+  invalidateTierSnapshots();
   return results;
 }
 

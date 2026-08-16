@@ -80,6 +80,26 @@ export interface RawInjuryEvent {
 
 export type AthleteTier = 1 | 2 | 3 | 4;
 
+/**
+ * Where an athlete's tier came from. Ordered by authority, which is the order
+ * lookupAthleteTier consults them in:
+ *
+ *  - `lookup`  — data/athlete-tiers.json, hand-curated and physician-reviewed.
+ *                A FLOOR over everything below it, never a ceiling.
+ *  - `salary`  — ESPN contract salary against significance-config bands. NFL/NBA.
+ *  - `club`    — the athlete's club is one of the configured tier-2 clubs.
+ *                PREMIER_LEAGUE, which has no salary data on ESPN at all.
+ *  - `card`    — the fighter's best slot on a recent or upcoming card (title
+ *                fight, main event, main card). UFC, where pay is undisclosed
+ *                and there is no roster to hang anything else on.
+ *  - `default` — nothing knew, so tier 3. NOT a statement about the athlete.
+ *
+ * `club` and `card` are the derived-tier providers; like `salary` they can only
+ * ever promote to 1 or 2. The distinction between them and `default` is what
+ * poller.ts's concussion pre-drop keys on, so they must stay distinguishable.
+ */
+export type AthleteTierSource = 'lookup' | 'salary' | 'club' | 'card' | 'default';
+
 export type TriageDecision = 'PROCESS' | 'DEFER' | 'DROP';
 
 export interface SignificanceSubscores {
@@ -107,7 +127,7 @@ export interface SignificanceAssessment {
   tier_blocked: boolean;
   triage_decision: TriageDecision;
   athlete_tier: AthleteTier;
-  athlete_tier_source: 'lookup' | 'salary' | 'default';
+  athlete_tier_source: AthleteTierSource;
   subscores: SignificanceSubscores;
   rationale: string;
 }

@@ -1,231 +1,1237 @@
 {
-  "version": 3,
-  "updated_at": "2026-08-13",
-  "notes": "Tier 3 is the default -- only Tier 1, 2, and 4 are listed. This file is a FLOOR over the salary-derived tier, never a ceiling: it is consulted BEFORE salary, so an entry set below what an athlete is paid actively suppresses them. Tier 4 is not merely 'depth player' -- it sits above thresholds.default.max_tier and DROPS BREAKING outright, so deleting a Tier 4 entry expands coverage rather than tidying it. Entries are deliberately KEPT for athletes who have left a roster: a Tier 1/2 entry is what keeps TRACKING alive for their injury history (Tier 3 is tier_blocked for TRACKING), and a Tier 4 entry keeps the block. Audit with: npx tsx src/scripts/tier-file-audit.ts. Approved by founder 2026-04-29; salary-alignment pass 2026-08-13.",
+  "version": 4,
+  "updated_at": "2026-08-15",
+  "notes": "Tier 3 is the default -- only Tier 1, 2, and 4 are listed. This file is a FLOOR over the derived tier (salary for NFL/NBA, club for PREMIER_LEAGUE, card position for UFC), never a ceiling: it is consulted BEFORE those, so an entry set below what an athlete rates actively suppresses them. Tier 4 is not merely 'depth player' -- it sits above thresholds.default.max_tier and DROPS BREAKING outright, so deleting a Tier 4 entry expands coverage rather than tidying it. Entries are deliberately KEPT for athletes who have left a roster: a Tier 1/2 entry is what keeps TRACKING alive for their injury history (Tier 3 is tier_blocked for TRACKING), and a Tier 4 entry keeps the block. PREMIER_LEAGUE lists Tier 1 only for the globally marquee, plus Tier 2 for stars OUTSIDE the six clubs that derive Tier 2 from significance-config.json derived_tiers -- big-six squad players need no entry. Spellings must match ESPN's (accents included); normalization strips diacritics on both sides, but 'Odegaard' and 'Ødegaard' do NOT normalize alike. Audit with: npx tsx src/scripts/tier-file-audit.ts. Approved by founder 2026-04-29; salary-alignment pass 2026-08-13; Premier League pass 2026-08-15.",
   "athletes": [
-    { "name": "Patrick Mahomes",         "sport": "NFL", "tier": 1 },
-    { "name": "Josh Allen",              "sport": "NFL", "tier": 1 },
-    { "name": "Lamar Jackson",           "sport": "NFL", "tier": 1 },
-    { "name": "Joe Burrow",              "sport": "NFL", "tier": 1 },
-    { "name": "Justin Jefferson",        "sport": "NFL", "tier": 1 },
-    { "name": "CeeDee Lamb",             "sport": "NFL", "tier": 1 },
-    { "name": "Ja'Marr Chase",           "sport": "NFL", "tier": 1 },
-    { "name": "Tyreek Hill",             "sport": "NFL", "tier": 1 },
-    { "name": "CJ Stroud",               "sport": "NFL", "tier": 1 },
-    { "name": "Brock Purdy",             "sport": "NFL", "tier": 1 },
-    { "name": "Jalen Hurts",             "sport": "NFL", "tier": 1 },
-    { "name": "Dak Prescott",            "sport": "NFL", "tier": 1 },
-    { "name": "Jordan Love",             "sport": "NFL", "tier": 1 },
-    { "name": "Anthony Richardson",      "sport": "NFL", "tier": 1 },
-    { "name": "Caleb Williams",          "sport": "NFL", "tier": 1 },
-    { "name": "Drake Maye",              "sport": "NFL", "tier": 1 },
-    { "name": "Saquon Barkley",          "sport": "NFL", "tier": 1 },
-    { "name": "Derrick Henry",           "sport": "NFL", "tier": 1 },
-    { "name": "Breece Hall",             "sport": "NFL", "tier": 1 },
-    { "name": "Justin Herbert",          "sport": "NFL", "tier": 1 },
-    { "name": "Travis Kelce",            "sport": "NFL", "tier": 1 },
-    { "name": "Christian McCaffrey",     "sport": "NFL", "tier": 1 },
-    { "name": "Davante Adams",           "sport": "NFL", "tier": 1 },
-    { "name": "Micah Parsons",           "sport": "NFL", "tier": 1 },
-    { "name": "Myles Garrett",           "sport": "NFL", "tier": 1 },
-    { "name": "DK Metcalf",              "sport": "NFL", "tier": 1 },
-    { "name": "Zay Flowers",             "sport": "NFL", "tier": 1 },
-    { "name": "Jaxon Smith-Njigba",      "sport": "NFL", "tier": 1 },
-    { "name": "George Pickens",          "sport": "NFL", "tier": 1 },
-    { "name": "Chris Olave",             "sport": "NFL", "tier": 1 },
-    { "name": "Amon-Ra St. Brown",       "sport": "NFL", "tier": 1 },
-    { "name": "Sauce Gardner",           "sport": "NFL", "tier": 1 },
-    { "name": "Maxx Crosby",             "sport": "NFL", "tier": 1 },
-
-    { "name": "Garrett Wilson",          "sport": "NFL", "tier": 2 },
-    { "name": "Calvin Ridley",           "sport": "NFL", "tier": 2 },
-    { "name": "DeVonta Smith",           "sport": "NFL", "tier": 2 },
-    { "name": "Stefon Diggs",            "sport": "NFL", "tier": 2 },
-    { "name": "Keenan Allen",            "sport": "NFL", "tier": 2 },
-    { "name": "Adam Thielen",            "sport": "NFL", "tier": 2 },
-    { "name": "Cooper Kupp",             "sport": "NFL", "tier": 2 },
-    { "name": "Mike Evans",              "sport": "NFL", "tier": 2 },
-    { "name": "Chris Godwin",            "sport": "NFL", "tier": 2 },
-    { "name": "Tyler Lockett",           "sport": "NFL", "tier": 2 },
-    { "name": "Amari Cooper",            "sport": "NFL", "tier": 2 },
-    { "name": "Jakobi Meyers",           "sport": "NFL", "tier": 2 },
-    { "name": "Evan Engram",             "sport": "NFL", "tier": 2 },
-    { "name": "Sam LaPorta",             "sport": "NFL", "tier": 2 },
-    { "name": "Tony Pollard",            "sport": "NFL", "tier": 2 },
-    { "name": "Josh Jacobs",             "sport": "NFL", "tier": 2 },
-    { "name": "Aaron Jones",             "sport": "NFL", "tier": 2 },
-    { "name": "Nick Chubb",              "sport": "NFL", "tier": 2 },
-    { "name": "Alvin Kamara",            "sport": "NFL", "tier": 2 },
-    { "name": "Joe Mixon",               "sport": "NFL", "tier": 2 },
-    { "name": "Raheem Mostert",          "sport": "NFL", "tier": 2 },
-    { "name": "Kenneth Walker III",      "sport": "NFL", "tier": 2 },
-    { "name": "Travis Etienne",          "sport": "NFL", "tier": 2 },
-    { "name": "Tyjae Spears",            "sport": "NFL", "tier": 2 },
-    { "name": "Puka Nacua",              "sport": "NFL", "tier": 2 },
-    { "name": "Rome Odunze",             "sport": "NFL", "tier": 2 },
-    { "name": "Tank Dell",               "sport": "NFL", "tier": 2 },
-    { "name": "Quentin Johnston",        "sport": "NFL", "tier": 2 },
-    { "name": "Mark Andrews",            "sport": "NFL", "tier": 2 },
-    { "name": "Dalton Kincaid",          "sport": "NFL", "tier": 2 },
-    { "name": "Cole Kmet",               "sport": "NFL", "tier": 2 },
-    { "name": "Tee Higgins",             "sport": "NFL", "tier": 2 },
-    { "name": "Rashod Bateman",          "sport": "NFL", "tier": 2 },
-    { "name": "Dontayvion Wicks",        "sport": "NFL", "tier": 2 },
-    { "name": "Jordan Addison",          "sport": "NFL", "tier": 2 },
-    { "name": "Brian Thomas Jr.",        "sport": "NFL", "tier": 2 },
-    { "name": "Jaylen Waddle",           "sport": "NFL", "tier": 2 },
-    { "name": "Justin Watson",           "sport": "NFL", "tier": 2 },
-    { "name": "Josh Downs",              "sport": "NFL", "tier": 2 },
-    { "name": "Michael Pittman Jr.",     "sport": "NFL", "tier": 2 },
-    { "name": "Wan'Dale Robinson",       "sport": "NFL", "tier": 2 },
-    { "name": "Darius Slayton",          "sport": "NFL", "tier": 2 },
-    { "name": "Calvin Austin III",       "sport": "NFL", "tier": 2 },
-    { "name": "Terry McLaurin",          "sport": "NFL", "tier": 2 },
-    { "name": "Dyami Brown",             "sport": "NFL", "tier": 2 },
-    { "name": "Tua Tagovailoa",          "sport": "NFL", "tier": 2 },
-    { "name": "Jayden Daniels",          "sport": "NFL", "tier": 2 },
-    { "name": "Fred Warner",             "sport": "NFL", "tier": 2 },
-    { "name": "Brock Bowers",            "sport": "NFL", "tier": 2 },
-    { "name": "Dexter Lawrence",         "sport": "NFL", "tier": 2 },
-
-    { "name": "Shane Buechele",          "sport": "NFL", "tier": 4 },
-    { "name": "Clyde Edwards-Helaire",   "sport": "NFL", "tier": 4 },
-    { "name": "D'Ernest Johnson",        "sport": "NFL", "tier": 4 },
-    { "name": "Xazavian Valladay",       "sport": "NFL", "tier": 4 },
-    { "name": "Gary Brightwell",         "sport": "NFL", "tier": 4 },
-    { "name": "Lil'Jordan Humphrey",     "sport": "NFL", "tier": 4 },
-    { "name": "Tim Jones",               "sport": "NFL", "tier": 4 },
-    { "name": "Anthony Miller",          "sport": "NFL", "tier": 4 },
-    { "name": "Jalen Reagor",            "sport": "NFL", "tier": 4 },
-    { "name": "Kristian Wilkerson",      "sport": "NFL", "tier": 4 },
-    { "name": "Lucky Jackson",           "sport": "NFL", "tier": 4 },
-    { "name": "Nick Vannett",            "sport": "NFL", "tier": 4 },
-    { "name": "Robert Tonyan",           "sport": "NFL", "tier": 4 },
-    { "name": "Thomas Odukoya",          "sport": "NFL", "tier": 4 },
-    { "name": "Dan Feeney",              "sport": "NFL", "tier": 4 },
-    { "name": "Kendrick Green",          "sport": "NFL", "tier": 4 },
-    { "name": "Atonio Mafi",             "sport": "NFL", "tier": 4 },
-    { "name": "Henry Byrd",              "sport": "NFL", "tier": 4 },
-    { "name": "Max Pircher",             "sport": "NFL", "tier": 4 },
-    { "name": "Travis Clayton",          "sport": "NFL", "tier": 4 },
-    { "name": "Brent Urban",             "sport": "NFL", "tier": 4 },
-    { "name": "Marlon Tuipulotu",        "sport": "NFL", "tier": 4 },
-    { "name": "Joe Giles-Harris",        "sport": "NFL", "tier": 4 },
-    { "name": "Cole Christiansen",       "sport": "NFL", "tier": 4 },
-    { "name": "Fabian Moreau",           "sport": "NFL", "tier": 4 },
-    { "name": "Amani Oruwariye",         "sport": "NFL", "tier": 4 },
-    { "name": "Eli Ricks",               "sport": "NFL", "tier": 4 },
-    { "name": "Harrison Hand",           "sport": "NFL", "tier": 4 },
-    { "name": "Russ Yeast",              "sport": "NFL", "tier": 4 },
-    { "name": "JT Woods",                "sport": "NFL", "tier": 4 },
-
-    { "name": "Anthony Edwards",         "sport": "NBA", "tier": 1 },
-    { "name": "Nikola Jokic",            "sport": "NBA", "tier": 1 },
-    { "name": "LeBron James",            "sport": "NBA", "tier": 1 },
-    { "name": "Stephen Curry",           "sport": "NBA", "tier": 1 },
-    { "name": "Jayson Tatum",            "sport": "NBA", "tier": 1 },
-    { "name": "Giannis Antetokounmpo",   "sport": "NBA", "tier": 1 },
-    { "name": "Joel Embiid",             "sport": "NBA", "tier": 1 },
-    { "name": "Luka Doncic",             "sport": "NBA", "tier": 1 },
-    { "name": "Shai Gilgeous-Alexander", "sport": "NBA", "tier": 1 },
-    { "name": "Donovan Mitchell",        "sport": "NBA", "tier": 1 },
-    { "name": "Jaylen Brown",            "sport": "NBA", "tier": 1 },
-    { "name": "Kevin Durant",            "sport": "NBA", "tier": 1 },
-    { "name": "Devin Booker",            "sport": "NBA", "tier": 1 },
-    { "name": "Damian Lillard",          "sport": "NBA", "tier": 1 },
-    { "name": "Karl-Anthony Towns",      "sport": "NBA", "tier": 1 },
-    { "name": "Jalen Brunson",           "sport": "NBA", "tier": 1 },
-    { "name": "Cade Cunningham",         "sport": "NBA", "tier": 1 },
-    { "name": "Paolo Banchero",          "sport": "NBA", "tier": 1 },
-    { "name": "Franz Wagner",            "sport": "NBA", "tier": 1 },
-    { "name": "Evan Mobley",             "sport": "NBA", "tier": 1 },
-    { "name": "Victor Wembanyama",       "sport": "NBA", "tier": 1 },
-    { "name": "Scottie Barnes",          "sport": "NBA", "tier": 1 },
-    { "name": "Zion Williamson",         "sport": "NBA", "tier": 1 },
-    { "name": "Brandon Ingram",          "sport": "NBA", "tier": 1 },
-    { "name": "Anthony Davis",           "sport": "NBA", "tier": 1 },
-    { "name": "Bam Adebayo",             "sport": "NBA", "tier": 1 },
-    { "name": "De'Aaron Fox",            "sport": "NBA", "tier": 1 },
-    { "name": "Tyrese Haliburton",       "sport": "NBA", "tier": 1 },
-    { "name": "Pascal Siakam",           "sport": "NBA", "tier": 1 },
-    { "name": "Paul George",             "sport": "NBA", "tier": 1 },
-    { "name": "Domantas Sabonis",        "sport": "NBA", "tier": 1 },
-    { "name": "Zach LaVine",             "sport": "NBA", "tier": 1 },
-    { "name": "Jaren Jackson Jr.",       "sport": "NBA", "tier": 1 },
-    { "name": "Trae Young",              "sport": "NBA", "tier": 1 },
-
-    { "name": "Donte DiVincenzo",        "sport": "NBA", "tier": 2 },
-    { "name": "Moses Moody",             "sport": "NBA", "tier": 2 },
-    { "name": "Draymond Green",          "sport": "NBA", "tier": 2 },
-    { "name": "Klay Thompson",           "sport": "NBA", "tier": 2 },
-    { "name": "Kyle Kuzma",              "sport": "NBA", "tier": 2 },
-    { "name": "Mikal Bridges",           "sport": "NBA", "tier": 2 },
-    { "name": "OG Anunoby",              "sport": "NBA", "tier": 2 },
-    { "name": "Josh Hart",               "sport": "NBA", "tier": 2 },
-    { "name": "Darius Garland",          "sport": "NBA", "tier": 2 },
-    { "name": "Jarrett Allen",           "sport": "NBA", "tier": 2 },
-    { "name": "Isaac Okoro",             "sport": "NBA", "tier": 2 },
-    { "name": "Myles Turner",            "sport": "NBA", "tier": 2 },
-    { "name": "Andrew Nembhard",         "sport": "NBA", "tier": 2 },
-    { "name": "Tyrese Maxey",            "sport": "NBA", "tier": 2 },
-    { "name": "Kelly Oubre Jr.",         "sport": "NBA", "tier": 2 },
-    { "name": "Tobias Harris",           "sport": "NBA", "tier": 2 },
-    { "name": "D'Angelo Russell",        "sport": "NBA", "tier": 2 },
-    { "name": "Austin Reaves",           "sport": "NBA", "tier": 2 },
-    { "name": "Cam Whitmore",            "sport": "NBA", "tier": 2 },
-    { "name": "Alperen Sengun",          "sport": "NBA", "tier": 2 },
-    { "name": "Jalen Green",             "sport": "NBA", "tier": 2 },
-    { "name": "Amen Thompson",           "sport": "NBA", "tier": 2 },
-    { "name": "Fred VanVleet",           "sport": "NBA", "tier": 2 },
-    { "name": "Dillon Brooks",           "sport": "NBA", "tier": 2 },
-    { "name": "Bobby Portis",            "sport": "NBA", "tier": 2 },
-    { "name": "Khris Middleton",         "sport": "NBA", "tier": 2 },
-    { "name": "Brook Lopez",             "sport": "NBA", "tier": 2 },
-    { "name": "Coby White",              "sport": "NBA", "tier": 2 },
-    { "name": "DeMar DeRozan",           "sport": "NBA", "tier": 2 },
-    { "name": "Keegan Murray",           "sport": "NBA", "tier": 2 },
-    { "name": "Ben Simmons",             "sport": "NBA", "tier": 2 },
-    { "name": "Cam Thomas",              "sport": "NBA", "tier": 2 },
-    { "name": "Day'Ron Sharpe",          "sport": "NBA", "tier": 2 },
-    { "name": "Josh Giddey",             "sport": "NBA", "tier": 2 },
-    { "name": "Nikola Vucevic",          "sport": "NBA", "tier": 2 },
-    { "name": "Ja Morant",               "sport": "NBA", "tier": 2 },
-    { "name": "Desmond Bane",            "sport": "NBA", "tier": 2 },
-    { "name": "Mark Williams",           "sport": "NBA", "tier": 2 },
-    { "name": "LaMelo Ball",             "sport": "NBA", "tier": 2 },
-    { "name": "Miles Bridges",           "sport": "NBA", "tier": 2 },
-    { "name": "Rudy Gobert",             "sport": "NBA", "tier": 2 },
-    { "name": "Chet Holmgren",           "sport": "NBA", "tier": 2 },
-
-    { "name": "RayJ Dennis",             "sport": "NBA", "tier": 4 },
-    { "name": "Christian Koloko",        "sport": "NBA", "tier": 4 },
-    { "name": "Tyson Etienne",           "sport": "NBA", "tier": 4 },
-    { "name": "EJ Liddell",              "sport": "NBA", "tier": 4 },
-    { "name": "PJ Hall",                 "sport": "NBA", "tier": 4 },
-    { "name": "Antonio Reeves",          "sport": "NBA", "tier": 4 },
-    { "name": "Yuki Kawamura",           "sport": "NBA", "tier": 4 },
-    { "name": "Mac McClung",             "sport": "NBA", "tier": 4 },
-    { "name": "Tristan Enaruna",         "sport": "NBA", "tier": 4 },
-    { "name": "Olivier Sarr",            "sport": "NBA", "tier": 4 },
-    { "name": "Moussa Cisse",            "sport": "NBA", "tier": 4 },
-    { "name": "Tyler Smith",             "sport": "NBA", "tier": 4 },
-    { "name": "KJ Simpson",              "sport": "NBA", "tier": 4 },
-    { "name": "David Roddy",             "sport": "NBA", "tier": 4 },
-    { "name": "Wendell Moore Jr.",       "sport": "NBA", "tier": 4 },
-    { "name": "Nate Williams",           "sport": "NBA", "tier": 4 },
-    { "name": "JD Davison",              "sport": "NBA", "tier": 4 },
-    { "name": "Jalen Slawson",           "sport": "NBA", "tier": 4 },
-    { "name": "TyTy Washington Jr.",     "sport": "NBA", "tier": 4 },
-    { "name": "Drew Timme",              "sport": "NBA", "tier": 4 },
-    { "name": "Rayan Rupert",            "sport": "NBA", "tier": 4 },
-    { "name": "Alex Antetokounmpo",      "sport": "NBA", "tier": 4 },
-    { "name": "Pete Nance",              "sport": "NBA", "tier": 4 },
-    { "name": "Zyon Pullin",             "sport": "NBA", "tier": 4 },
-    { "name": "Hunter Dickinson",        "sport": "NBA", "tier": 4 },
-    { "name": "Kevin McCullar Jr.",      "sport": "NBA", "tier": 4 },
-    { "name": "Brooks Barnhizer",        "sport": "NBA", "tier": 4 },
-    { "name": "Colin Castleton",         "sport": "NBA", "tier": 4 },
-    { "name": "MarJon Beauchamp",        "sport": "NBA", "tier": 4 },
-    { "name": "Patrick Baldwin Jr.",     "sport": "NBA", "tier": 4 }
+    {
+      "name": "Patrick Mahomes",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Josh Allen",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Lamar Jackson",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Joe Burrow",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Justin Jefferson",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "CeeDee Lamb",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Ja'Marr Chase",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Tyreek Hill",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "CJ Stroud",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Brock Purdy",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Jalen Hurts",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Dak Prescott",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Jordan Love",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Anthony Richardson",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Caleb Williams",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Drake Maye",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Saquon Barkley",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Derrick Henry",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Breece Hall",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Justin Herbert",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Travis Kelce",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Christian McCaffrey",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Davante Adams",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Micah Parsons",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Myles Garrett",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "DK Metcalf",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Zay Flowers",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Jaxon Smith-Njigba",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "George Pickens",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Chris Olave",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Amon-Ra St. Brown",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Sauce Gardner",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Maxx Crosby",
+      "sport": "NFL",
+      "tier": 1
+    },
+    {
+      "name": "Garrett Wilson",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Calvin Ridley",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "DeVonta Smith",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Stefon Diggs",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Keenan Allen",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Adam Thielen",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Cooper Kupp",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Mike Evans",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Chris Godwin",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Tyler Lockett",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Amari Cooper",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Jakobi Meyers",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Evan Engram",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Sam LaPorta",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Tony Pollard",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Josh Jacobs",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Aaron Jones",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Nick Chubb",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Alvin Kamara",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Joe Mixon",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Raheem Mostert",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Kenneth Walker III",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Travis Etienne",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Tyjae Spears",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Puka Nacua",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Rome Odunze",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Tank Dell",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Quentin Johnston",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Mark Andrews",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Dalton Kincaid",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Cole Kmet",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Tee Higgins",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Rashod Bateman",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Dontayvion Wicks",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Jordan Addison",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Brian Thomas Jr.",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Jaylen Waddle",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Justin Watson",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Josh Downs",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Michael Pittman Jr.",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Wan'Dale Robinson",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Darius Slayton",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Calvin Austin III",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Terry McLaurin",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Dyami Brown",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Tua Tagovailoa",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Jayden Daniels",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Fred Warner",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Brock Bowers",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Dexter Lawrence",
+      "sport": "NFL",
+      "tier": 2
+    },
+    {
+      "name": "Shane Buechele",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Clyde Edwards-Helaire",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "D'Ernest Johnson",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Xazavian Valladay",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Gary Brightwell",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Lil'Jordan Humphrey",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Tim Jones",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Anthony Miller",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Jalen Reagor",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Kristian Wilkerson",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Lucky Jackson",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Nick Vannett",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Robert Tonyan",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Thomas Odukoya",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Dan Feeney",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Kendrick Green",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Atonio Mafi",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Henry Byrd",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Max Pircher",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Travis Clayton",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Brent Urban",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Marlon Tuipulotu",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Joe Giles-Harris",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Cole Christiansen",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Fabian Moreau",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Amani Oruwariye",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Eli Ricks",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Harrison Hand",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Russ Yeast",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "JT Woods",
+      "sport": "NFL",
+      "tier": 4
+    },
+    {
+      "name": "Anthony Edwards",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Nikola Jokic",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "LeBron James",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Stephen Curry",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Jayson Tatum",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Giannis Antetokounmpo",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Joel Embiid",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Luka Doncic",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Shai Gilgeous-Alexander",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Donovan Mitchell",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Jaylen Brown",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Kevin Durant",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Devin Booker",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Damian Lillard",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Karl-Anthony Towns",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Jalen Brunson",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Cade Cunningham",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Paolo Banchero",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Franz Wagner",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Evan Mobley",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Victor Wembanyama",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Scottie Barnes",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Zion Williamson",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Brandon Ingram",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Anthony Davis",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Bam Adebayo",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "De'Aaron Fox",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Tyrese Haliburton",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Pascal Siakam",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Paul George",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Domantas Sabonis",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Zach LaVine",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Jaren Jackson Jr.",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Trae Young",
+      "sport": "NBA",
+      "tier": 1
+    },
+    {
+      "name": "Donte DiVincenzo",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Moses Moody",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Draymond Green",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Klay Thompson",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Kyle Kuzma",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Mikal Bridges",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "OG Anunoby",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Josh Hart",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Darius Garland",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Jarrett Allen",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Isaac Okoro",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Myles Turner",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Andrew Nembhard",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Tyrese Maxey",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Kelly Oubre Jr.",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Tobias Harris",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "D'Angelo Russell",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Austin Reaves",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Cam Whitmore",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Alperen Sengun",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Jalen Green",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Amen Thompson",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Fred VanVleet",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Dillon Brooks",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Bobby Portis",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Khris Middleton",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Brook Lopez",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Coby White",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "DeMar DeRozan",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Keegan Murray",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Ben Simmons",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Cam Thomas",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Day'Ron Sharpe",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Josh Giddey",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Nikola Vucevic",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Ja Morant",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Desmond Bane",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Mark Williams",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "LaMelo Ball",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Miles Bridges",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Rudy Gobert",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "Chet Holmgren",
+      "sport": "NBA",
+      "tier": 2
+    },
+    {
+      "name": "RayJ Dennis",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "Christian Koloko",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "Tyson Etienne",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "EJ Liddell",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "PJ Hall",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "Antonio Reeves",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "Yuki Kawamura",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "Mac McClung",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "Tristan Enaruna",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "Olivier Sarr",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "Moussa Cisse",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "Tyler Smith",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "KJ Simpson",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "David Roddy",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "Wendell Moore Jr.",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "Nate Williams",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "JD Davison",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "Jalen Slawson",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "TyTy Washington Jr.",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "Drew Timme",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "Rayan Rupert",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "Alex Antetokounmpo",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "Pete Nance",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "Zyon Pullin",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "Hunter Dickinson",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "Kevin McCullar Jr.",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "Brooks Barnhizer",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "Colin Castleton",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "MarJon Beauchamp",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "Patrick Baldwin Jr.",
+      "sport": "NBA",
+      "tier": 4
+    },
+    {
+      "name": "Mohamed Salah",
+      "sport": "PREMIER_LEAGUE",
+      "tier": 1
+    },
+    {
+      "name": "Virgil van Dijk",
+      "sport": "PREMIER_LEAGUE",
+      "tier": 1
+    },
+    {
+      "name": "Alexander Isak",
+      "sport": "PREMIER_LEAGUE",
+      "tier": 1
+    },
+    {
+      "name": "Florian Wirtz",
+      "sport": "PREMIER_LEAGUE",
+      "tier": 1
+    },
+    {
+      "name": "Alisson Becker",
+      "sport": "PREMIER_LEAGUE",
+      "tier": 1
+    },
+    {
+      "name": "Erling Haaland",
+      "sport": "PREMIER_LEAGUE",
+      "tier": 1
+    },
+    {
+      "name": "Rodri",
+      "sport": "PREMIER_LEAGUE",
+      "tier": 1
+    },
+    {
+      "name": "Phil Foden",
+      "sport": "PREMIER_LEAGUE",
+      "tier": 1
+    },
+    {
+      "name": "Bukayo Saka",
+      "sport": "PREMIER_LEAGUE",
+      "tier": 1
+    },
+    {
+      "name": "Declan Rice",
+      "sport": "PREMIER_LEAGUE",
+      "tier": 1
+    },
+    {
+      "name": "Martin Ødegaard",
+      "sport": "PREMIER_LEAGUE",
+      "tier": 1
+    },
+    {
+      "name": "Viktor Gyökeres",
+      "sport": "PREMIER_LEAGUE",
+      "tier": 1
+    },
+    {
+      "name": "William Saliba",
+      "sport": "PREMIER_LEAGUE",
+      "tier": 1
+    },
+    {
+      "name": "Bruno Fernandes",
+      "sport": "PREMIER_LEAGUE",
+      "tier": 1
+    },
+    {
+      "name": "Marcus Rashford",
+      "sport": "PREMIER_LEAGUE",
+      "tier": 1
+    },
+    {
+      "name": "Benjamin Šeško",
+      "sport": "PREMIER_LEAGUE",
+      "tier": 1
+    },
+    {
+      "name": "Cole Palmer",
+      "sport": "PREMIER_LEAGUE",
+      "tier": 1
+    },
+    {
+      "name": "Enzo Fernández",
+      "sport": "PREMIER_LEAGUE",
+      "tier": 1
+    },
+    {
+      "name": "Moisés Caicedo",
+      "sport": "PREMIER_LEAGUE",
+      "tier": 1
+    },
+    {
+      "name": "Ollie Watkins",
+      "sport": "PREMIER_LEAGUE",
+      "tier": 2
+    },
+    {
+      "name": "Emiliano Martínez",
+      "sport": "PREMIER_LEAGUE",
+      "tier": 2
+    },
+    {
+      "name": "Jordan Pickford",
+      "sport": "PREMIER_LEAGUE",
+      "tier": 2
+    },
+    {
+      "name": "Anthony Gordon",
+      "sport": "PREMIER_LEAGUE",
+      "tier": 2
+    },
+    {
+      "name": "Morgan Gibbs-White",
+      "sport": "PREMIER_LEAGUE",
+      "tier": 2
+    },
+    {
+      "name": "Jarrad Branthwaite",
+      "sport": "PREMIER_LEAGUE",
+      "tier": 2
+    },
+    {
+      "name": "Adam Wharton",
+      "sport": "PREMIER_LEAGUE",
+      "tier": 2
+    },
+    {
+      "name": "Jean-Philippe Mateta",
+      "sport": "PREMIER_LEAGUE",
+      "tier": 2
+    }
   ]
 }

@@ -46,7 +46,7 @@ import {
   _setTiersForTesting,
 } from '../agents/injury-intelligence/significance.js';
 import { ESPN_ROSTERED_SOURCES } from '../monitoring/roster-sync.js';
-import type { SportKey, AthleteTier } from '../types.js';
+import type { SportKey, AthleteTier, AthleteTierSource } from '../types.js';
 
 const SPORTS: Array<'NFL' | 'NBA'> = ['NFL', 'NBA'];
 
@@ -144,7 +144,7 @@ interface AbsentFinding {
   verdict: Verdict;
   /** Tier this athlete would receive if the entry were deleted. */
   tier_if_removed: AthleteTier;
-  tier_if_removed_source: 'lookup' | 'salary' | 'default';
+  tier_if_removed_source: AthleteTierSource;
 }
 
 interface MCPResult {
