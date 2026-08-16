@@ -7,7 +7,7 @@ import { startPolling, stopPolling, pollSport } from './monitoring/poller.js';
 import { processInjuryEvent } from './agents/injury-intelligence/agent.js';
 import { startDeepDiveScheduler, stopDeepDiveScheduler } from './monitoring/deep-dive-scheduler.js';
 import { startMentionMonitor, stopMentionMonitor } from './agents/social/mention-monitor-loop.js';
-import { startApprovalSync, stopApprovalSync } from './monitoring/approval-sync.js';
+import { startApprovalSync, stopApprovalSync, getSocialReachReport } from './monitoring/approval-sync.js';
 import { startRosterSync, stopRosterSync, syncAllRosters } from './monitoring/roster-sync.js';
 import {
   computePromotionScore,
@@ -233,6 +233,35 @@ app.post('/admin/approve/:post_id', async (req, res) => {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[Approve] Social publish failed for post ${webPostId}: ${message}`);
     res.status(500).json({ success: false, error: message });
+  }
+});
+
+/**
+ * Did anything published recently actually reach an audience?
+ *
+ * platform_results live in memory and the logs only, so nothing durable ever
+ * answered this question — which is how a five-day social publish outage stayed
+ * invisible while every approval reported success. This reads the one durable
+ * signal there is: a PUBLISHED post carrying neither a farcaster_hash nor a
+ * twitter_id.
+ *
+ * Gated by requireAdminSecret via app.use('/admin', …).
+ *   curl -H "Authorization: Bearer $AGENTS_API_SECRET" .../admin/social-health
+ */
+app.get('/admin/social-health', async (req, res) => {
+  const raw = Number(req.query.window_hours);
+  const windowHours = Number.isFinite(raw) && raw > 0 ? Math.min(raw, 24 * 30) : 24;
+
+  try {
+    const report = await getSocialReachReport(windowHours);
+    res.json({
+      ok: report.missing_social === 0,
+      ...report,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[SocialHealth] Report failed: ${message}`);
+    res.status(503).json({ ok: false, error: message });
   }
 });
 

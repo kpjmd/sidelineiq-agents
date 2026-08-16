@@ -297,3 +297,102 @@ describe('publishInjuryPost — MD review gate hardening (F3, F4, F6)', () => {
     expect(result.reason).toBe('fact_soft_fail:source_tier_low');
   });
 });
+
+/**
+ * A five-day social publish outage went unnoticed because these three outcomes
+ * were indistinguishable in the logs — and the middle one was completely
+ * silent. Each must now produce its own greppable line.
+ */
+describe('publishInjuryPost — social reach reporting', () => {
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    errorSpy.mockRestore();
+    logSpy.mockRestore();
+  });
+
+  const errorLines = () => errorSpy.mock.calls.map((c) => String(c[0]));
+  const logLines = () => logSpy.mock.calls.map((c) => String(c[0]));
+
+  it('reports reaching 0 social platforms as an error, naming both causes', async () => {
+    mockCallTool.mockImplementation(async (server, tool) => {
+      if (tool === 'web_list_posts') return [];
+      if (tool === 'web_create_injury_post') return WEB_CREATE_RESPONSE;
+      if (server === 'farcaster') throw new Error('Neynar API returned status 400');
+      if (server === 'twitter') throw new Error('Twitter API forbidden');
+      return { content: [{ type: 'text', text: 'ok' }] };
+    });
+
+    const result = await publishInjuryPost(makeContent());
+
+    expect(result.status).toBe('published');
+    const failure = errorLines().find((l) => l.includes('SOCIAL PUBLISH FAILED'));
+    expect(failure).toBeDefined();
+    expect(failure).toContain('post post-abc-123');
+    expect(failure).toContain('Neynar API returned status 400');
+    expect(failure).toContain('Twitter API forbidden');
+
+    // Nothing to write back, and that skip is no longer silent.
+    expect(mockCallTool.mock.calls.map((c) => c[1])).not.toContain('web_update_injury_post');
+  });
+
+  it('reports a published-but-unparseable hash separately from a failed publish', async () => {
+    // Both platforms accept the post but answer in a shape we cannot read —
+    // the cast and tweet are live, only the DB link is lost.
+    mockCallTool.mockImplementation(async (server, tool) => {
+      if (tool === 'web_list_posts') return [];
+      if (tool === 'web_create_injury_post') return WEB_CREATE_RESPONSE;
+      if (server === 'farcaster') return { content: [{ type: 'text', text: JSON.stringify({ cast_hash: '0xdeadbeef' }) }] };
+      if (server === 'twitter') return { content: [{ type: 'text', text: JSON.stringify({ tweet: { id: '123' } }) }] };
+      return { content: [{ type: 'text', text: 'ok' }] };
+    });
+
+    const result = await publishInjuryPost(makeContent());
+
+    expect(result.platform_results.filter((r) => r.success)).toHaveLength(3);
+    const unparseable = errorLines().filter((l) => l.includes('SOCIAL HASH UNPARSEABLE'));
+    expect(unparseable).toHaveLength(2);
+    expect(unparseable.some((l) => l.includes('the cast published'))).toBe(true);
+    expect(unparseable.some((l) => l.includes('the tweet published'))).toBe(true);
+
+    // Not a publish failure — that line must NOT appear.
+    expect(errorLines().some((l) => l.includes('SOCIAL PUBLISH FAILED'))).toBe(false);
+    expect(mockCallTool.mock.calls.map((c) => c[1])).not.toContain('web_update_injury_post');
+  });
+
+  it('does not report a rejected hash writeback as a success', async () => {
+    // callTool resolves tool-level errors as a value rather than throwing, so
+    // an unchecked writeback logged "Wrote social hashes back" over a failure.
+    mockCallTool.mockImplementation(async (_server, tool) => {
+      if (tool === 'web_list_posts') return [];
+      if (tool === 'web_create_injury_post') return WEB_CREATE_RESPONSE;
+      if (tool === 'farcaster_publish_thread') return FARCASTER_RESPONSE;
+      if (tool === 'twitter_publish_thread') return TWITTER_RESPONSE;
+      if (tool === 'web_update_injury_post') {
+        return { isError: true, content: [{ type: 'text', text: JSON.stringify({ error: 'column farcaster_hash does not exist' }) }] };
+      }
+      return { content: [{ type: 'text', text: 'ok' }] };
+    });
+
+    await publishInjuryPost(makeContent());
+
+    expect(logLines().some((l) => l.includes('Wrote social hashes back'))).toBe(false);
+    const failure = errorLines().find((l) => l.includes('Failed to write social hashes'));
+    expect(failure).toBeDefined();
+    expect(failure).toContain('column farcaster_hash does not exist');
+  });
+
+  it('stays quiet on the happy path', async () => {
+    await publishInjuryPost(makeContent());
+
+    expect(errorLines().some((l) => l.includes('SOCIAL PUBLISH FAILED'))).toBe(false);
+    expect(errorLines().some((l) => l.includes('SOCIAL HASH UNPARSEABLE'))).toBe(false);
+    expect(logLines().some((l) => l.includes('Wrote social hashes back'))).toBe(true);
+  });
+});

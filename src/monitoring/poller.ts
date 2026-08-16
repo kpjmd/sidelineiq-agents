@@ -92,20 +92,41 @@ function envInt(name: string, fallback: number): number {
 export interface PublishBudgetState {
   /** Sonnet invocations already made this cycle for this sport. */
   agentCalls: number;
-  /** Posts already landed this cycle for this sport (published or pending review). */
+  /** Posts PUBLISHED this cycle for this sport. */
   cyclePublishes: number;
-  /** Remaining slots in the rolling 24h window; Infinity when unknown. */
-  dayRemaining: number;
+  /** Posts routed to MD review this cycle for this sport. */
+  cycleReviews: number;
+  /** Remaining publish slots in the rolling 24h window; Infinity when unknown. */
+  dayPublishRemaining: number;
+  /** Remaining review slots in the rolling 24h window; Infinity when unknown. */
+  dayReviewRemaining: number;
 }
 
 export interface PublishBudgetLimits {
   maxAgentCallsPerCycle: number;
   maxPublishesPerCycle: number;
+  maxReviewsPerCycle: number;
 }
 
 /**
  * Returns a human-readable reason when the budget is spent, or null to proceed.
  * Pure so it can be unit-tested without standing up the whole poll loop.
+ *
+ * PUBLISHING AND REVIEW ARE SEPARATE LANES. They used to share one counter, on
+ * the reasoning that a review-queue row is output an MD may approve later. With
+ * MAX_PUBLISHES_PER_CYCLE=1 that meant the first event routed to review spent
+ * the cycle's only slot and nothing ever published — the pipeline went five days
+ * without attempting a single cast in August 2026. A review is not an
+ * audience-facing post and must not consume audience-facing budget.
+ *
+ * The gate is necessarily pre-hoc: which lane an event lands in depends on the
+ * agent's confidence, which is not known until after the Sonnet call, and this
+ * check deliberately runs before dedup so a capped event costs nothing (see the
+ * call site). So it proceeds while EITHER lane has capacity and the outcome is
+ * counted into the right lane afterwards. The per-cycle caps are therefore
+ * throttles rather than hard ceilings — a run of same-lane outcomes can exceed
+ * one by at most the other lane's remaining capacity. The rolling 24h caps are
+ * the hard bound, re-derived from the database every cycle.
  */
 export function publishBudgetExhausted(
   state: PublishBudgetState,
@@ -114,12 +135,21 @@ export function publishBudgetExhausted(
   if (state.agentCalls >= limits.maxAgentCallsPerCycle) {
     return `agent_call_cap:${state.agentCalls}/${limits.maxAgentCallsPerCycle}`;
   }
-  if (state.cyclePublishes >= limits.maxPublishesPerCycle) {
-    return `cycle_publish_cap:${state.cyclePublishes}/${limits.maxPublishesPerCycle}`;
+
+  const publishOpen =
+    state.cyclePublishes < limits.maxPublishesPerCycle && state.dayPublishRemaining > 0;
+  const reviewOpen =
+    state.cycleReviews < limits.maxReviewsPerCycle && state.dayReviewRemaining > 0;
+
+  if (!publishOpen && !reviewOpen) {
+    return (
+      `output_cap:publishes=${state.cyclePublishes}/${limits.maxPublishesPerCycle} ` +
+      `reviews=${state.cycleReviews}/${limits.maxReviewsPerCycle} ` +
+      `day_publish_left=${state.dayPublishRemaining === Infinity ? 'unknown' : state.dayPublishRemaining} ` +
+      `day_review_left=${state.dayReviewRemaining === Infinity ? 'unknown' : state.dayReviewRemaining}`
+    );
   }
-  if (state.dayRemaining <= 0) {
-    return 'day_publish_cap';
-  }
+
   return null;
 }
 
@@ -187,7 +217,7 @@ const BUDGETED_POST_STATUSES = new Set(['PUBLISHED', 'PENDING_REVIEW']);
  * day cap (the per-cycle cap still bounds the blast radius) rather than going
  * silent every time the web MCP server hiccups.
  */
-async function countRecentPublishes(): Promise<number | null> {
+async function countRecentOutput(): Promise<{ published: number; review: number } | null> {
   if (!isServerAvailable('web')) return null;
   try {
     // web_list_posts is ORDER BY created_at DESC, so the newest 50 covers the
@@ -198,14 +228,21 @@ async function countRecentPublishes(): Promise<number | null> {
       status?: string;
     }>;
     const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-    return posts.filter((p) => {
-      if (p.status && !BUDGETED_POST_STATUSES.has(p.status)) return false;
+    const counts = { published: 0, review: 0 };
+    for (const p of posts) {
+      if (p.status && !BUDGETED_POST_STATUSES.has(p.status)) continue;
       const t = p.created_at ? Date.parse(p.created_at) : NaN;
-      return Number.isFinite(t) && t >= cutoff;
-    }).length;
+      if (!Number.isFinite(t) || t < cutoff) continue;
+      // A row created as PENDING_REVIEW and approved since reads as PUBLISHED
+      // here, so it counts against the publish lane. That is the right side to
+      // err on: it did reach an audience.
+      if (p.status === 'PENDING_REVIEW') counts.review++;
+      else counts.published++;
+    }
+    return counts;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn(`[Poller] Daily publish count unavailable, failing open: ${message}`);
+    console.warn(`[Poller] Daily output count unavailable, failing open: ${message}`);
     return null;
   }
 }
@@ -762,23 +799,31 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
 
   // Volume budget for this cycle. The day count is global (all sports share the
   // rolling 24h window); the cycle counts are per-sport.
+  const maxPublishesPerCycle = envInt('MAX_PUBLISHES_PER_CYCLE', DEFAULT_MAX_PUBLISHES_PER_CYCLE);
+  const maxPerDay = envInt('MAX_PUBLISHES_PER_DAY', DEFAULT_MAX_PUBLISHES_PER_DAY);
   const limits: PublishBudgetLimits = {
     maxAgentCallsPerCycle: envInt('MAX_AGENT_CALLS_PER_CYCLE', DEFAULT_MAX_AGENT_CALLS_PER_CYCLE),
-    maxPublishesPerCycle: envInt('MAX_PUBLISHES_PER_CYCLE', DEFAULT_MAX_PUBLISHES_PER_CYCLE),
+    maxPublishesPerCycle,
+    // The review lane defaults to the same allowance as the publish lane, so
+    // splitting the budgets cannot silently change total volume by more than a
+    // factor of two on an existing deployment.
+    maxReviewsPerCycle: envInt('MAX_REVIEWS_PER_CYCLE', maxPublishesPerCycle),
   };
-  const maxPerDay = envInt('MAX_PUBLISHES_PER_DAY', DEFAULT_MAX_PUBLISHES_PER_DAY);
-  const recentCount = await countRecentPublishes();
+  const maxReviewsPerDay = envInt('MAX_REVIEWS_PER_DAY', maxPerDay);
+  const recent = await countRecentOutput();
   const budget: PublishBudgetState = {
     agentCalls: 0,
     cyclePublishes: 0,
-    dayRemaining: recentCount === null ? Infinity : Math.max(0, maxPerDay - recentCount),
+    cycleReviews: 0,
+    dayPublishRemaining: recent === null ? Infinity : Math.max(0, maxPerDay - recent.published),
+    dayReviewRemaining: recent === null ? Infinity : Math.max(0, maxReviewsPerDay - recent.review),
   };
   // md_review_bar is printed alongside the caps because it is the other lever
   // that decides whether a post reaches social, and it lives in an env var that
   // is otherwise invisible in the logs — it sat at 0.60 rather than the
   // documented 0.75 default for an unknown period without anything saying so.
   console.log(
-    `[Poller] ${sport} — budget: cycle_publishes=${limits.maxPublishesPerCycle} agent_calls=${limits.maxAgentCallsPerCycle} day_remaining=${budget.dayRemaining === Infinity ? 'unknown' : budget.dayRemaining} md_review_bar=${getMDReviewThreshold()}`,
+    `[Poller] ${sport} — budget: cycle_publishes=${limits.maxPublishesPerCycle} cycle_reviews=${limits.maxReviewsPerCycle} agent_calls=${limits.maxAgentCallsPerCycle} day_publish_left=${budget.dayPublishRemaining === Infinity ? 'unknown' : budget.dayPublishRemaining} day_review_left=${budget.dayReviewRemaining === Infinity ? 'unknown' : budget.dayReviewRemaining} md_review_bar=${getMDReviewThreshold()}`,
   );
 
   // Sequential to avoid races on dedup lookups for the same athlete
@@ -1116,11 +1161,16 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
       else if (result.status === 'pending_review') summary.pending_review++;
       else summary.skipped++;
 
-      // Both published and pending-review posts consume budget — a review-queue
-      // post is a real row that an MD may approve later, so it counts as output.
-      if (result.status === 'published' || result.status === 'pending_review') {
+      // Each outcome spends its OWN lane. A review-queue row is real output and
+      // is still budgeted, but it is not audience-facing and must not consume a
+      // publish slot — sharing one counter is what starved publishing for five
+      // days in August 2026 with MAX_PUBLISHES_PER_CYCLE=1.
+      if (result.status === 'published') {
         budget.cyclePublishes++;
-        if (budget.dayRemaining !== Infinity) budget.dayRemaining--;
+        if (budget.dayPublishRemaining !== Infinity) budget.dayPublishRemaining--;
+      } else if (result.status === 'pending_review') {
+        budget.cycleReviews++;
+        if (budget.dayReviewRemaining !== Infinity) budget.dayReviewRemaining--;
       }
 
       // ── Entity bookkeeping (after the post lands) ────────────────────

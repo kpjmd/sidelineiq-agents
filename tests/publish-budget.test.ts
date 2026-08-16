@@ -5,10 +5,21 @@ import {
   type PublishBudgetLimits,
 } from '../src/monitoring/poller.js';
 
-const LIMITS: PublishBudgetLimits = { maxAgentCallsPerCycle: 8, maxPublishesPerCycle: 3 };
+const LIMITS: PublishBudgetLimits = {
+  maxAgentCallsPerCycle: 8,
+  maxPublishesPerCycle: 3,
+  maxReviewsPerCycle: 3,
+};
 
 function state(overrides: Partial<PublishBudgetState> = {}): PublishBudgetState {
-  return { agentCalls: 0, cyclePublishes: 0, dayRemaining: 10, ...overrides };
+  return {
+    agentCalls: 0,
+    cyclePublishes: 0,
+    cycleReviews: 0,
+    dayPublishRemaining: 10,
+    dayReviewRemaining: 10,
+    ...overrides,
+  };
 }
 
 describe('publishBudgetExhausted', () => {
@@ -19,41 +30,105 @@ describe('publishBudgetExhausted', () => {
   it('allows the last slot under each cap', () => {
     expect(publishBudgetExhausted(state({ agentCalls: 7 }), LIMITS)).toBeNull();
     expect(publishBudgetExhausted(state({ cyclePublishes: 2 }), LIMITS)).toBeNull();
-    expect(publishBudgetExhausted(state({ dayRemaining: 1 }), LIMITS)).toBeNull();
+    expect(publishBudgetExhausted(state({ dayPublishRemaining: 1 }), LIMITS)).toBeNull();
   });
 
-  it('blocks on the agent-call cap before any Sonnet spend', () => {
+  it('blocks when the agent call cap is reached', () => {
     expect(publishBudgetExhausted(state({ agentCalls: 8 }), LIMITS)).toBe('agent_call_cap:8/8');
   });
 
-  it('blocks on the per-cycle publish cap', () => {
-    expect(publishBudgetExhausted(state({ cyclePublishes: 3 }), LIMITS)).toBe(
-      'cycle_publish_cap:3/3',
+  it('fails open on an unknown day count', () => {
+    expect(
+      publishBudgetExhausted(
+        state({ dayPublishRemaining: Infinity, dayReviewRemaining: Infinity }),
+        LIMITS
+      )
+    ).toBeNull();
+  });
+
+  it('blocks only when BOTH lanes are spent', () => {
+    expect(
+      publishBudgetExhausted(state({ cyclePublishes: 3, cycleReviews: 3 }), LIMITS)
+    ).toContain('output_cap:');
+
+    expect(
+      publishBudgetExhausted(
+        state({ dayPublishRemaining: 0, dayReviewRemaining: 0 }),
+        LIMITS
+      )
+    ).toContain('output_cap:');
+  });
+
+  it('reports the state of both lanes when it blocks', () => {
+    const reason = publishBudgetExhausted(
+      state({ cyclePublishes: 3, cycleReviews: 3, dayPublishRemaining: 4, dayReviewRemaining: 2 }),
+      LIMITS
     );
-  });
 
-  it('blocks on the rolling daily cap', () => {
-    expect(publishBudgetExhausted(state({ dayRemaining: 0 }), LIMITS)).toBe('day_publish_cap');
+    expect(reason).toContain('publishes=3/3');
+    expect(reason).toContain('reviews=3/3');
+    expect(reason).toContain('day_publish_left=4');
+    expect(reason).toContain('day_review_left=2');
   });
+});
 
-  // The day count comes from an MCP call that can fail; Infinity is the
-  // fail-open sentinel. The per-cycle caps must still bound the damage.
-  it('fails open on the day cap when the count is unknown', () => {
-    expect(publishBudgetExhausted(state({ dayRemaining: Infinity }), LIMITS)).toBeNull();
+/**
+ * The August 2026 outage: publishing and MD review shared one counter, so with
+ * MAX_PUBLISHES_PER_CYCLE=1 the first event routed to review spent the cycle's
+ * only slot and the pipeline went five days without attempting a single cast.
+ */
+describe('publishBudgetExhausted — review must not starve publishing', () => {
+  const TIGHT: PublishBudgetLimits = {
+    maxAgentCallsPerCycle: 8,
+    maxPublishesPerCycle: 1,
+    maxReviewsPerCycle: 1,
+  };
+
+  it('still allows a publish after the review lane is full', () => {
+    // This is the exact production configuration that broke: one slot per
+    // cycle, and a review routing had consumed it.
     expect(
-      publishBudgetExhausted(state({ dayRemaining: Infinity, cyclePublishes: 3 }), LIMITS),
-    ).toBe('cycle_publish_cap:3/3');
+      publishBudgetExhausted(state({ cycleReviews: 1, dayReviewRemaining: 0 }), TIGHT)
+    ).toBeNull();
   });
 
-  it('reports the agent-call cap first — it is the most expensive to overrun', () => {
+  it('still allows a review after the publish lane is full', () => {
     expect(
-      publishBudgetExhausted(state({ agentCalls: 8, cyclePublishes: 3, dayRemaining: 0 }), LIMITS),
-    ).toBe('agent_call_cap:8/8');
+      publishBudgetExhausted(state({ cyclePublishes: 1, dayPublishRemaining: 0 }), TIGHT)
+    ).toBeNull();
   });
 
-  it('a zero limit blocks everything', () => {
+  it('blocks once the publish lane is full and the review lane is too', () => {
     expect(
-      publishBudgetExhausted(state(), { maxAgentCallsPerCycle: 8, maxPublishesPerCycle: 0 }),
-    ).toBe('cycle_publish_cap:0/0');
+      publishBudgetExhausted(state({ cyclePublishes: 1, cycleReviews: 1 }), TIGHT)
+    ).toContain('output_cap:');
+  });
+
+  it('treats an exhausted day allowance as closing that lane', () => {
+    // Publish lane closed by the rolling 24h count, review lane closed by the
+    // cycle cap — nothing left either way.
+    expect(
+      publishBudgetExhausted(state({ dayPublishRemaining: 0, cycleReviews: 1 }), TIGHT)
+    ).toContain('output_cap:');
+  });
+
+  it('a zero publish limit does not block reviews', () => {
+    expect(
+      publishBudgetExhausted(state(), {
+        maxAgentCallsPerCycle: 8,
+        maxPublishesPerCycle: 0,
+        maxReviewsPerCycle: 3,
+      })
+    ).toBeNull();
+  });
+
+  it('zero on both lanes blocks everything', () => {
+    expect(
+      publishBudgetExhausted(state(), {
+        maxAgentCallsPerCycle: 8,
+        maxPublishesPerCycle: 0,
+        maxReviewsPerCycle: 0,
+      })
+    ).toContain('output_cap:');
   });
 });
