@@ -150,6 +150,31 @@ Route to review queue when:
 Posts pending review are stored in database with status PENDING_REVIEW.
 They do NOT publish to Farcaster or Twitter until approved.
 
+## Did It Reach an Audience?
+
+A `PUBLISHED` row is NOT evidence that anything was cast or tweeted. The web
+post is created first, the social calls come after, and every one of them is
+caught and swallowed — `publishInjuryPost` returns `status: 'published'` even
+when both social platforms failed. `platform_results` lives in memory and the
+logs only; nothing persists it. That is how publishing stayed dead for five
+days in August 2026 while approvals kept reporting success.
+
+The only durable signal is a `PUBLISHED` post with neither a `farcaster_hash`
+nor a `twitter_id`. Three ways to read it:
+- `GET /admin/social-health?window_hours=N` — on demand, admin-gated. It THROWS
+  on a failed query rather than reporting a clean bill of health.
+- `[Audit] N PUBLISHED post(s) in the last 24h reached no social platform` —
+  emitted from the ApprovalSync cycle, at most hourly.
+- Three distinct pipeline log lines, which mean different things and have
+  different fixes: `SOCIAL PUBLISH FAILED` (reached nobody),
+  `SOCIAL HASH UNPARSEABLE` (it IS live, only the DB link is lost), and
+  `Failed to write social hashes` (writeback rejected).
+
+`APPROVAL_SYNC_NOT_BEFORE` holds a backlog back. ApprovalSync re-casts any
+hashless DEEP_DIVE from the last 7 days and its duplicate guard is in-memory,
+so without a cutoff the first deploy after an outage fires the whole backlog at
+the live accounts at once.
+
 ## MCP Server Connections
 
 This repo connects to sidelineiq-mcp-servers via HTTP:

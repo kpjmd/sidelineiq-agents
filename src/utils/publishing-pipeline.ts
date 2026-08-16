@@ -322,6 +322,84 @@ function extractTwitterId(data: unknown): string | null {
 }
 
 /**
+ * Reports whether a publish actually reached an audience.
+ *
+ * Three outcomes used to be indistinguishable in the logs, and the most
+ * dangerous one was completely silent: when both extractors returned null the
+ * writeback guard simply skipped with no line at all. They have entirely
+ * different fixes — a failed publish is a transport or credential problem, an
+ * unparseable hash means the post IS live and only the DB link is missing — so
+ * they get distinct, greppable lines.
+ */
+function reportSocialReach(
+  context: string,
+  webPostId: string | null,
+  farcasterResult: PlatformResult | undefined,
+  twitterResult: PlatformResult | undefined,
+  farcasterHash: string | null,
+  twitterId: string | null
+): void {
+  const postRef = webPostId ?? 'unknown';
+
+  if (!farcasterResult?.success && !twitterResult?.success) {
+    console.error(
+      `[Pipeline] SOCIAL PUBLISH FAILED — ${context} (post ${postRef}) reached 0 social platforms: ` +
+        `farcaster=${farcasterResult?.error ?? 'not attempted'}; ` +
+        `twitter=${twitterResult?.error ?? 'not attempted'}`
+    );
+    return;
+  }
+
+  if (farcasterResult?.success && !farcasterHash) {
+    console.error(
+      `[Pipeline] SOCIAL HASH UNPARSEABLE — ${context} (post ${postRef}): the cast published but no hash could be read from the response. The cast is live; the DB link will be missing.`
+    );
+  }
+  if (twitterResult?.success && !twitterId) {
+    console.error(
+      `[Pipeline] SOCIAL HASH UNPARSEABLE — ${context} (post ${postRef}): the tweet published but no id could be read from the response. The tweet is live; the DB link will be missing.`
+    );
+  }
+}
+
+/**
+ * Writes the social hashes back to the web post.
+ *
+ * callTool resolves tool-level failures as a normal value ({isError:true})
+ * rather than throwing, so the isMCPError check is what stops a rejected write
+ * from logging as a success — which is exactly how a broken writeback could
+ * stay invisible.
+ */
+async function writeSocialHashesBack(
+  webPostId: string,
+  farcasterHash: string | null,
+  twitterId: string | null,
+  updateReason: string
+): Promise<void> {
+  if (!farcasterHash && !twitterId) return;
+
+  try {
+    const data = await callTool('web', 'web_update_injury_post', {
+      post_id: webPostId,
+      updates: {
+        ...(farcasterHash && { farcaster_hash: farcasterHash }),
+        ...(twitterId && { twitter_id: twitterId }),
+      },
+      update_reason: updateReason,
+    });
+    if (isMCPError(data)) throw new Error(extractMCPErrorMessage(data));
+    console.log(
+      `[Pipeline] Wrote social hashes back to post ${webPostId} (farcaster: ${!!farcasterHash}, twitter: ${!!twitterId})`
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[Pipeline] Failed to write social hashes to post ${webPostId}: ${message} — the post is live on socials but the DB link is missing`
+    );
+  }
+}
+
+/**
  * Publishes an already-approved DEEP_DIVE post to Farcaster and X/Twitter.
  * Called by the /admin/approve/:post_id endpoint after the frontend has
  * already called web_approve_injury_post (which flips the DB status to PUBLISHED).
@@ -386,21 +464,15 @@ export async function publishApprovedDeepDive(
   const farcasterHash = farcasterResult?.success ? extractFarcasterHash(farcasterResult.data) : null;
   const twitterId = twitterResult?.success ? extractTwitterId(twitterResult.data) : null;
 
-  if (webPostId && (farcasterHash || twitterId)) {
-    try {
-      await callTool('web', 'web_update_injury_post', {
-        post_id: webPostId,
-        updates: {
-          ...(farcasterHash && { farcaster_hash: farcasterHash }),
-          ...(twitterId && { twitter_id: twitterId }),
-        },
-        update_reason: 'Approved DEEP_DIVE social hash writeback',
-      });
-      console.log(`[Pipeline] Wrote social hashes back to approved post ${webPostId} (farcaster: ${!!farcasterHash}, twitter: ${!!twitterId})`);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.warn(`[Pipeline] Failed to write social hashes to approved post ${webPostId}: ${message}`);
-    }
+  reportSocialReach(context, webPostId, farcasterResult, twitterResult, farcasterHash, twitterId);
+
+  if (webPostId) {
+    await writeSocialHashesBack(
+      webPostId,
+      farcasterHash,
+      twitterId,
+      'Approved DEEP_DIVE social hash writeback'
+    );
   }
 
   // Launch announcement — fires once when LAUNCH_ANNOUNCEMENT=true.
@@ -500,12 +572,15 @@ export async function publishInjuryPost(
     const reviewPostId = webResult.success ? extractWebPostId(webResult.data) : null;
     if (reviewPostId) {
       try {
-        await callTool('web', 'web_flag_for_md_review', {
+        const flagged = await callTool('web', 'web_flag_for_md_review', {
           post_id: reviewPostId,
           reason: review.reason,
           confidence_score: content.confidence,
           flagged_by: 'injury-intelligence-agent',
         });
+        // Tool-level failures resolve as a value, not a throw — without this the
+        // post sits in PENDING_REVIEW with no review row and nothing says so.
+        if (isMCPError(flagged)) throw new Error(extractMCPErrorMessage(flagged));
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.error(`[Pipeline] Failed to flag for MD review: ${message}`);
@@ -534,27 +609,13 @@ export async function publishInjuryPost(
   ]);
 
   // Step 3c: Write social hashes back to web post (best-effort, non-blocking)
+  const farcasterHash = farcasterResult.success ? extractFarcasterHash(farcasterResult.data) : null;
+  const twitterId = twitterResult.success ? extractTwitterId(twitterResult.data) : null;
+
+  reportSocialReach(context, webPostId, farcasterResult, twitterResult, farcasterHash, twitterId);
+
   if (webPostId) {
-    const farcasterHash = farcasterResult.success ? extractFarcasterHash(farcasterResult.data) : null;
-    const twitterId = twitterResult.success ? extractTwitterId(twitterResult.data) : null;
-
-    if (farcasterHash || twitterId) {
-      try {
-        await callTool('web', 'web_update_injury_post', {
-          post_id: webPostId,
-          updates: {
-            ...(farcasterHash && { farcaster_hash: farcasterHash }),
-            ...(twitterId && { twitter_id: twitterId }),
-          },
-          update_reason: 'Social platform hash writeback',
-        });
-        console.log(`[Pipeline] Wrote social hashes back to post ${webPostId} (farcaster: ${!!farcasterHash}, twitter: ${!!twitterId})`);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.warn(`[Pipeline] Failed to write social hashes to post ${webPostId}: ${message}`);
-      }
-    }
-
+    await writeSocialHashesBack(webPostId, farcasterHash, twitterId, 'Social platform hash writeback');
   }
 
   // IndexNow ping — best-effort, independent of hash writeback
