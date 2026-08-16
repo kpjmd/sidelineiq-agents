@@ -1,16 +1,16 @@
 /**
- * The fallback dedup path — the only dedup a sport with no roster ever gets.
+ * The fallback dedup path — what runs when no player resolves and no entity can
+ * be found, plus the same-article guard that both paths share.
  *
- * For NFL/NBA/PL an athlete resolves to a player row, an injury_entity forms,
- * and entity-aware dedup covers 21 days with an is_update escape for genuine
- * follow-ups. UFC fighters are not team-rostered, so web_resolve_player returns
- * resolved=false for every one of them (verified against production), no entity
- * ever forms, and this 24h window is the whole story.
+ * An ESPN article stays in the feed for MAX_EVENT_AGE_DAYS (7 by default) and is
+ * re-emitted as an event every cycle for its whole life. With only a 24h memory,
+ * the SAME article becomes publishable again every single day.
  *
- * That collides with the news sources: an ESPN article stays in the feed for
- * MAX_EVENT_AGE_DAYS (7 by default) and is re-emitted as an event every cycle
- * for its whole life. With only a 24h memory, the SAME article becomes
- * publishable again every single day.
+ * The guard is keyed on source_kind, not on the sport. It used to be keyed on
+ * `!hasRosterProvider(sport)`, which was a correct proxy only while UFC was both
+ * the only rosterless sport and the only article-sourced one. What it was always
+ * about is whether the URL identifies one STORY (news) or a shared FEED endpoint
+ * (the structured sources, where every event carries the same URL).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -29,6 +29,8 @@ const ACL_ARTICLE = 'https://www.espn.com/mma/story/_/id/1/mcgregor-acl';
 const SURGERY_ARTICLE = 'https://www.espn.com/mma/story/_/id/2/mcgregor-surgery';
 /** NFL's structured feed: every NFL event shares this one URL. */
 const NFL_FEED = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/injuries';
+/** What espn-ufc falls back to when an article carries no story link. */
+const UFC_NEWS_FEED = 'https://site.api.espn.com/apis/site/v2/sports/mma/ufc/news?limit=50';
 
 function hoursAgo(h: number): string {
   return new Date(Date.now() - h * 3600_000).toISOString();
@@ -49,6 +51,7 @@ function event(over: Partial<RawInjuryEvent> = {}): RawInjuryEvent {
     source_url: ACL_ARTICLE,
     reported_at: new Date(),
     source_name: 'espn-ufc',
+    source_kind: 'article',
     ...over,
   };
 }
@@ -120,7 +123,133 @@ describe('an article that is still in the feed must not republish daily', () => 
   });
 });
 
-describe('sports that do have a roster are untouched', () => {
+/**
+ * The entity path, once fighters have player rows.
+ *
+ * This is the failure direction the roster change creates. Before it, a UFC
+ * story republished daily. After it, an entity matches and — with no is_update,
+ * which no news source can ever set — EVERYTHING after the first post is
+ * suppressed for 21 days, including "McGregor to undergo surgery" five days
+ * later. The classifier's is_new judgement is the substitute signal.
+ */
+describe('the entity path with a resolved fighter', () => {
+  const PLAYER = { player_id: 'pl-1', full_name: 'Conor McGregor', confidence: 'exact' };
+  const META = {
+    body_parts: ['knee'],
+    primary_body_part: 'knee',
+    laterality: 'UNSPECIFIED' as const,
+    injury_type_hint: 'acl tear',
+  };
+
+  /** web_find_matching_entity → match, then whatever else the path calls. */
+  function stubEntityMatch(posts: Array<Record<string, unknown>> = []) {
+    mockCallTool.mockImplementation(async (_server, tool) => {
+      if (tool === 'web_find_matching_entity') {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                matched: true,
+                entity_id: 'ent-1',
+                canonical_post_id: 'post-1',
+                body_part: 'knee',
+                laterality: 'UNSPECIFIED',
+                injury_type: 'acl tear',
+                match_count: 1,
+              }),
+            },
+          ],
+        } as never;
+      }
+      if (tool === 'web_list_posts') {
+        return { content: [{ type: 'text', text: JSON.stringify({ posts }) }] } as never;
+      }
+      return { content: [{ type: 'text', text: '{}' }] } as never;
+    });
+  }
+
+  const context = (over: Record<string, unknown> = {}) =>
+    ({ resolvedPlayer: PLAYER, metadata: META, ...over }) as never;
+
+  it('suppresses a repeat when nothing signals an update', async () => {
+    stubEntityMatch();
+    const result = await checkForExisting(event(), context({ isUpdate: false }));
+    expect(result.isDuplicate).toBe(true);
+    expect(result.decision).toBe('entity_match_skip');
+  });
+
+  it('lets the surgery follow-up through on the classifier signal alone', async () => {
+    // The whole point. The source cannot set is_update — espn-ufc has no status
+    // field to set it from — so without this the follow-up is silenced for 21
+    // days and UFC ends up quieter with entity backing than without it.
+    stubEntityMatch();
+    const result = await checkForExisting(
+      event({
+        source_url: SURGERY_ARTICLE,
+        injury_description: 'Conor McGregor to undergo surgery, plans to fight again',
+      }),
+      context({ isUpdate: true, updateSignal: 'classifier' }),
+    );
+    expect(result.isDuplicate).toBe(false);
+    expect(result.decision).toBe('entity_match_pass_through');
+    // The parent link is what makes it a TRACKING post on the existing thread
+    // rather than a second unthreaded BREAKING.
+    expect(result.existingPostId).toBe('post-1');
+    expect(result.entityId).toBe('ent-1');
+  });
+
+  it('still suppresses an update signal when the article was already published', async () => {
+    // An article is re-served every cycle for its whole life. Without this the
+    // classifier escape would re-open the same story every 15 minutes, each
+    // time burning a Sonnet call and an entity timeline row before the cadence
+    // throttle rejected it downstream.
+    stubEntityMatch([
+      { post_id: 'p9', athlete_name: 'Conor McGregor', sport: 'UFC', created_at: hoursAgo(25), source_url: ACL_ARTICLE },
+    ]);
+    const result = await checkForExisting(event(), context({ isUpdate: true }));
+    expect(result.isDuplicate).toBe(true);
+    expect(result.decision).toBe('entity_match_same_source');
+  });
+
+  it('does not apply the same-article check to a feed-sourced event', async () => {
+    // Every NFL event shares one URL, so this check would suppress the entire
+    // sport after its first post.
+    stubEntityMatch([
+      { post_id: 'p9', athlete_name: 'Some Rookie', sport: 'NFL', created_at: hoursAgo(25), source_url: NFL_FEED },
+    ]);
+    const result = await checkForExisting(
+      event({ athlete_name: 'Some Rookie', sport: 'NFL', team: 'Bears', source_url: NFL_FEED, source_kind: 'feed' }),
+      context({ isUpdate: true }),
+    );
+    expect(result.isDuplicate).toBe(false);
+    expect(result.decision).toBe('entity_match_pass_through');
+  });
+
+  it('falls back to the source flag when the caller computes no signal', async () => {
+    // Back-compat: a caller that predates DedupContext.isUpdate must behave
+    // exactly as it did, reading event.is_update alone.
+    stubEntityMatch();
+    const passed = await checkForExisting(event({ is_update: true }), context());
+    expect(passed.decision).toBe('entity_match_pass_through');
+
+    stubEntityMatch();
+    const skipped = await checkForExisting(event({ is_update: false }), context());
+    expect(skipped.decision).toBe('entity_match_skip');
+  });
+});
+
+describe('feed-sourced events are untouched by the article guard', () => {
+  const nflFeedEvent = (over: Partial<RawInjuryEvent> = {}) =>
+    event({
+      athlete_name: 'Some Rookie',
+      sport: 'NFL',
+      team: 'Bears',
+      source_url: NFL_FEED,
+      source_kind: 'feed',
+      ...over,
+    });
+
   it('does not apply the source guard to an unresolved NFL athlete', async () => {
     // NFL's source_url is the FEED, shared by every NFL event, so a URL guard
     // there would suppress every unresolved NFL athlete after the first one.
@@ -129,19 +258,37 @@ describe('sports that do have a roster are untouched', () => {
     stubPosts([
       { post_id: 'p1', athlete_name: 'Some Rookie', sport: 'NFL', created_at: hoursAgo(25), source_url: NFL_FEED },
     ]);
-    const result = await checkForExisting(
-      event({ athlete_name: 'Some Rookie', sport: 'NFL', team: 'Bears', source_url: NFL_FEED }),
-    );
-    expect(result.isDuplicate).toBe(false);
+    expect((await checkForExisting(nflFeedEvent())).isDuplicate).toBe(false);
   });
 
   it('still applies the plain 24h window to NFL', async () => {
     stubPosts([
       { post_id: 'p1', athlete_name: 'Some Rookie', sport: 'NFL', created_at: hoursAgo(3), source_url: NFL_FEED },
     ]);
+    expect((await checkForExisting(nflFeedEvent())).isDuplicate).toBe(true);
+  });
+
+  it('treats an unset source_kind as a feed, not an article', async () => {
+    // The conservative default. An event with no declared kind must not have
+    // its URL treated as an identity — that is the direction that suppresses
+    // real reports, and the one a new source would fall into by omission.
+    stubPosts([
+      { post_id: 'p1', athlete_name: 'Conor McGregor', sport: 'UFC', created_at: hoursAgo(25), source_url: ACL_ARTICLE },
+    ]);
+    const result = await checkForExisting(event({ source_kind: undefined }));
+    expect(result.isDuplicate).toBe(false);
+  });
+
+  it('does not apply the guard when a news source fell back to its feed URL', async () => {
+    // espn-ufc sets source_kind:'feed' when an article carries no story link,
+    // because the fallback URL is the shared news endpoint. Treating that as an
+    // article identity would suppress every fighter after the first.
+    stubPosts([
+      { post_id: 'p1', athlete_name: 'Conor McGregor', sport: 'UFC', created_at: hoursAgo(25), source_url: UFC_NEWS_FEED },
+    ]);
     const result = await checkForExisting(
-      event({ athlete_name: 'Some Rookie', sport: 'NFL', team: 'Bears', source_url: NFL_FEED }),
+      event({ source_url: UFC_NEWS_FEED, source_kind: 'feed' }),
     );
-    expect(result.isDuplicate).toBe(true);
+    expect(result.isDuplicate).toBe(false);
   });
 });

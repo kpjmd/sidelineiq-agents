@@ -3,17 +3,96 @@ import { ESPNInjurySource, type ESPNTeam, type ESPNRosterAthlete } from './sport
 import { ESPNNFLSource } from './sports/espn-nfl.js';
 import { ESPNNBASource } from './sports/espn-nba.js';
 import { ESPNPremierLeagueSource } from './sports/espn-premier-league.js';
+import {
+  fetchUfcScoreboardEvents,
+  isExcludedEvent,
+  isPlaceholderFighter,
+} from './sports/espn-ufc-scoreboard.js';
 import { callToolWithRetry } from '../utils/mcp-client-manager.js';
 import { hasSalaryBands } from '../agents/injury-intelligence/significance.js';
 import { invalidateTierSnapshots } from '../agents/injury-intelligence/tier-snapshots.js';
 
+/**
+ * How far the fighter roster reaches. Matches the derived-tier card window, so
+ * "known to the roster" and "eligible for a card-derived tier" describe the
+ * same population and there is one window to reason about rather than two.
+ */
+const UFC_ROSTER_WINDOW_BACK_DAYS = 180;
+const UFC_ROSTER_WINDOW_FORWARD_DAYS = 90;
+
+/**
+ * Fighters from ESPN's MMA scoreboard — everyone who fought in, or is booked
+ * for, a UFC card in the rolling window.
+ *
+ * Every competitor is taken, not just the ones whose card slot confers a tier.
+ * The two questions are different: a prelim fighter gets no tier promotion, but
+ * they are still a person whose injury needs an entity, a thread and dedup. The
+ * live window holds 547 fighters against the 143 the tier snapshot ranks.
+ */
+class UFCCardRosterProvider implements AthleteListProvider {
+  readonly name = 'ufc-card-roster';
+
+  async fetchAthletes(): Promise<UpsertableAthlete[] | null> {
+    const events = await fetchUfcScoreboardEvents(
+      UFC_ROSTER_WINDOW_BACK_DAYS,
+      UFC_ROSTER_WINDOW_FORWARD_DAYS,
+    );
+    if (events === null) return null;
+
+    // Keyed on the ESPN athlete id, which lives on the COMPETITOR — the nested
+    // athlete object carries no id on this feed.
+    const byId = new Map<string, UpsertableAthlete>();
+    for (const event of events) {
+      if (isExcludedEvent(event.name ?? '')) continue;
+      for (const competition of event.competitions ?? []) {
+        for (const competitor of competition.competitors ?? []) {
+          const id = competitor.id ?? competitor.athlete?.id;
+          const name = competitor.athlete?.displayName;
+          // An id with no name, or a placeholder, is not a person. Minting a
+          // player row called "TBA" would give a booked-but-unfilled slot an
+          // identity a news article could match against.
+          if (!id || !name || isPlaceholderFighter(name)) continue;
+          byId.set(String(id), { espn_athlete_id: String(id), full_name: name });
+        }
+      }
+    }
+    return [...byId.values()];
+  }
+}
+
 // ESPN roster endpoints exist for NFL/NBA/PremierLeague but not UFC
-// (fighters aren't team-rostered). UFC fact validation handles names without
-// a current_team requirement — see fact-validator.ts.
+// (fighters aren't team-rostered). UFC gets its player rows from
+// ATHLETE_LIST_PROVIDERS below instead — teams are what it lacks, not people.
 export const ESPN_ROSTERED_SOURCES: Record<Exclude<SportKey, 'UFC'>, ESPNInjurySource> = {
   NFL: new ESPNNFLSource(),
   NBA: new ESPNNBASource(),
   PREMIER_LEAGUE: new ESPNPremierLeagueSource(),
+};
+
+/**
+ * A source of ATHLETES for a sport that has no teams to hang them off.
+ *
+ * The team-based sync walks teams → rosters, which is the only shape ESPN
+ * offers for league sports and the wrong shape for an individual one. UFC
+ * fighters exist independently of any team, so their provider returns people
+ * directly and the resulting player rows carry `current_team_id = NULL`.
+ *
+ * `fetchAthletes` returns null — never a partial or empty list — when the read
+ * fails. Absence in these feeds is never evidence (see espn-ufc-scoreboard.ts),
+ * so nothing here may be used to retire, un-tier or delete an athlete.
+ */
+export interface AthleteListProvider {
+  readonly name: string;
+  fetchAthletes(): Promise<UpsertableAthlete[] | null>;
+}
+
+export interface UpsertableAthlete {
+  espn_athlete_id: string;
+  full_name: string;
+}
+
+export const ATHLETE_LIST_PROVIDERS: Partial<Record<SportKey, AthleteListProvider>> = {
+  UFC: new UFCCardRosterProvider(),
 };
 
 /**
@@ -23,11 +102,44 @@ export const ESPN_ROSTERED_SOURCES: Record<Exclude<SportKey, 'UFC'>, ESPNInjuryS
  * "will an athlete of this sport ever resolve to a player row" — and therefore
  * whether an injury_entity can ever form for them. False means every event in
  * that sport permanently takes the fallback paths: no entity dedup, no thread,
- * no cadence throttle, no Return Watch. Callers key on this rather than on the
- * sport name so that if UFC ever gains a roster they all correct together.
+ * no cadence throttle, no Return Watch.
+ *
+ * UFC now answers TRUE, via the athlete-list provider. That is the point of
+ * this whole change: fighters resolve, so entities form.
  */
 export function hasRosterProvider(sport: SportKey): boolean {
+  return sport in ESPN_ROSTERED_SOURCES || sport in ATHLETE_LIST_PROVIDERS;
+}
+
+/**
+ * Whether athletes in this sport belong to a team at all.
+ *
+ * Distinct from hasRosterProvider, and the two used to be conflated under one
+ * `sport !== 'UFC'` test. A fighter now resolves to a player row exactly like
+ * an NFL athlete — but they still have no team, so every team-comparison check
+ * has nothing to compare against and must not report that as a data gap. This
+ * is a fact about the SPORT, not about our data coverage.
+ */
+export function isTeamSport(sport: SportKey): boolean {
   return sport in ESPN_ROSTERED_SOURCES;
+}
+
+/**
+ * Whether an athlete of this sport may be minted from a single news article's
+ * ESPN tag when the roster does not already know them.
+ *
+ * True only where the roster is inherently incomplete. The UFC card window
+ * covers fighters booked or fighting within ±(180/90) days; a fighter inactive
+ * for two years who tears an ACL is outside it, and they are precisely the case
+ * this exists for — measured 2026-08-16, 68 of 87 fighters tagged in the live
+ * news feed were in the window, so roughly a fifth arrive this way.
+ *
+ * False for the team sports, whose rosters are authoritative and complete: a
+ * name that misses there is a misspelling or a bad tag, and minting a row for
+ * it would manufacture a player who does not exist.
+ */
+export function registersAthletesOnSight(sport: SportKey): boolean {
+  return sport in ATHLETE_LIST_PROVIDERS;
 }
 
 const DEFAULT_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
@@ -280,6 +392,64 @@ async function syncSport(
   return summary;
 }
 
+/**
+ * Sync a sport that has athletes but no teams.
+ *
+ * Every upsert omits current_team_id entirely rather than sending null: the
+ * server COALESCEs it, so omission and null are the same on the write path, but
+ * omission states the intent — a fighter has no team, we are not clearing one.
+ */
+async function syncAthleteList(
+  sport: SportKey,
+  provider: AthleteListProvider,
+): Promise<SyncSummary> {
+  const summary: SyncSummary = {
+    sport,
+    teams_fetched: 0,
+    teams_upserted: 0,
+    players_fetched: 0,
+    players_upserted: 0,
+    players_with_salary: 0,
+    errors: 0,
+    teams_absent_from_feed: -1,
+  };
+
+  const athletes = await provider.fetchAthletes();
+  if (athletes === null) {
+    // Not an empty sport — a failed read. Upserting nothing is right; the rows
+    // already in the table stay, because absence is never evidence.
+    console.warn(
+      `[RosterSync] ${sport} — ${provider.name} read failed; keeping the existing player rows`,
+    );
+    summary.errors++;
+    return summary;
+  }
+
+  summary.players_fetched = athletes.length;
+  for (const athlete of athletes) {
+    try {
+      await callToolWithRetry('web', 'web_upsert_player', {
+        sport,
+        espn_athlete_id: athlete.espn_athlete_id,
+        full_name: athlete.full_name,
+        prominence_source: 'espn',
+      });
+      summary.players_upserted++;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[RosterSync] ${sport} player upsert failed for ${athlete.full_name}: ${message}`,
+      );
+      summary.errors++;
+    }
+  }
+
+  console.log(
+    `[RosterSync] ${sport} — source=${provider.name} players=${summary.players_upserted}/${summary.players_fetched} teams=n/a errors=${summary.errors}`,
+  );
+  return summary;
+}
+
 export async function syncAllRosters(): Promise<SyncSummary[]> {
   const results: SyncSummary[] = [];
   for (const [sport, source] of Object.entries(ESPN_ROSTERED_SOURCES) as [
@@ -288,6 +458,18 @@ export async function syncAllRosters(): Promise<SyncSummary[]> {
   ][]) {
     try {
       results.push(await syncSport(sport, source));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[RosterSync] ${sport} — cycle crashed: ${message}`);
+    }
+  }
+
+  for (const [sport, provider] of Object.entries(ATHLETE_LIST_PROVIDERS) as [
+    SportKey,
+    AthleteListProvider,
+  ][]) {
+    try {
+      results.push(await syncAthleteList(sport, provider));
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[RosterSync] ${sport} — cycle crashed: ${message}`);

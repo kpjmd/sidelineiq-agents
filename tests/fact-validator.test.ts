@@ -197,16 +197,47 @@ describe('validateEvent — resolved player carrying no roster team (F9)', () =>
 });
 
 describe('validateEvent — identity resolution', () => {
-  it('does not soft-fail identity for an unresolved UFC fighter', async () => {
+  it('now soft-fails identity for an unresolved UFC fighter', async () => {
+    // Reversed deliberately. While UFC had no roster, an unresolved fighter was
+    // the expected state of every event in the sport and flagging it would have
+    // sent all of them to MD review. Fighters are now synced from ESPN's card
+    // window and minted on sight from an article's own athlete tag, so failing
+    // to resolve one means something went wrong — and it means this event gets
+    // no entity, no thread and no laterality check, which is worth a look.
     const res = await validateEvent(
       makeEvent({ sport: 'UFC', team: 'N/A', athlete_name: 'Some Fighter' }),
       null,
       { now: NOW },
     );
-    expect(res.softFailures.map((f) => f.code)).not.toContain('identity_unresolvable');
+    const codes = res.softFailures.map((f) => f.code);
+    expect(codes).toContain('identity_unresolvable');
+    // The TEAM codes stay exempt: a fighter has no team by the structure of the
+    // sport, so there is nothing to verify and nothing to report as missing.
+    expect(codes).not.toContain('team_unverified');
+    expect(res.passed).toBe(true);
   });
 
-  it('soft-fails identity and team when a non-UFC player is unresolved', async () => {
+  it('does not soft-fail team codes for a resolved but teamless fighter', async () => {
+    // The shape a synced fighter actually has: a player row with
+    // current_team_id NULL. Without the isTeamSport exemption this branch would
+    // put every UFC post in the MD queue.
+    const res = await validateEvent(
+      makeEvent({ sport: 'UFC', team: 'UFC', athlete_name: 'Conor McGregor' }),
+      makePlayer({
+        full_name: 'Conor McGregor',
+        current_team_id: null,
+        current_team_name: null,
+        current_team_abbreviation: null,
+      }),
+      { now: NOW },
+    );
+    const codes = res.softFailures.map((f) => f.code);
+    expect(codes).not.toContain('team_unverifiable');
+    expect(codes).not.toContain('identity_unresolvable');
+    expect(res.passed).toBe(true);
+  });
+
+  it('soft-fails identity and team when a team-sport player is unresolved', async () => {
     const res = await validateEvent(makeEvent({ sport: 'NBA' }), null, { now: NOW });
     const codes = res.softFailures.map((f) => f.code);
     expect(codes).toContain('identity_unresolvable');

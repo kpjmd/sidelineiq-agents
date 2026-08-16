@@ -29,7 +29,8 @@ import {
 } from '../agents/injury-intelligence/significance.js';
 import { evictExpired, handleDeferDecision } from './defer-queue.js';
 import { maybeProposeReturnWatch } from './return-watch.js';
-import { callTool, isServerAvailable } from '../utils/mcp-client-manager.js';
+import { callTool, callToolWithRetry, isServerAvailable } from '../utils/mcp-client-manager.js';
+import { isTeamSport, registersAthletesOnSight } from './roster-sync.js';
 import {
   validateEvent,
   summarizeFailures,
@@ -282,10 +283,19 @@ function unwrapMCP<T>(res: unknown): T | null {
 async function resolvePlayer(
   name: string,
   sport: SportKey,
+  espnAthleteId?: string,
 ): Promise<ResolvedPlayerInfo | null> {
   if (!isServerAvailable('web')) return null;
   try {
-    const res = await callTool('web', 'web_resolve_player', { name, sport });
+    const res = await callTool('web', 'web_resolve_player', {
+      name,
+      sport,
+      // The server tries the id first and falls back to the name, so passing it
+      // can only ever resolve more. It is also the only way to separate two
+      // athletes who share a name, which a name-only lookup reports as
+      // 'ambiguous' and the caller then treats as unresolved.
+      ...(espnAthleteId && { espn_athlete_id: espnAthleteId }),
+    });
     const parsed = unwrapMCP<ResolveResponse>(res);
     return parsed?.resolved ? parsed.player : null;
   } catch (err) {
@@ -293,6 +303,94 @@ async function resolvePlayer(
     console.warn(`[FactValidator] resolve_player failed for ${name}: ${message}`);
     return null;
   }
+}
+
+/**
+ * Resolve an athlete, minting a player row from the source's own ESPN tag when
+ * the roster has never heard of them.
+ *
+ * Only for sports whose roster is inherently incomplete — today UFC, whose card
+ * window covers ±(180/90) days and therefore misses a fighter who has been
+ * inactive for two years and just tore an ACL. Measured 2026-08-16: 68 of the
+ * 87 fighters tagged in the live news feed were inside the window, so roughly
+ * one in five injured fighters arrives this way.
+ *
+ * Requires the ESPN id, never a bare name. ESPN tagging an athlete on an
+ * article is a positive identification from the source; a name that failed to
+ * resolve is not evidence of anything, and minting from one would manufacture a
+ * player out of a misspelling. Registration is also strictly additive — it
+ * never clears a team, retires anyone, or touches an existing row's identity.
+ */
+async function resolveOrRegisterPlayer(
+  event: RawInjuryEvent,
+  sport: SportKey,
+): Promise<ResolvedPlayerInfo | null> {
+  const resolved = await resolvePlayer(event.athlete_name, sport, event.espn_athlete_id);
+  if (resolved) return resolved;
+  if (!event.espn_athlete_id || !registersAthletesOnSight(sport)) return resolved;
+  if (!isServerAvailable('web')) return resolved;
+
+  try {
+    await callToolWithRetry('web', 'web_upsert_player', {
+      sport,
+      espn_athlete_id: event.espn_athlete_id,
+      full_name: event.athlete_name,
+      prominence_source: 'espn',
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[Poller] ${sport} — register-on-sight failed for ${event.athlete_name} ` +
+        `(espn=${event.espn_athlete_id}): ${message}`,
+    );
+    return resolved;
+  }
+
+  const after = await resolvePlayer(event.athlete_name, sport, event.espn_athlete_id);
+  if (after) {
+    console.log(
+      `[Poller] ${sport} — registered on sight: ${event.athlete_name} ` +
+        `(espn=${event.espn_athlete_id}, player=${after.player_id})`,
+    );
+  }
+  return after;
+}
+
+/**
+ * Whether this event reports something NEW about an injury already tracked.
+ *
+ * Two signals, in order of authority:
+ *   1. The SOURCE, when it has a status field to speak with. ESPN's structured
+ *      injuries table sets is_update either way, and its answer is final.
+ *   2. The CLASSIFIER, when the source left is_update undefined because it has
+ *      no status field at all — every news source. Haiku already judges
+ *      `is_new` ("False if it is an update to an existing/previously reported
+ *      injury") before dedup runs, and that judgement is the news-source
+ *      analogue of a status change.
+ *
+ * Without (2) a sport sourced purely from news is silenced for the whole 21-day
+ * entity window after its first post: with an entity matched and no signal able
+ * to open the escape, "McGregor to undergo surgery" five days after the ACL
+ * report never publishes. That is the opposite failure from the daily
+ * republishing the same-article guard fixed, and equally wrong.
+ *
+ * Applied to every source class rather than to UFC alone, because the condition
+ * is about the SOURCE, not the sport — keying it on the sport would rebuild the
+ * carve-out this change removes. It can only ever ADD pass-throughs, and each
+ * one still faces the TRACKING tier gate, the bar of 70, the content-type drift
+ * re-check and the 5-day cadence throttle.
+ */
+export function resolveUpdateSignal(
+  event: RawInjuryEvent,
+  classifiedIsNew: boolean | undefined,
+): { isUpdate: boolean; updateSignal: 'source' | 'classifier' | 'none' } {
+  if (event.is_update !== undefined) {
+    return { isUpdate: event.is_update, updateSignal: 'source' };
+  }
+  if (classifiedIsNew === false) {
+    return { isUpdate: true, updateSignal: 'classifier' };
+  }
+  return { isUpdate: false, updateSignal: 'none' };
 }
 
 // Frozen OTM projection captured at thread open. Mirrors the MCP web server's
@@ -849,7 +947,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
       // ── Fact validation ──────────────────────────────────────────────
       // Runs BEFORE Sonnet so hard failures don't burn agent tokens.
       // Hard fail → drop the event. Soft fail → route post to MD review.
-      const resolved = await resolvePlayer(event.athlete_name, sport);
+      const resolved = await resolveOrRegisterPlayer(event, sport);
       const validation = await validateEvent(event, resolved, {
         contentTypeHint: classified.content_type,
       });
@@ -889,16 +987,24 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
       }
       // ── End fact validation ─────────────────────────────────────────
 
+      const { isUpdate, updateSignal } = resolveUpdateSignal(event, classified.is_new);
       const dedup = await checkForExisting(event, {
         resolvedPlayer: validation.resolvedPlayer,
         metadata: validation.metadata,
+        isUpdate,
+        updateSignal,
       });
       if (dedup.isDuplicate) {
         summary.duplicates++;
         console.log(
-          `[Poller] ${sport} — duplicate skipped: ${context} (decision=${dedup.decision})`,
+          `[Poller] ${sport} — duplicate skipped: ${context} (decision=${dedup.decision} update_signal=${updateSignal})`,
         );
         continue;
+      }
+      if (dedup.decision === 'entity_match_pass_through') {
+        console.log(
+          `[Poller] ${sport} — follow-up on entity ${dedup.entityId}: ${context} (update_signal=${updateSignal})`,
+        );
       }
 
       // Laterality drift check: the entity match (if any) carries the thread's
@@ -985,7 +1091,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
           } else if (!forceMDReviewReason.includes('team_mismatch_unconfirmed')) {
             forceMDReviewReason = `${forceMDReviewReason},post_team_mismatch`;
           }
-        } else if (postTeamCheck === 'uncheckable' && sport !== 'UFC') {
+        } else if (postTeamCheck === 'uncheckable' && isTeamSport(sport)) {
           // Sonnet invented a team and the roster carries nothing to compare it
           // against. Previously this returned true and published unchecked.
           // validateEvent already emits team_unverifiable for the same roster

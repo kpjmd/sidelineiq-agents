@@ -162,6 +162,9 @@ export class NewsAPINFLSource implements SportDataSource {
         source_url: article.url ?? ENDPOINT,
         reported_at: reportedAt,
         source_name: this.name,
+        // Only when the URL is a real story — the fallback is the shared query
+        // endpoint, which identifies nothing.
+        source_kind: article.url ? 'article' : 'feed',
       });
     }
 

@@ -232,8 +232,16 @@ export abstract class ESPNInjurySource implements SportDataSource {
           source_url: this.url,
           reported_at: reportedAt,
           source_name: this.name,
+          // Every event carries the SAME url — this is the league-wide injuries
+          // endpoint, not a story. Anything keyed on source_url must know that.
+          source_kind: 'feed',
           ...(teamTimeline && { team_timeline: teamTimeline }),
-          ...(isUpdate && { is_update: true }),
+          // Set explicitly, both ways. This source HAS a status field, so
+          // `false` here is a real answer ("ESPN says this is not a change"),
+          // distinct from the `undefined` a news source leaves behind because
+          // it has nothing to answer with. The poller only substitutes the
+          // classifier's judgement for the latter.
+          is_update: isUpdate,
         });
       }
     }

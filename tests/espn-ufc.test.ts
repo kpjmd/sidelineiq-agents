@@ -223,3 +223,75 @@ describe('ESPNUFCSource', () => {
     expect(source.lastFetchReport()).toEqual({ status: 'error', detail: 'HTTP 503' });
   });
 });
+
+/**
+ * Identity carried off the article itself.
+ *
+ * ESPN tags an athlete id on every athlete category. It is the key the player
+ * lookup prefers — the only thing that separates two fighters who share a name
+ * — and it is what lets a fighter outside the card-roster window (inactive two
+ * years, then hurt) be registered at the moment they make news.
+ */
+describe('athlete id and source kind', () => {
+  it('carries the tagged athlete id onto the event', async () => {
+    stubFeed(freshFixture());
+    const events = await new ESPNUFCSource().fetchLatestEvents();
+
+    const mcgregor = events.find((e) => e.athlete_name === 'Conor McGregor');
+    expect(mcgregor).toBeDefined();
+    expect(mcgregor!.espn_athlete_id).toBe('3022677');
+  });
+
+  it('marks a story-linked event as article-sourced', async () => {
+    stubFeed(freshFixture());
+    const events = await new ESPNUFCSource().fetchLatestEvents();
+
+    expect(events.length).toBeGreaterThan(0);
+    for (const e of events) expect(e.source_kind).toBe('article');
+  });
+
+  it('falls back to feed kind when the article has no story link', async () => {
+    // Without a link the event carries the shared news endpoint as its URL.
+    // Claiming 'article' for that would let the same-article dedup guard
+    // suppress every fighter after the first.
+    stubFeed({
+      articles: [
+        article({
+          headline: 'Fighter suffered ACL injury, out indefinitely',
+          links: undefined,
+          categories: [
+            { type: 'athlete', athlete: { id: 111, description: 'Lone Fighter' } },
+          ],
+        }),
+      ],
+    });
+
+    const [event] = await new ESPNUFCSource().fetchLatestEvents();
+    expect(event.source_kind).toBe('feed');
+    expect(event.espn_athlete_id).toBe('111');
+  });
+
+  it('omits the id when ESPN tags a name with no id', async () => {
+    stubFeed({
+      articles: [
+        article({
+          headline: 'Fighter suffered ACL injury, out indefinitely',
+          links: { web: { href: 'https://espn.com/story/1' } },
+          categories: [{ type: 'athlete', athlete: { description: 'Nameless Id' } }],
+        }),
+      ],
+    });
+
+    const [event] = await new ESPNUFCSource().fetchLatestEvents();
+    expect(event.espn_athlete_id).toBeUndefined();
+    expect(event.athlete_name).toBe('Nameless Id');
+  });
+
+  it('never sets is_update — this source has no status field to read', async () => {
+    // The fact the whole classifier-fallback design rests on. If this source
+    // ever gained a status signal, the fallback would defer to it.
+    stubFeed(freshFixture());
+    const events = await new ESPNUFCSource().fetchLatestEvents();
+    for (const e of events) expect(e.is_update).toBeUndefined();
+  });
+});

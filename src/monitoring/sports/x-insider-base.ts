@@ -192,6 +192,9 @@ export abstract class XInsiderSource implements SportDataSource {
           : `https://x.com/${insider.handle}`,
         reported_at: reportedAt,
         source_name: `X:${insider.handle}`,
+        // A tweet permalink identifies one post. Without a tweet id the URL is
+        // the insider's timeline, which identifies all of them.
+        source_kind: tweet.id ? 'article' : 'feed',
       });
     }
 
