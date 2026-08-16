@@ -14,16 +14,49 @@ import {
 } from './derived-tier-snapshot.js';
 
 /**
+ * A refresh already running. Concurrent callers await it instead of starting
+ * their own — see refreshTierSnapshotsIfStale.
+ */
+let inFlight: Promise<void> | null = null;
+
+/**
  * Refresh whichever tier snapshots have gone stale. Cheap in the common case —
  * each provider does no I/O at all inside its TTL window — and safe to call at
  * the top of every poll cycle.
  *
  * Each provider is independently flagged and independently TTL'd, and neither
  * throws: a failure in one leaves the other's snapshot untouched.
+ *
+ * CONCURRENT CALLS ARE COALESCED, and that is not a micro-optimisation.
+ * startPolling fires every enabled sport at once (poller.ts — `void
+ * runAndReschedule(sport, …)` in a loop, deliberately unawaited so a slow sport
+ * cannot delay another), and each sport's cycle calls this. Both providers
+ * assign their `lastRefreshedAt` only AFTER their I/O completes, so a plain TTL
+ * check is a check-then-act race: every sport that starts before the first
+ * refresh finishes sees a stale timestamp and runs a full duplicate fetch.
+ *
+ * In production that showed up as doubled `[SalarySnapshot]` and
+ * `[DerivedTierSnapshot]` lines at boot, ~2ms apart, with NFL and NBA enabled.
+ * Harmless — both runs fetch identical data, the index swap is atomic, and a
+ * failed run never installs anything so it cannot clobber a success — but it is
+ * N times the work for N enabled sports, and PREMIER_LEAGUE and UFC are next.
+ *
+ * Coalescing lives HERE rather than in each provider because this is the single
+ * entry point every caller already uses, so one guard covers both.
  */
 export async function refreshTierSnapshotsIfStale(): Promise<void> {
-  await refreshSalarySnapshotIfStale();
-  await refreshDerivedTierSnapshotIfStale();
+  if (inFlight) return inFlight;
+  inFlight = (async () => {
+    try {
+      await refreshSalarySnapshotIfStale();
+      await refreshDerivedTierSnapshotIfStale();
+    } finally {
+      // Cleared before the awaiting callers resume, so the NEXT cycle is free
+      // to refresh again once its TTL genuinely expires.
+      inFlight = null;
+    }
+  })();
+  return inFlight;
 }
 
 /**
