@@ -1,5 +1,7 @@
 import { callTool, isServerAvailable } from '../utils/mcp-client-manager.js';
 import { maybeProposeReturnWatch } from './return-watch.js';
+import { hasRosterProvider } from './roster-sync.js';
+import { getMaxEventAgeMs } from './sports/text-extraction.js';
 import type { RawInjuryEvent } from '../types.js';
 import type {
   ExtractedInjuryMetadata,
@@ -9,6 +11,32 @@ import type {
 // Fallback window for the legacy (non-entity) dedup path used when there's
 // no resolved player (UFC, unresolved athlete, web MCP unavailable).
 const FALLBACK_DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How long the same SOURCE ARTICLE stays suppressed, for sports that will never
+ * have an entity to dedup against.
+ *
+ * 24 hours is the right memory for a TRANSIENT resolution failure — the athlete
+ * resolves next cycle, an entity forms, and 21-day entity dedup takes over. For
+ * UFC the failure is STRUCTURAL: fighters are not team-rostered, so
+ * web_resolve_player returns resolved=false for every one of them, forever, and
+ * this path is the only dedup the sport will ever get.
+ *
+ * That collides with how the news sources work. An ESPN article stays in the
+ * feed for MAX_EVENT_AGE_DAYS and is re-emitted as an event on every cycle for
+ * its whole life, so a 24-hour memory lets the identical story publish again
+ * every single day — up to seven posts about one injury. Anti-spam is a hard
+ * requirement, so the article has to stay suppressed for at least as long as
+ * the source can keep re-serving it.
+ *
+ * Keyed on source_url rather than on the athlete, because widening the ATHLETE
+ * window would suppress genuine follow-ups: "McGregor to undergo surgery" five
+ * days after the ACL report is a different article and a real update. Only the
+ * literal same article is blocked.
+ */
+function sameSourceWindowMs(): number {
+  return Math.max(FALLBACK_DEDUP_WINDOW_MS, getMaxEventAgeMs());
+}
 
 interface MCPTextResponse {
   content?: Array<{ type: string; text?: string }>;
@@ -22,6 +50,10 @@ interface ExistingPost {
   sport?: string;
   created_at?: string;
   headline?: string;
+  /** The article this post came from. Persisted on injury_posts and returned
+   *  by web_list_posts; article-specific for the news sources, but the shared
+   *  feed endpoint for the structured ones. See fallbackDedup. */
+  source_url?: string;
 }
 
 interface MatchingEntityResponse {
@@ -49,7 +81,13 @@ export interface DedupResult {
   matchedBodyPart?: string | null;
   matchedLaterality?: 'LEFT' | 'RIGHT' | 'BILATERAL' | 'UNSPECIFIED' | null;
   // Diagnostic — what path made the decision.
-  decision?: 'entity_match_skip' | 'entity_match_pass_through' | 'entity_miss' | 'fallback_24h' | 'no_match';
+  decision?:
+    | 'entity_match_skip'
+    | 'entity_match_pass_through'
+    | 'entity_miss'
+    | 'fallback_24h'
+    | 'fallback_same_source'
+    | 'no_match';
 }
 
 export interface DedupContext {
@@ -100,19 +138,52 @@ async function fallbackDedup(event: RawInjuryEvent): Promise<DedupResult> {
     });
     const posts = parseListPostsResponse(raw);
     const now = Date.now();
-    const recent = posts.find((post) => {
+    const sameAthlete = posts.filter((post) => {
       if (!post.created_at) return false;
       if (post.athlete_name && post.athlete_name !== event.athlete_name) return false;
       if (post.sport && post.sport !== event.sport) return false;
-      const age = now - new Date(post.created_at).getTime();
-      return age >= 0 && age < FALLBACK_DEDUP_WINDOW_MS;
+      return now - new Date(post.created_at).getTime() >= 0;
     });
-    if (!recent) return { isDuplicate: false, decision: 'no_match' };
-    return {
-      isDuplicate: true,
-      existingPostId: recent.post_id ?? recent.id,
-      decision: 'fallback_24h',
-    };
+
+    const recent = sameAthlete.find(
+      (post) => now - new Date(post.created_at!).getTime() < FALLBACK_DEDUP_WINDOW_MS,
+    );
+    if (recent) {
+      return {
+        isDuplicate: true,
+        existingPostId: recent.post_id ?? recent.id,
+        decision: 'fallback_24h',
+      };
+    }
+
+    // Past 24h, one more question for the sports that will never have an
+    // entity: have we already published THIS article? Restricted to them
+    // because a rostered sport's source_url is often the shared feed endpoint
+    // rather than a story — every NFL event carries the same
+    // .../football/nfl/injuries URL — so applying it there would suppress every
+    // unresolved athlete after the first. See sameSourceWindowMs.
+    if (!hasRosterProvider(event.sport) && event.source_url) {
+      const window = sameSourceWindowMs();
+      const sameSource = sameAthlete.find(
+        (post) =>
+          post.source_url === event.source_url &&
+          now - new Date(post.created_at!).getTime() < window,
+      );
+      if (sameSource) {
+        console.log(
+          `[Dedup] ${event.athlete_name} (${event.sport}): same source article already published ` +
+            `${Math.round((now - new Date(sameSource.created_at!).getTime()) / 3600_000)}h ago — ` +
+            `suppressed (no entity backing for this sport).`,
+        );
+        return {
+          isDuplicate: true,
+          existingPostId: sameSource.post_id ?? sameSource.id,
+          decision: 'fallback_same_source',
+        };
+      }
+    }
+
+    return { isDuplicate: false, decision: 'no_match' };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(

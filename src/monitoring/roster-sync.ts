@@ -16,6 +16,20 @@ export const ESPN_ROSTERED_SOURCES: Record<Exclude<SportKey, 'UFC'>, ESPNInjuryS
   PREMIER_LEAGUE: new ESPNPremierLeagueSource(),
 };
 
+/**
+ * Whether this sport's athletes are backed by a synced roster.
+ *
+ * The distinction downstream code actually cares about is not "is UFC" but
+ * "will an athlete of this sport ever resolve to a player row" — and therefore
+ * whether an injury_entity can ever form for them. False means every event in
+ * that sport permanently takes the fallback paths: no entity dedup, no thread,
+ * no cadence throttle, no Return Watch. Callers key on this rather than on the
+ * sport name so that if UFC ever gains a roster they all correct together.
+ */
+export function hasRosterProvider(sport: SportKey): boolean {
+  return sport in ESPN_ROSTERED_SOURCES;
+}
+
 const DEFAULT_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const STARTUP_DELAY_MS = 30 * 1000;             // let other services initialize first
 
