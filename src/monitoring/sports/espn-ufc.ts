@@ -2,7 +2,7 @@ import type { RawInjuryEvent, SportKey } from '../../types.js';
 import type { SportDataSource, SourceFetchReport } from './multi-source.js';
 import {
   type ESPNAthleteCategory,
-  resolveTaggedAthlete,
+  resolveTaggedAthleteRef,
   parseDate,
   getMaxEventAgeMs,
 } from './text-extraction.js';
@@ -108,8 +108,8 @@ export class ESPNUFCSource implements SportDataSource {
 
       if (!INJURY_KEYWORDS.test(text)) continue;
 
-      const athleteName = resolveTaggedAthlete(article.categories, headline);
-      if (!athleteName) continue;
+      const athlete = resolveTaggedAthleteRef(article.categories, headline);
+      if (!athlete) continue;
 
       // The recency window every other source applies. Without it this source
       // read `new Date(article.published)` with `new Date()` as the fallback,
@@ -120,14 +120,24 @@ export class ESPNUFCSource implements SportDataSource {
       if (!reportedAt) continue;
       if (now - reportedAt.getTime() > maxAgeMs) continue;
 
+      const sourceUrl = article.links?.web?.href;
       events.push({
-        athlete_name: athleteName,
+        athlete_name: athlete.name,
         sport: this.sport,
         team: 'UFC',
         injury_description: text.trim(),
-        source_url: article.links?.web?.href ?? UFC_NEWS_URL,
+        source_url: sourceUrl ?? UFC_NEWS_URL,
         reported_at: reportedAt,
         source_name: this.name,
+        // Only claim 'article' when the URL really is one. Without a story link
+        // the event falls back to the shared feed URL, which every other
+        // article shares — treating that as an article identity would suppress
+        // every fighter after the first.
+        source_kind: sourceUrl ? 'article' : 'feed',
+        // ESPN tags an athlete id on the article itself. It is the key the
+        // player lookup prefers, and the seed roster-sync's window missed for
+        // an inactive fighter who just got hurt.
+        ...(athlete.espn_athlete_id && { espn_athlete_id: athlete.espn_athlete_id }),
       });
     }
 

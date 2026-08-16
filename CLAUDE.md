@@ -53,7 +53,9 @@ src/
 │       ├── nfl.ts              # NFL data source handlers
 │       ├── nba.ts              # NBA data source handlers
 │       ├── premier-league.ts   # Premier League handlers
-│       └── ufc.ts              # UFC/MMA handlers
+│       ├── ufc.ts              # UFC/MMA news handler
+│       └── espn-ufc-scoreboard.ts # Shared MMA scoreboard fetch
+│                                   # (tiers + fighter roster)
 └── utils/
     ├── mcp-client-manager.ts   # Connects to sidelineiq-mcp-servers
     ├── content-formatter.ts    # Formats content per platform
@@ -106,10 +108,36 @@ skills/
 - MD review queue active
 
 ### Sports Coverage (Launch Order)
-1. NFL ✅ active (ESPN + NewsAPI)
+1. NFL ✅ active (ESPN + NewsAPI + X insiders)
 2. NBA ✅ active (ESPN only)
-3. PREMIER_LEAGUE — add after NFL/NBA stable
-4. UFC — add after Premier League stable
+3. PREMIER_LEAGUE ✅ polling on (ESPN news; the structured
+   soccer/eng.1/injuries feed is empty upstream)
+4. UFC — entity backing built; `POLL_UFC` still off pending the
+   ship-gate run (`src/scripts/ufc-entity-dryrun.ts`)
+
+### Rostered vs Individual Sports
+Three predicates in `roster-sync.ts` say what used to be one
+`sport !== 'UFC'` test. They are not interchangeable:
+- `hasRosterProvider(sport)` — will an athlete ever resolve to a
+  player row, and therefore can an injury_entity form. TRUE for all
+  four sports now: UFC fighters come from an `AthleteListProvider`
+  reading ESPN's MMA scoreboard rather than from teams.
+- `isTeamSport(sport)` — do athletes belong to a team at all. FALSE
+  for UFC. Every team-comparison check keys on this; a fighter
+  having no team is the sport's structure, not a gap in our data.
+- `registersAthletesOnSight(sport)` — may a player row be minted
+  from one article's ESPN athlete tag. TRUE only for UFC, whose
+  card window is inherently incomplete. Requires the ESPN id —
+  never a bare name, which would invent players from misspellings.
+
+### The Update Signal
+`RawInjuryEvent.is_update` is a TRI-STATE and the third value
+matters: `undefined` means the source has no status field to
+answer with, which is every news source. `resolveUpdateSignal()`
+in poller.ts falls back to the classifier's `is_new` only in that
+case, so the structured feeds are untouched. Without the fallback,
+a news-sourced sport is silenced for the whole 21-day entity
+window after its first post about an injury.
 
 ### OrthoIQ Reference Rule
 Append OrthoIQ referral link ONLY on DEEP_DIVE content type,

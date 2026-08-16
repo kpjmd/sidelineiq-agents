@@ -66,6 +66,20 @@ export interface MCPToolResult {
 
 export type SportKey = 'NFL' | 'NBA' | 'PREMIER_LEAGUE' | 'UFC';
 
+/**
+ * Whether the event's URL identifies a specific STORY or a shared FEED.
+ *
+ * The distinction is load-bearing for dedup: a news source gives every event
+ * its own article URL, so "have we already published this URL" is a precise
+ * question. A structured source gives every event the same endpoint — every NFL
+ * event carries `.../football/nfl/injuries` — so the same question there would
+ * suppress every athlete after the first.
+ *
+ * Defaults to 'feed' when unset, which is the conservative reading: it disables
+ * the URL-keyed guard rather than enabling it on a URL that cannot bear it.
+ */
+export type SourceKind = 'article' | 'feed';
+
 export interface RawInjuryEvent {
   athlete_name: string;
   sport: SportKey;
@@ -74,8 +88,31 @@ export interface RawInjuryEvent {
   source_url: string;
   reported_at: Date;
   team_timeline?: string;
+  /**
+   * Whether the SOURCE says this is a status change on an existing injury.
+   *
+   * Three states, and the third is not the same as the second:
+   *   true      — the source has a status field and it changed.
+   *   false     — the source has a status field and it did not.
+   *   undefined — the source has no status field at all, so it cannot say.
+   *
+   * Only ESPN's structured injuries table sets it either way (see
+   * inferIsUpdate in espn-base.ts). Every news source leaves it undefined,
+   * which is what the poller's classifier fallback keys on: with no source
+   * signal, the classifier's `is_new` judgement stands in. Collapsing
+   * undefined into false is what would silence a follow-up story for the
+   * 21-day entity window.
+   */
   is_update?: boolean;
   source_name?: string;
+  /** See SourceKind. Unset is read as 'feed'. */
+  source_kind?: SourceKind;
+  /**
+   * ESPN's athlete id, when the source tags one. Lets the player lookup use the
+   * strong key instead of the name — the only way to separate two athletes who
+   * share one, and the seed for registering a fighter who has no roster.
+   */
+  espn_athlete_id?: string;
 }
 
 export type AthleteTier = 1 | 2 | 3 | 4;

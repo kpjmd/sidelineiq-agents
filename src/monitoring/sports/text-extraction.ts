@@ -76,13 +76,30 @@ export function extractAthleteName(
 export interface ESPNAthleteCategory {
   type?: string;
   description?: string;
-  athlete?: { description?: string; displayName?: string };
+  /** ESPN's athlete id, carried on the category itself. Verified present on
+   *  every athlete tag of the live NFL, soccer/eng.1 and mma/ufc news feeds
+   *  (2026-08-16). `athlete.id` carries the same value. */
+  athleteId?: number | string;
+  athlete?: { id?: number | string; description?: string; displayName?: string };
+}
+
+/** A tagged athlete's name plus, when ESPN supplies one, their athlete id. */
+export interface TaggedAthleteRef {
+  name: string;
+  espn_athlete_id?: string;
 }
 
 function categoryAthleteName(c: ESPNAthleteCategory): string | null {
   if (c.type && c.type !== 'athlete') return null;
   const name = c.athlete?.description ?? c.athlete?.displayName ?? (c.athlete ? c.description : null);
   return typeof name === 'string' && name.trim() ? name.trim() : null;
+}
+
+function categoryAthleteId(c: ESPNAthleteCategory): string | undefined {
+  const raw = c.athleteId ?? c.athlete?.id;
+  if (raw === undefined || raw === null) return undefined;
+  const id = String(raw).trim();
+  return id ? id : undefined;
 }
 
 /** Index of `needle` as a whole word in `haystack`, or -1. */
@@ -108,17 +125,32 @@ function wordIndex(haystack: string, needle: string): number {
  * athlete in the headline and more than one tag means we cannot tell, so the
  * caller falls back to text extraction or drops the event.
  */
-export function resolveTaggedAthlete(
+export function resolveTaggedAthleteRef(
   categories: ESPNAthleteCategory[] | undefined,
   headline: string,
-): string | null {
+): TaggedAthleteRef | null {
+  // Keyed by name, so two ESPN records for one person (the feed carries ghost
+  // duplicates under misspelled names — "Islam Makhackev" alongside Makhachev)
+  // stay separate entries and are disambiguated by the headline like anyone
+  // else. Where the SAME name appears twice, the first id wins; picking between
+  // two ids for one name is exactly the guess this function refuses to make.
+  const ids = new Map<string, string | undefined>();
   const names: string[] = [];
   for (const c of categories ?? []) {
     const name = categoryAthleteName(c);
-    if (name && !names.includes(name)) names.push(name);
+    if (name && !names.includes(name)) {
+      names.push(name);
+      ids.set(name, categoryAthleteId(c));
+    }
   }
+  const ref = (name: string | null): TaggedAthleteRef | null => {
+    if (!name) return null;
+    const id = ids.get(name);
+    return id ? { name, espn_athlete_id: id } : { name };
+  };
+
   if (names.length === 0) return null;
-  if (names.length === 1) return names[0];
+  if (names.length === 1) return ref(names[0]);
 
   let best: string | null = null;
   let bestIndex = Infinity;
@@ -141,7 +173,15 @@ export function resolveTaggedAthlete(
       tied = true;
     }
   }
-  return tied ? null : best;
+  return tied ? null : ref(best);
+}
+
+/** Name-only form. Callers that have nowhere to put an id use this. */
+export function resolveTaggedAthlete(
+  categories: ESPNAthleteCategory[] | undefined,
+  headline: string,
+): string | null {
+  return resolveTaggedAthleteRef(categories, headline)?.name ?? null;
 }
 
 export function extractTeam(text: string, teamNames: string[]): string {

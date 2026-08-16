@@ -20,6 +20,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve as resolvePath } from 'node:path';
 import type { RawInjuryEvent, SportKey } from '../../types.js';
+import { hasRosterProvider, isTeamSport } from '../../monitoring/roster-sync.js';
 
 export interface ResolvedPlayerInfo {
   player_id: string;
@@ -459,9 +460,14 @@ export async function validateEvent(
 
   // ── Identity ──────────────────────────────────────────────────────────
   if (!resolved) {
-    // For UFC there's no roster — name miss is expected and not a hard fail.
-    // For other sports, an unresolvable identity is a soft fail (route to review).
-    if (event.sport !== 'UFC') {
+    // Exempt only for a sport with no roster to miss. UFC used to qualify and
+    // no longer does: fighters are synced from ESPN's card window and minted
+    // on sight from an article's own athlete tag, so an unresolved fighter now
+    // means something went wrong rather than something being absent by design
+    // — and, more importantly, that this event will get no entity, no thread
+    // and no laterality check. That is worth a human look, exactly as it is
+    // for the team sports.
+    if (hasRosterProvider(event.sport)) {
       softFailures.push({
         code: 'identity_unresolvable',
         detail: `No roster match for athlete "${event.athlete_name}" in ${event.sport}`,
@@ -491,9 +497,12 @@ export async function validateEvent(
       // T1 report is exactly as uncheckable against a null as a T3 one. Hard-
       // dropping here would also be stricter than the treatment of a genuine
       // conflict below, which would be incoherent.
-      // UFC is exempt — fighters have no team by design (cf. the !resolved
-      // branch below, which carries the same exemption).
-      if (event.sport !== 'UFC') {
+      // Individual sports are exempt — a fighter having no team is the sport's
+      // structure, not a gap in our data, and the whole point of this code is
+      // to distinguish those two. This is the branch UFC events land in now
+      // that fighters resolve: without the exemption every single UFC post
+      // would carry fact_soft_fail:team_unverifiable straight to MD review.
+      if (isTeamSport(event.sport)) {
         softFailures.push({
           code: 'team_unverifiable',
           detail: `Cannot verify team "${event.team}" — ${resolved.full_name} resolved but carries no roster team (player_id=${resolved.player_id})`,
@@ -538,7 +547,7 @@ export async function validateEvent(
         });
       }
     }
-  } else if (event.sport !== 'UFC' && !resolved) {
+  } else if (isTeamSport(event.sport) && !resolved) {
     softFailures.push({
       code: 'team_unverified',
       detail: `Cannot verify team "${event.team}" — player not in roster store`,

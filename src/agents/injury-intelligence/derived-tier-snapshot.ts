@@ -25,6 +25,12 @@
 
 import { callTool, isServerAvailable } from '../../utils/mcp-client-manager.js';
 import {
+  fetchUfcScoreboardEvents,
+  isExcludedEvent,
+  isPlaceholderFighter,
+  type ScoreboardCompetitor,
+} from '../../monitoring/sports/espn-ufc-scoreboard.js';
+import {
   setDerivedTierSnapshot,
   derivedSnapshotSize,
   getLoadedDerivedConfig,
@@ -47,10 +53,6 @@ const MAX_PAGES = 60;                      // runaway backstop, ~3x the populati
  * broken read returns.
  */
 const MIN_PLAUSIBLE_PL_PLAYERS = 400;
-
-const UFC_SCOREBOARD_URL = 'https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard';
-/** ESPN rejects very wide ranges; the window is fetched in chunks of this size. */
-const SCOREBOARD_CHUNK_DAYS = 120;
 
 let lastRefreshedAt = 0;
 
@@ -185,18 +187,6 @@ async function loadClubRows(sport: string): Promise<DerivedRow[] | null> {
 
 // ── UFC: card provider ───────────────────────────────────────────────────────
 
-interface ScoreboardCompetitor {
-  athlete?: { id?: string; displayName?: string; accolades?: Array<{ type?: string; name?: string }> };
-}
-interface ScoreboardCompetition {
-  competitors?: ScoreboardCompetitor[];
-}
-interface ScoreboardEvent {
-  name?: string;
-  date?: string;
-  competitions?: ScoreboardCompetition[];
-}
-
 /**
  * A numbered pay-per-view — "UFC 330: Makhachev vs. Machado Garry". These are
  * the sport's tentpole events; everything else UFC-branded (Fight Night, Noche
@@ -212,27 +202,8 @@ function isNumberedPPV(eventName: string): boolean {
   return /^UFC\s+\d+/i.test(eventName);
 }
 
-/**
- * Dana White's Contender Series is a developmental show, not a UFC card. Its
- * fighters are not yet on the roster and main-eventing one says nothing about
- * prominence — including it would hand tier 2 to debutants.
- */
-function isExcludedEvent(eventName: string): boolean {
-  return /contender series/i.test(eventName);
-}
-
 function hasBelt(competitor: ScoreboardCompetitor): boolean {
   return (competitor.athlete?.accolades ?? []).some((a) => a.type === 'Belt');
-}
-
-/**
- * ESPN books announced-but-unfilled bouts against a placeholder competitor —
- * "TBA", "Opponent TBA". They are not people, and a main-event placeholder
- * would otherwise be indexed as a tier-1 "fighter" whose name a news article
- * could conceivably match.
- */
-function isPlaceholderFighter(name: string): boolean {
-  return /^(tba|tbd|opponent tba|opponent tbd|to be announced)$/i.test(name.trim());
 }
 
 /**
@@ -265,37 +236,14 @@ const SLOT_RANK: CardSlot[] = [
   'fight_night_co_main',
 ];
 
-function yyyymmdd(d: Date): string {
-  return d.toISOString().slice(0, 10).replace(/-/g, '');
-}
-
-async function fetchScoreboardChunk(from: Date, to: Date): Promise<ScoreboardEvent[] | null> {
-  const url = `${UFC_SCOREBOARD_URL}?dates=${yyyymmdd(from)}-${yyyymmdd(to)}&limit=100`;
-  try {
-    const res = await fetch(url, { headers: { Accept: 'application/json' } });
-    if (!res.ok) {
-      console.warn(`[DerivedTierSnapshot] UFC scoreboard HTTP ${res.status} for ${url}`);
-      return null;
-    }
-    const body = (await res.json()) as { events?: ScoreboardEvent[] };
-    return body.events ?? [];
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.warn(`[DerivedTierSnapshot] UFC scoreboard fetch failed: ${message}`);
-    return null;
-  }
-}
-
 /**
  * Every fighter who appeared on, or is booked for, a UFC card in the window,
  * tagged with their best slot.
  *
- * The window looks BACKWARD as well as forward on purpose: an injury story is
- * usually about a fight that already happened ("McGregor suffered an ACL tear
- * in his return"), and recovery outlives the event by months. Forward-looking
- * matters for the opposite reason — an announced bout is precisely what makes
- * a current injury newsworthy, which is the fight-date conflict protocol in
- * SKILL.md §3.5.
+ * The fetch (and its whole-or-nothing failure semantics) lives in
+ * espn-ufc-scoreboard.ts, which roster-sync reads too: a fighter silently
+ * absent from a partial read would be demoted to the flat default here, and
+ * would look like a fighter who does not exist there.
  */
 async function loadCardRows(
   sport: string,
@@ -303,29 +251,9 @@ async function loadCardRows(
   windowForwardDays: number,
   now: Date,
 ): Promise<DerivedRow[] | null> {
-  const start = new Date(now.getTime() - windowBackDays * 86400000);
-  const end = new Date(now.getTime() + windowForwardDays * 86400000);
-
-  const events: ScoreboardEvent[] = [];
-  for (let from = start; from < end; ) {
-    const to = new Date(Math.min(from.getTime() + SCOREBOARD_CHUNK_DAYS * 86400000, end.getTime()));
-    const chunk = await fetchScoreboardChunk(from, to);
-    // A failed chunk is a failed page, not a bad row: we do not know what we
-    // missed, and a fighter silently absent from the snapshot is demoted to the
-    // flat default with no symptom.
-    if (chunk === null) {
-      console.warn('[DerivedTierSnapshot] UFC scoreboard chunk failed — keeping the previous snapshot');
-      return null;
-    }
-    events.push(...chunk);
-    from = new Date(to.getTime() + 86400000);
-  }
-
-  if (events.length === 0) {
-    console.warn(
-      '[DerivedTierSnapshot] UFC scoreboard returned zero events across the whole window — ' +
-        'treating as a failed read rather than an empty sport',
-    );
+  const events = await fetchUfcScoreboardEvents(windowBackDays, windowForwardDays, now);
+  if (events === null) {
+    console.warn('[DerivedTierSnapshot] UFC scoreboard read failed — keeping the previous snapshot');
     return null;
   }
 

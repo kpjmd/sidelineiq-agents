@@ -150,14 +150,18 @@ export class ESPNPremierLeagueNewsSource implements SportDataSource {
       if (!reportedAt) continue;
       if (now - reportedAt.getTime() > maxAgeMs) continue;
 
+      const sourceUrl = article.links?.web?.href;
       events.push({
         athlete_name: athleteName,
         sport: this.sport,
         team: resolveTeam(article, text),
         injury_description: text,
-        source_url: article.links?.web?.href ?? PL_NEWS_URL,
+        source_url: sourceUrl ?? PL_NEWS_URL,
         reported_at: reportedAt,
         source_name: this.name,
+        // Only when the URL is a real story — the fallback is the shared feed
+        // endpoint, which identifies nothing.
+        source_kind: sourceUrl ? 'article' : 'feed',
       });
     }
 
