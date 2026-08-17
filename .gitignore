@@ -4,5 +4,7 @@ dist/
 .DS_Store
 *.tsbuildinfo
 
-# generated script reports (backfill-entities.ts, legacy-fact-sweep.ts)
+# generated script reports (backfill-entities.ts, legacy-fact-sweep.ts,
+# republish-social-orphans.ts)
 *.csv
+republish-orphans-preview.txt
