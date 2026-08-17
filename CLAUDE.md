@@ -47,7 +47,7 @@ src/
 │   └── research-agent.ts      # PubMed research (transplanted from
 │                               # orthoiq-agents, adapted for sports)
 ├── monitoring/
-│   ├── poller.ts               # 15-minute sports data polling loop
+│   ├── poller.ts               # Sports data polling loop (see POLL_INTERVAL_MS)
 │   ├── deduplicator.ts         # Prevents duplicate injury coverage
 │   └── sports/
 │       ├── nfl.ts              # NFL data source handlers
@@ -84,7 +84,11 @@ skills/
   MD_REVIEW_CONFIDENCE_THRESHOLD without routing to review queue
 
 ### Always Do These
-- All sports data polling runs on 15-minute intervals
+- Sports data polling cadence is `POLL_INTERVAL_MS`, not a fixed interval.
+  Production runs **6 hours** (21600000) deliberately — to prevent spam posting
+  and to keep polling costs down. The code default is 15 minutes; do not treat
+  that as the real cadence, and remember it when reading anything time-based
+  (a "next cycle" retry is six hours away, not fifteen minutes).
 - All injury posts go through publishing-pipeline.js —
   never publish ad hoc
 - All errors logged with sport, athlete, and timestamp context
@@ -101,7 +105,8 @@ skills/
 
 **Launched: April 20, 2026**
 
-- Autonomous polling live (NFL + NBA, 15-minute intervals)
+- Autonomous polling live (NFL + NBA; launched at 15-minute intervals, since
+  moved to 6 hours — see `POLL_INTERVAL_MS` above)
 - Inaugural post: Moses Moody patellar tendon rupture DEEP_DIVE
   published to Farcaster + X/Twitter + web
 - NewsAPI wired as secondary NFL data source (NFL-only at launch)
