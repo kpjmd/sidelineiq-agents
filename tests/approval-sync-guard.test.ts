@@ -92,6 +92,177 @@ describe('selectPostsToRepublish — backlog cutoff', () => {
   });
 });
 
+/**
+ * The Aug 2026 outage orphaned 6 BREAKING and 3 CONFLICT_FLAG posts and not one
+ * DEEP_DIVE — so this loop, which only ever re-cast DEEP_DIVE, could not have
+ * recovered any of the failure it exists to catch. Widening it is real risk, so
+ * it ships behind an allowlist and stays off until turned on deliberately.
+ */
+describe('selectPostsToRepublish — content-type allowlist', () => {
+  const originalTypes = process.env.APPROVAL_SYNC_CONTENT_TYPES;
+
+  afterEach(() => {
+    if (originalTypes === undefined) delete process.env.APPROVAL_SYNC_CONTENT_TYPES;
+    else process.env.APPROVAL_SYNC_CONTENT_TYPES = originalTypes;
+  });
+
+  it('defaults to DEEP_DIVE only — the behaviour that shipped', () => {
+    delete process.env.APPROVAL_SYNC_CONTENT_TYPES;
+    const posts = [
+      post({ post_id: 'dd', content_type: 'DEEP_DIVE' }),
+      post({ post_id: 'br', content_type: 'BREAKING' }),
+      post({ post_id: 'cf', content_type: 'CONFLICT_FLAG' }),
+    ];
+
+    const { pending } = selectPostsToRepublish(posts, NOW, null);
+
+    expect(pending.map((p) => p.post_id)).toEqual(['dd']);
+  });
+
+  it('lets the allowlisted types through when configured', () => {
+    process.env.APPROVAL_SYNC_CONTENT_TYPES = 'DEEP_DIVE,CONFLICT_FLAG';
+    const posts = [
+      post({ post_id: 'dd', content_type: 'DEEP_DIVE' }),
+      post({ post_id: 'br', content_type: 'BREAKING' }),
+      post({ post_id: 'cf', content_type: 'CONFLICT_FLAG' }),
+    ];
+
+    const { pending } = selectPostsToRepublish(posts, NOW, null);
+
+    expect(pending.map((p) => p.post_id).sort()).toEqual(['cf', 'dd']);
+  });
+
+  it('falls back to DEEP_DIVE on an empty or blank allowlist rather than opening up', () => {
+    process.env.APPROVAL_SYNC_CONTENT_TYPES = '  ,  ';
+    const posts = [
+      post({ post_id: 'dd', content_type: 'DEEP_DIVE' }),
+      post({ post_id: 'br', content_type: 'BREAKING' }),
+    ];
+
+    expect(selectPostsToRepublish(posts, NOW, null).pending.map((p) => p.post_id)).toEqual(['dd']);
+  });
+});
+
+/**
+ * This loop recovers a publish that failed minutes-to-hours ago. Whether a
+ * days-old injury report is still worth posting is an editorial call that
+ * belongs to a human, so age budgets vary by type — a "breaking" headline cast
+ * two days late is false on its face.
+ */
+describe('selectPostsToRepublish — per-type staleness', () => {
+  const originalTypes = process.env.APPROVAL_SYNC_CONTENT_TYPES;
+
+  beforeEach(() => {
+    process.env.APPROVAL_SYNC_CONTENT_TYPES = 'BREAKING,TRACKING,CONFLICT_FLAG,DEEP_DIVE';
+  });
+
+  afterEach(() => {
+    if (originalTypes === undefined) delete process.env.APPROVAL_SYNC_CONTENT_TYPES;
+    else process.env.APPROVAL_SYNC_CONTENT_TYPES = originalTypes;
+  });
+
+  it('drops BREAKING older than 6 hours but keeps a fresh one', () => {
+    const posts = [
+      post({ post_id: 'fresh', content_type: 'BREAKING', created_at: new Date(NOW - 2 * HOUR).toISOString() }),
+      post({ post_id: 'stale', content_type: 'BREAKING', created_at: new Date(NOW - 8 * HOUR).toISOString() }),
+    ];
+
+    expect(selectPostsToRepublish(posts, NOW, null).pending.map((p) => p.post_id)).toEqual(['fresh']);
+  });
+
+  it('drops TRACKING older than 48 hours', () => {
+    const posts = [
+      post({ post_id: 'fresh', content_type: 'TRACKING', created_at: new Date(NOW - 24 * HOUR).toISOString() }),
+      post({ post_id: 'stale', content_type: 'TRACKING', created_at: new Date(NOW - 3 * DAY).toISOString() }),
+    ];
+
+    expect(selectPostsToRepublish(posts, NOW, null).pending.map((p) => p.post_id)).toEqual(['fresh']);
+  });
+
+  it('keeps CONFLICT_FLAG and DEEP_DIVE for the full 7 days', () => {
+    const posts = [
+      post({ post_id: 'cf', content_type: 'CONFLICT_FLAG', created_at: new Date(NOW - 5 * DAY).toISOString() }),
+      post({ post_id: 'dd', content_type: 'DEEP_DIVE', created_at: new Date(NOW - 5 * DAY).toISOString() }),
+      post({ post_id: 'ancient', content_type: 'DEEP_DIVE', created_at: new Date(NOW - 9 * DAY).toISOString() }),
+    ];
+
+    expect(selectPostsToRepublish(posts, NOW, null).pending.map((p) => p.post_id).sort()).toEqual(['cf', 'dd']);
+  });
+
+  it('a cleared cutoff still cannot fire an 8-day-old BREAKING post', () => {
+    const posts = [
+      post({ post_id: 'walker', content_type: 'BREAKING', created_at: new Date(NOW - 8 * DAY).toISOString() }),
+    ];
+
+    expect(selectPostsToRepublish(posts, NOW, null).pending).toHaveLength(0);
+  });
+});
+
+/**
+ * publishApprovedPost skips the dedup and cadence checks publishInjuryPost
+ * performs, so without this the three hashless Coby Bryant CONFLICT_FLAGs go
+ * out back to back — and the two older ones carry a superseded team timeline.
+ */
+describe('selectPostsToRepublish — one per thread', () => {
+  const originalTypes = process.env.APPROVAL_SYNC_CONTENT_TYPES;
+
+  beforeEach(() => {
+    process.env.APPROVAL_SYNC_CONTENT_TYPES = 'CONFLICT_FLAG,DEEP_DIVE';
+  });
+
+  afterEach(() => {
+    if (originalTypes === undefined) delete process.env.APPROVAL_SYNC_CONTENT_TYPES;
+    else process.env.APPROVAL_SYNC_CONTENT_TYPES = originalTypes;
+  });
+
+  it('keeps only the newest post on a thread', () => {
+    const thread = 'coby-bryant-knee';
+    const posts = [
+      post({
+        post_id: 'cf-1',
+        content_type: 'CONFLICT_FLAG',
+        parent_post_id: thread,
+        created_at: new Date(NOW - 5 * DAY).toISOString(),
+      }),
+      post({
+        post_id: 'cf-3',
+        content_type: 'CONFLICT_FLAG',
+        parent_post_id: thread,
+        created_at: new Date(NOW - 1 * DAY).toISOString(),
+      }),
+      post({
+        post_id: 'cf-2',
+        content_type: 'CONFLICT_FLAG',
+        parent_post_id: thread,
+        created_at: new Date(NOW - 3 * DAY).toISOString(),
+      }),
+    ];
+
+    expect(selectPostsToRepublish(posts, NOW, null).pending.map((p) => p.post_id)).toEqual(['cf-3']);
+  });
+
+  it('does not collapse posts on different threads', () => {
+    const posts = [
+      post({ post_id: 'a', content_type: 'DEEP_DIVE', parent_post_id: 'thread-a' }),
+      post({ post_id: 'b', content_type: 'DEEP_DIVE', parent_post_id: 'thread-b' }),
+    ];
+
+    expect(selectPostsToRepublish(posts, NOW, null).pending).toHaveLength(2);
+  });
+
+  it('returns oldest-first so a recovered backlog publishes in order', () => {
+    const posts = [
+      post({ post_id: 'newer', content_type: 'DEEP_DIVE', created_at: new Date(NOW - 1 * HOUR).toISOString() }),
+      post({ post_id: 'older', content_type: 'DEEP_DIVE', created_at: new Date(NOW - 5 * HOUR).toISOString() }),
+    ];
+
+    expect(selectPostsToRepublish(posts, NOW, null).pending.map((p) => p.post_id)).toEqual([
+      'older',
+      'newer',
+    ]);
+  });
+});
+
 describe('getSocialReachReport', () => {
   // getSocialReachReport reads Date.now(), and the fixtures above are pinned to
   // NOW. Without a fake clock these assertions decay as real time moves past

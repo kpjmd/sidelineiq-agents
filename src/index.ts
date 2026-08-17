@@ -2,7 +2,8 @@ import 'dotenv/config';
 import express from 'express';
 import { timingSafeEqual } from 'node:crypto';
 import { initializeMCPClients, disconnectAll, getServerStatus, callTool, isServerAvailable } from './utils/mcp-client-manager.js';
-import { publishInjuryPost, publishApprovedDeepDive } from './utils/publishing-pipeline.js';
+import { publishInjuryPost, publishApprovedPost } from './utils/publishing-pipeline.js';
+import { reconstructPostContent } from './utils/post-content.js';
 import { startPolling, stopPolling, pollSport } from './monitoring/poller.js';
 import { processInjuryEvent } from './agents/injury-intelligence/agent.js';
 import { startDeepDiveScheduler, stopDeepDiveScheduler } from './monitoring/deep-dive-scheduler.js';
@@ -18,7 +19,6 @@ import {
 import { resolveSourceTier } from './agents/injury-intelligence/fact-validator.js';
 import type {
   InjuryPostContent,
-  InjurySeverity,
   SportKey,
   RawInjuryEvent,
   ClassificationResult,
@@ -178,46 +178,21 @@ app.post('/admin/approve/:post_id', async (req, res) => {
     return;
   }
 
-  // Reconstruct RTP from whichever shape the MCP tool returns:
-  //   web_create_injury_post / seed → nested return_to_play_estimate object
-  //   web_approve_injury_post       → flat DB columns (return_to_play_min_weeks, etc.)
-  const rtpNested = post.return_to_play_estimate as Record<string, unknown> | undefined;
-  const rtpRaw: Record<string, unknown> = rtpNested ?? {
-    min_weeks:          post.return_to_play_min_weeks,
-    max_weeks:          post.return_to_play_max_weeks,
-    probability_week_2: post.return_to_play_probability_week_2,
-    probability_week_4: post.return_to_play_probability_week_4,
-    probability_week_8: post.return_to_play_probability_week_8,
-    confidence:         post.return_to_play_confidence ?? post.confidence,
-  };
+  // Shared with ApprovalSync — these were two hand-maintained copies that had
+  // already diverged on content_type, which is the field that decides whether
+  // an OrthoIQ referral link gets appended.
+  const { content, reason } = reconstructPostContent(post);
 
-  if (rtpRaw.min_weeks === undefined || rtpRaw.min_weeks === null) {
-    res.status(400).json({ success: false, error: 'Post missing RTP data' });
+  if (!content) {
+    res.status(400).json({
+      success: false,
+      error:
+        reason === 'unknown_content_type'
+          ? `Post has an unrecognized content_type: "${String(post.content_type ?? '')}"`
+          : 'Post missing RTP data',
+    });
     return;
   }
-
-  const content: InjuryPostContent = {
-    athlete_name: String(post.athlete_name ?? ''),
-    sport: String(post.sport ?? ''),
-    team: String(post.team ?? ''),
-    injury_type: String(post.injury_type ?? ''),
-    injury_severity: (post.injury_severity as InjurySeverity) ?? 'UNKNOWN',
-    content_type: (post.content_type as InjuryPostContent['content_type']) ?? 'DEEP_DIVE',
-    headline: String(post.headline ?? ''),
-    clinical_summary: String(post.clinical_summary ?? ''),
-    return_to_play: {
-      min_weeks: Number(rtpRaw.min_weeks ?? 0),
-      max_weeks: Number(rtpRaw.max_weeks ?? 0),
-      probability_week_2: Number(rtpRaw.probability_week_2 ?? 0),
-      probability_week_4: Number(rtpRaw.probability_week_4 ?? 0),
-      probability_week_8: Number(rtpRaw.probability_week_8 ?? 0),
-      confidence: Number(rtpRaw.confidence ?? 0),
-    },
-    confidence: Number(post.confidence ?? 0),
-    ...(post.conflict_reason ? { conflict_reason: String(post.conflict_reason) } : {}),
-    ...(post.team_timeline_weeks !== undefined ? { team_timeline_weeks: Number(post.team_timeline_weeks) } : {}),
-    ...(post.parent_post_id ? { parent_post_id: String(post.parent_post_id) } : {}),
-  };
 
   const slug = String(post.slug ?? '');
   const siteUrl = (process.env.SITE_URL ?? 'https://sidelineiq.vercel.app').replace(/\/$/, '');
@@ -227,7 +202,7 @@ app.post('/admin/approve/:post_id', async (req, res) => {
   console.log(`[Approve] Social publish triggered for post ${webPostId} (${content.content_type}: ${content.athlete_name})`);
 
   try {
-    const result = await publishApprovedDeepDive(content, postUrl, webPostId);
+    const result = await publishApprovedPost(content, postUrl, webPostId);
     res.json({ success: true, result });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

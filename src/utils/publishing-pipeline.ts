@@ -400,15 +400,22 @@ async function writeSocialHashesBack(
 }
 
 /**
- * Publishes an already-approved DEEP_DIVE post to Farcaster and X/Twitter.
+ * Publishes an already-approved post to Farcaster and X/Twitter.
  * Called by the /admin/approve/:post_id endpoint after the frontend has
- * already called web_approve_injury_post (which flips the DB status to PUBLISHED).
+ * already called web_approve_injury_post (which flips the DB status to PUBLISHED),
+ * and by ApprovalSync when a publish failed and needs re-casting.
+ *
+ * Works for every content type — the formatters dispatch on content.content_type.
+ * It was named publishApprovedDeepDive and said "DEEP_DIVE" in every log line it
+ * emitted, so a BREAKING post approved by an MD logged as an approved DEEP_DIVE.
+ * That was misleading in precisely the logs relied on to tell whether a publish
+ * reached anyone.
  *
  * @param content   - Reconstructed InjuryPostContent from the approved post row
  * @param postUrl   - Full web URL of the published post (included in final social cast)
  * @param webPostId - Post ID for hash write-back to the web DB
  */
-export async function publishApprovedDeepDive(
+export async function publishApprovedPost(
   content: InjuryPostContent,
   postUrl: string,
   webPostId: string
@@ -430,7 +437,7 @@ export async function publishApprovedDeepDive(
       platformResults.push({ platform: 'farcaster', success: true, data });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`[Pipeline] Approved DEEP_DIVE Farcaster publish failed for ${context}: ${message}`);
+      console.error(`[Pipeline] Approved ${content.content_type} Farcaster publish failed for ${context}: ${message}`);
       platformResults.push({ platform: 'farcaster', success: false, error: message });
     }
   } else {
@@ -451,7 +458,7 @@ export async function publishApprovedDeepDive(
       platformResults.push({ platform: 'twitter', success: true, data });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`[Pipeline] Approved DEEP_DIVE Twitter publish failed for ${context}: ${message}`);
+      console.error(`[Pipeline] Approved ${content.content_type} Twitter publish failed for ${context}: ${message}`);
       platformResults.push({ platform: 'twitter', success: false, error: message });
     }
   } else {
@@ -471,7 +478,7 @@ export async function publishApprovedDeepDive(
       webPostId,
       farcasterHash,
       twitterId,
-      'Approved DEEP_DIVE social hash writeback'
+      `Approved ${content.content_type} social hash writeback`
     );
   }
 
@@ -510,7 +517,7 @@ export async function publishApprovedDeepDive(
   }
 
   const successCount = platformResults.filter((r) => r.success).length;
-  console.log(`[Pipeline] Approved DEEP_DIVE social publish for ${context}: ${successCount}/${platformResults.length} platforms`);
+  console.log(`[Pipeline] Approved ${content.content_type} social publish for ${context}: ${successCount}/${platformResults.length} platforms`);
 
   return { status: 'published', post_id: webPostId, platform_results: platformResults };
 }

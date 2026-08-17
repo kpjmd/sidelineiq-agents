@@ -167,18 +167,46 @@ days in August 2026 while approvals kept reporting success.
 The only durable signal is a `PUBLISHED` post with neither a `farcaster_hash`
 nor a `twitter_id`. Three ways to read it:
 - `GET /admin/social-health?window_hours=N` — on demand, admin-gated. It THROWS
-  on a failed query rather than reporting a clean bill of health.
+  on a failed query rather than reporting a clean bill of health, and answers
+  `ok:false` when `truncated` is true: a partial window is an unknown bill of
+  health, not a clean one. `scanned` says how many rows it actually read.
 - `[Audit] N PUBLISHED post(s) in the last 24h reached no social platform` —
-  emitted from the ApprovalSync cycle, at most hourly.
+  emitted from the ApprovalSync cycle, at most hourly. Every content type.
 - Three distinct pipeline log lines, which mean different things and have
   different fixes: `SOCIAL PUBLISH FAILED` (reached nobody),
   `SOCIAL HASH UNPARSEABLE` (it IS live, only the DB link is lost), and
   `Failed to write social hashes` (writeback rejected).
 
-`APPROVAL_SYNC_NOT_BEFORE` holds a backlog back. ApprovalSync re-casts any
-hashless DEEP_DIVE from the last 7 days and its duplicate guard is in-memory,
-so without a cutoff the first deploy after an outage fires the whole backlog at
-the live accounts at once.
+### Never read posts with an unpaged `web_list_posts`
+
+`web_list_posts` defaults to `limit: 20` (max 50) over `created_at DESC`. Every
+caller that passed `{}` was answering a 7- or 30-day question from twenty rows —
+`/admin/social-health` returned identical counts for `window_hours=336` and
+`720`. Use `listAllPosts` in `src/utils/web-posts.ts`, which filters server-side,
+pages at 50, and stops at the window edge. Athlete-filtered one-shot calls pass
+an explicit `limit: 50`.
+
+### ApprovalSync scope
+
+`APPROVAL_SYNC_NOT_BEFORE` holds a backlog back; its duplicate guard is
+in-memory, so without a cutoff the first deploy after an outage fires the whole
+backlog at the live accounts at once. `APPROVAL_SYNC_CONTENT_TYPES` (default
+`DEEP_DIVE`) says which types it may re-cast — it was DEEP_DIVE-only, and the
+Aug 2026 outage orphaned 6 BREAKING and 3 CONFLICT_FLAG posts and no DEEP_DIVE,
+so the net could not have caught the failure it was built for.
+
+Age budgets are enforced per type independently of the cutoff — BREAKING 6h,
+TRACKING 48h, CONFLICT_FLAG 7d, DEEP_DIVE 7d — and only the newest post per
+thread is eligible. The division of labour: **this loop recovers a publish that
+failed minutes-to-hours ago; anything older is an editorial decision and belongs
+to `src/scripts/republish-social-orphans.ts` under human review, not a cron.**
+
+`publishApprovedPost` handles every content type — never assume DEEP_DIVE when
+reconstructing a row. Use `reconstructPostContent` (`src/utils/post-content.ts`),
+which fails closed on an unrecognized or missing `content_type` rather than
+defaulting: `content_type` picks the formatter, and the OrthoIQ CTA is emitted
+only by the DEEP_DIVE builders, so guessing wrong puts a referral link on
+breaking injury news.
 
 ## MCP Server Connections
 
