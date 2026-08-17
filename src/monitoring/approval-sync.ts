@@ -1,4 +1,5 @@
-import { callTool, isServerAvailable } from '../utils/mcp-client-manager.js';
+import { isServerAvailable } from '../utils/mcp-client-manager.js';
+import { listAllPosts } from '../utils/web-posts.js';
 import { publishApprovedDeepDive } from '../utils/publishing-pipeline.js';
 import type { InjuryPostContent, InjurySeverity } from '../types.js';
 
@@ -60,23 +61,6 @@ export interface ApprovedPost {
     probability_week_8?: number;
     confidence?: number;
   };
-}
-
-function parseListPostsResponse(raw: unknown): ApprovedPost[] {
-  try {
-    if (Array.isArray(raw)) return raw as ApprovedPost[];
-    const wrapped = raw as { content?: Array<{ text?: string }>; isError?: boolean };
-    if (wrapped?.isError === true) return [];
-    const text = wrapped?.content?.[0]?.text;
-    if (!text) return [];
-    const parsed = JSON.parse(text) as unknown;
-    if (Array.isArray(parsed)) return parsed as ApprovedPost[];
-    const withPosts = parsed as { posts?: unknown[] };
-    if (Array.isArray(withPosts?.posts)) return withPosts.posts as ApprovedPost[];
-    return [];
-  } catch {
-    return [];
-  }
 }
 
 function reconstructContent(post: ApprovedPost): InjuryPostContent | null {
@@ -208,6 +192,11 @@ export interface SocialReachReport {
   published: number;
   missing_social: number;
   oldest_missing: string | null;
+  /** Rows actually read. Without it, a scan that saw 20 rows and one that saw
+   *  400 report identically — which is exactly how the 20-row cap hid. */
+  scanned: number;
+  /** True when the page cap ended the scan early, so the counts are a floor. */
+  truncated: boolean;
   sample: Array<{
     post_id: string;
     athlete_name: string;
@@ -228,15 +217,16 @@ export async function getSocialReachReport(windowHours = 24): Promise<SocialReac
     throw new Error('Web MCP server unavailable');
   }
 
-  const raw = await callTool('web', 'web_list_posts', {});
-  const wrapped = raw as { isError?: boolean; content?: Array<{ text?: string }> };
-  if (wrapped?.isError === true) {
-    throw new Error(`web_list_posts failed: ${wrapped.content?.[0]?.text ?? 'unknown MCP error'}`);
-  }
-
-  const posts = parseListPostsResponse(raw);
   const now = Date.now();
   const windowMs = windowHours * 60 * 60 * 1000;
+
+  // Filter by status server-side and stop at the window edge: the scan costs
+  // one page in the common case and still sees every PUBLISHED row in a 30-day
+  // window, which the old unpaged call could not do at any window size.
+  const { posts, truncated } = await listAllPosts<ApprovedPost>(
+    { status: 'PUBLISHED' },
+    { stopWhenOlderThan: now - windowMs },
+  );
 
   const inWindow = posts.filter((p) => {
     if ((p.status ?? '').toUpperCase() !== 'PUBLISHED') return false;
@@ -255,6 +245,8 @@ export async function getSocialReachReport(windowHours = 24): Promise<SocialReac
     published: inWindow.length,
     missing_social: missing.length,
     oldest_missing: missing[0]?.created_at ?? null,
+    scanned: posts.length,
+    truncated,
     sample: missing.slice(0, 20).map((p) => ({
       post_id: String(p.post_id ?? p.id ?? ''),
       athlete_name: String(p.athlete_name ?? ''),
@@ -277,17 +269,21 @@ async function runApprovalSyncCycle(): Promise<void> {
     return;
   }
 
-  let raw: unknown;
+  const now = Date.now();
+
+  // One scan feeds both consumers below: the 7-day republish lookback is the
+  // wider of the two windows, so it contains the 24h audit window as well.
+  let posts: ApprovedPost[];
   try {
-    raw = await callTool('web', 'web_list_posts', {});
+    ({ posts } = await listAllPosts<ApprovedPost>(
+      { status: 'PUBLISHED' },
+      { stopWhenOlderThan: now - LOOKBACK_MS },
+    ));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`[ApprovalSync] web_list_posts failed: ${message}`);
     return;
   }
-
-  const posts = parseListPostsResponse(raw);
-  const now = Date.now();
 
   auditSocialReach(posts, now);
 

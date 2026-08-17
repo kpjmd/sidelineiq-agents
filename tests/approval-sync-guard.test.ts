@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('../src/utils/mcp-client-manager.js', () => ({
   callTool: vi.fn(),
@@ -93,13 +93,33 @@ describe('selectPostsToRepublish — backlog cutoff', () => {
 });
 
 describe('getSocialReachReport', () => {
+  // getSocialReachReport reads Date.now(), and the fixtures above are pinned to
+  // NOW. Without a fake clock these assertions decay as real time moves past
+  // the fixture date — the suite silently started failing once it did.
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
     mockIsServerAvailable.mockReturnValue(true);
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** One full page: fewer rows than the page size, so has_more is false. */
   const listResponse = (posts: ApprovedPost[]) => ({
-    content: [{ type: 'text', text: JSON.stringify(posts) }],
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify({
+          posts,
+          total: posts.length,
+          has_more: false,
+          next_offset: null,
+        }),
+      },
+    ],
   });
 
   it('counts PUBLISHED posts with neither hash', async () => {
@@ -108,7 +128,7 @@ describe('getSocialReachReport', () => {
         post({ post_id: 'reached', farcaster_hash: '0xabc' }),
         post({ post_id: 'tweet-only', twitter_id: '123' }),
         post({ post_id: 'unreached-1' }),
-        post({ post_id: 'unreached-2', created_at: new Date(Date.now() - 3 * HOUR).toISOString() }),
+        post({ post_id: 'unreached-2', created_at: new Date(NOW - 3 * HOUR).toISOString() }),
       ])
     );
 
@@ -117,19 +137,95 @@ describe('getSocialReachReport', () => {
     expect(report.missing_social).toBe(2);
     expect(report.published).toBe(4);
     expect(report.sample.map((s) => s.post_id).sort()).toEqual(['unreached-1', 'unreached-2']);
+    expect(report.truncated).toBe(false);
+    expect(report.scanned).toBe(4);
   });
 
   it('ignores posts still mid-publish', async () => {
     // The web row is created before the social calls fire, so a row seconds old
     // with no hash is in flight, not failed.
     mockCallTool.mockResolvedValue(
-      listResponse([post({ post_id: 'in-flight', created_at: new Date().toISOString() })])
+      listResponse([post({ post_id: 'in-flight', created_at: new Date(NOW).toISOString() })])
     );
 
     const report = await getSocialReachReport(24);
 
     expect(report.missing_social).toBe(0);
     expect(report.published).toBe(0);
+  });
+
+  /**
+   * The regression proof. web_list_posts defaults to limit=20, and every caller
+   * passed {} — so a 14-day and a 30-day window returned byte-identical counts
+   * off the newest 20 rows. A post at index 25 was invisible at any window size.
+   */
+  it('sees a post past the first page', async () => {
+    const firstPage = Array.from({ length: 50 }, (_, i) =>
+      post({ post_id: `reached-${i}`, farcaster_hash: '0xabc' })
+    );
+    const secondPage = [post({ post_id: 'unreached-page-2' })];
+
+    mockCallTool
+      .mockResolvedValueOnce({
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              posts: firstPage,
+              total: 51,
+              has_more: true,
+              next_offset: 50,
+            }),
+          },
+        ],
+      })
+      .mockResolvedValueOnce(listResponse(secondPage));
+
+    const report = await getSocialReachReport(24);
+
+    expect(report.scanned).toBe(51);
+    expect(report.missing_social).toBe(1);
+    expect(report.sample[0].post_id).toBe('unreached-page-2');
+    expect(mockCallTool).toHaveBeenCalledTimes(2);
+  });
+
+  it('filters and pages server-side rather than asking for everything', async () => {
+    mockCallTool.mockResolvedValue(listResponse([post({ post_id: 'unreached-1' })]));
+
+    await getSocialReachReport(24);
+
+    expect(mockCallTool).toHaveBeenCalledWith('web', 'web_list_posts', {
+      status: 'PUBLISHED',
+      limit: 50,
+      offset: 0,
+    });
+  });
+
+  it('stops scanning once rows fall outside the window', async () => {
+    // Rows come back newest-first, so the first row past the window ends the
+    // scan — this is what keeps window_hours=720 from walking the whole table.
+    mockCallTool.mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            posts: [
+              post({ post_id: 'in-window' }),
+              post({ post_id: 'too-old', created_at: new Date(NOW - 40 * HOUR).toISOString() }),
+            ],
+            total: 500,
+            has_more: true,
+            next_offset: 50,
+          }),
+        },
+      ],
+    });
+
+    const report = await getSocialReachReport(24);
+
+    expect(report.scanned).toBe(1);
+    expect(report.truncated).toBe(false);
+    expect(mockCallTool).toHaveBeenCalledTimes(1);
   });
 
   it('throws rather than reporting a clean bill of health when the query fails', async () => {

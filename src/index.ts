@@ -255,7 +255,9 @@ app.get('/admin/social-health', async (req, res) => {
   try {
     const report = await getSocialReachReport(windowHours);
     res.json({
-      ok: report.missing_social === 0,
+      // A truncated scan is not a clean bill of health — it is an unknown one.
+      // Reporting ok:true off a partial window is the failure this endpoint exists to catch.
+      ok: report.missing_social === 0 && !report.truncated,
       ...report,
     });
   } catch (err) {

@@ -535,6 +535,9 @@ export async function publishInjuryPost(
       const result = await callTool('web', 'web_list_posts', {
         athlete_name: content.athlete_name,
         sport: content.sport,
+        // Explicit: the tool defaults to 20, which would silently shorten the
+        // history the cadence throttle below reasons over on a long thread.
+        limit: 50,
       });
 
       // web_list_posts comes back as an MCP envelope ({content:[{text}]}), not a

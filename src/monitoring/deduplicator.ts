@@ -1,4 +1,5 @@
 import { callTool, isServerAvailable } from '../utils/mcp-client-manager.js';
+import { parseListPostsResponse as parseListPostsPageRows } from '../utils/web-posts.js';
 import { maybeProposeReturnWatch } from './return-watch.js';
 import { getMaxEventAgeMs } from './sports/text-extraction.js';
 import type { RawInjuryEvent } from '../types.js';
@@ -81,6 +82,9 @@ async function listAthletePosts(event: RawInjuryEvent): Promise<ExistingPost[]> 
   const raw = await callTool('web', 'web_list_posts', {
     athlete_name: event.athlete_name,
     sport: event.sport,
+    // Explicit: the tool defaults to 20, and a long-running injury thread can
+    // exceed that. 50 is the server max.
+    limit: 50,
   });
   const now = Date.now();
   return parseListPostsResponse(raw).filter((post) => {
@@ -175,23 +179,14 @@ function unwrap<T>(raw: unknown): T | null {
   }
 }
 
+/**
+ * Re-exported from utils/web-posts.ts, where the canonical copy now lives —
+ * three separate hand-rolled versions of this had drifted apart. Kept here as
+ * a named export because poller.ts and publishing-pipeline.ts import it from
+ * this module.
+ */
 export function parseListPostsResponse(raw: unknown): ExistingPost[] {
-  if (!raw) return [];
-  if (Array.isArray(raw)) return raw as ExistingPost[];
-  const wrapped = raw as MCPTextResponse;
-  if (wrapped.isError) return [];
-  const text = wrapped.content?.[0]?.text;
-  if (!text) return [];
-  try {
-    const parsed = JSON.parse(text);
-    if (Array.isArray(parsed)) return parsed as ExistingPost[];
-    if (parsed && Array.isArray((parsed as { posts?: unknown }).posts)) {
-      return (parsed as { posts: ExistingPost[] }).posts;
-    }
-    return [];
-  } catch {
-    return [];
-  }
+  return parseListPostsPageRows<ExistingPost>(raw);
 }
 
 // Legacy 24h time-window dedup — fallback path when we can't resolve a player
