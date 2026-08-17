@@ -1,4 +1,5 @@
-import { callTool, isServerAvailable } from '../utils/mcp-client-manager.js';
+import { isServerAvailable } from '../utils/mcp-client-manager.js';
+import { listAllPosts } from '../utils/web-posts.js';
 import { processDeepDive } from '../agents/injury-intelligence/agent.js';
 import { publishInjuryPost } from '../utils/publishing-pipeline.js';
 import type { SportKey } from '../types.js';
@@ -57,25 +58,6 @@ interface RecentPost {
   content_type?: string;
 }
 
-function parseListPostsResponse(raw: unknown): RecentPost[] {
-  try {
-    // Direct array response
-    if (Array.isArray(raw)) return raw as RecentPost[];
-    // MCP-wrapped response: { content: [{ text: '...' }] }
-    const wrapped = raw as { content?: Array<{ text?: string }>; isError?: boolean };
-    if (wrapped?.isError === true) return [];
-    const text = wrapped?.content?.[0]?.text;
-    if (!text) return [];
-    const parsed = JSON.parse(text) as unknown;
-    if (Array.isArray(parsed)) return parsed as RecentPost[];
-    const withPosts = parsed as { posts?: unknown[] };
-    if (Array.isArray(withPosts?.posts)) return withPosts.posts as RecentPost[];
-    return [];
-  } catch {
-    return [];
-  }
-}
-
 interface InjuryAggregate {
   injury_type: string;
   count: number;
@@ -97,17 +79,23 @@ async function findTopInjuryType(): Promise<InjuryAggregate | null> {
     return null;
   }
 
-  let raw: unknown;
+  const now = Date.now();
+
+  // Both consumers below are windowed; scan to the wider of the two. Unpaged,
+  // this saw only the newest 20 rows, so a busy week of BREAKING posts could
+  // push every DEEP_DIVE out of view and defeat the cooldown check entirely.
+  // No status filter: frequency analysis counts pending posts too.
+  let posts: RecentPost[];
   try {
-    raw = await callTool('web', 'web_list_posts', {});
+    ({ posts } = await listAllPosts<RecentPost>(
+      {},
+      { stopWhenOlderThan: now - Math.max(LOOKBACK_MS, INJURY_TYPE_COOLDOWN_MS) },
+    ));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`[DeepDive] web_list_posts failed: ${message}`);
     return null;
   }
-
-  const posts = parseListPostsResponse(raw);
-  const now = Date.now();
 
   // Split into recent BREAKING/TRACKING/CONFLICT_FLAG posts (for frequency analysis)
   // and recent DEEP_DIVE posts (for cooldown check)

@@ -375,19 +375,11 @@ export async function processMention(mention: SocialMention): Promise<MentionPro
 
   // Step 4: CORRECTION with high confidence → queue for admin review
   if (intent === 'CORRECTION' && confidence > 0.8 && correctionData) {
-    // Try to find the original OTM post being corrected
-    let originalPostId: string | undefined;
-    if (mention.parentPostId && isServerAvailable('web')) {
-      try {
-        const raw = await callTool('web', 'web_list_posts', {});
-        // parentPostId in this context is the tweet/cast ID of OTM's post,
-        // not the DB UUID. We log it as-is; admin can cross-reference.
-        originalPostId = undefined; // Cannot reliably resolve tweet ID → DB UUID without additional tooling
-        void raw; // suppress unused warning
-      } catch {
-        // Non-fatal
-      }
-    }
+    // mention.parentPostId is the tweet/cast ID of OTM's post, not the DB UUID,
+    // and nothing maps one to the other yet — so the original post stays
+    // unresolved and the admin cross-references it by hand. This used to list
+    // every post and throw the result away; the call is gone, not the caveat.
+    const originalPostId: string | undefined = undefined;
 
     if (isServerAvailable('web')) {
       try {

@@ -1,10 +1,19 @@
-import { callTool, isServerAvailable } from '../utils/mcp-client-manager.js';
-import { publishApprovedDeepDive } from '../utils/publishing-pipeline.js';
-import type { InjuryPostContent, InjurySeverity } from '../types.js';
+import { isServerAvailable } from '../utils/mcp-client-manager.js';
+import { listAllPosts } from '../utils/web-posts.js';
+import { reconstructPostContent } from '../utils/post-content.js';
+import { publishApprovedPost } from '../utils/publishing-pipeline.js';
 
 const DEFAULT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const STARTUP_DELAY_MS = 2 * 60 * 1000;    // 2 minutes — let MCP clients settle
 const LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+// Ceiling on how much of a backlog one cycle may fire at the live accounts.
+const MAX_REPUBLISH_PER_CYCLE = 2;
+const REPUBLISH_SPACING_MS = 45 * 1000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 // Social-reach audit: this loop already lists every post every cycle, so the
 // same result answers "did anything published recently reach an audience at
@@ -59,53 +68,6 @@ export interface ApprovedPost {
     probability_week_4?: number;
     probability_week_8?: number;
     confidence?: number;
-  };
-}
-
-function parseListPostsResponse(raw: unknown): ApprovedPost[] {
-  try {
-    if (Array.isArray(raw)) return raw as ApprovedPost[];
-    const wrapped = raw as { content?: Array<{ text?: string }>; isError?: boolean };
-    if (wrapped?.isError === true) return [];
-    const text = wrapped?.content?.[0]?.text;
-    if (!text) return [];
-    const parsed = JSON.parse(text) as unknown;
-    if (Array.isArray(parsed)) return parsed as ApprovedPost[];
-    const withPosts = parsed as { posts?: unknown[] };
-    if (Array.isArray(withPosts?.posts)) return withPosts.posts as ApprovedPost[];
-    return [];
-  } catch {
-    return [];
-  }
-}
-
-function reconstructContent(post: ApprovedPost): InjuryPostContent | null {
-  const rtpNested = post.return_to_play_estimate;
-  const minWeeks = rtpNested?.min_weeks ?? post.return_to_play_min_weeks;
-
-  if (minWeeks === undefined || minWeeks === null) return null;
-
-  return {
-    athlete_name: String(post.athlete_name ?? ''),
-    sport: String(post.sport ?? ''),
-    team: String(post.team ?? ''),
-    injury_type: String(post.injury_type ?? ''),
-    injury_severity: (post.injury_severity as InjurySeverity) ?? 'UNKNOWN',
-    content_type: 'DEEP_DIVE',
-    headline: String(post.headline ?? ''),
-    clinical_summary: String(post.clinical_summary ?? ''),
-    return_to_play: {
-      min_weeks: Number(minWeeks),
-      max_weeks: Number(rtpNested?.max_weeks ?? post.return_to_play_max_weeks ?? 0),
-      probability_week_2: Number(rtpNested?.probability_week_2 ?? post.return_to_play_probability_week_2 ?? 0),
-      probability_week_4: Number(rtpNested?.probability_week_4 ?? post.return_to_play_probability_week_4 ?? 0),
-      probability_week_8: Number(rtpNested?.probability_week_8 ?? post.return_to_play_probability_week_8 ?? 0),
-      confidence: Number(rtpNested?.confidence ?? post.return_to_play_confidence ?? post.confidence ?? 0),
-    },
-    confidence: Number(post.confidence ?? 0),
-    ...(post.conflict_reason ? { conflict_reason: String(post.conflict_reason) } : {}),
-    ...(post.team_timeline_weeks !== undefined ? { team_timeline_weeks: Number(post.team_timeline_weeks) } : {}),
-    ...(post.parent_post_id ? { parent_post_id: String(post.parent_post_id) } : {}),
   };
 }
 
@@ -167,6 +129,46 @@ export interface RepublishSelection {
 }
 
 /**
+ * How stale a failed publish may be before this loop stops owning it.
+ *
+ * The loop's job is recovering a publish that failed minutes-to-hours ago.
+ * Anything older is an editorial decision — whether a days-old injury report is
+ * still worth posting is a judgement call, and it belongs to a human running
+ * scripts/republish-social-orphans.ts, not to a cron. BREAKING ages fastest:
+ * a "breaking" headline cast two days late is false on its face.
+ */
+const MAX_AGE_BY_TYPE: Record<string, number> = {
+  BREAKING: 6 * 60 * 60 * 1000,       // 6 hours
+  TRACKING: 48 * 60 * 60 * 1000,      // 2 days
+  CONFLICT_FLAG: LOOKBACK_MS,         // 7 days — a disagreement persists
+  DEEP_DIVE: LOOKBACK_MS,             // 7 days — evergreen
+};
+
+/**
+ * Which content types this loop may re-cast.
+ *
+ * Defaults to DEEP_DIVE only, which is the behaviour that shipped — so the
+ * widening below is inert until someone turns it on deliberately. It needs to
+ * exist because the Aug 2026 outage orphaned 6 BREAKING and 3 CONFLICT_FLAG
+ * posts and not one DEEP_DIVE: the safety net could not have caught the very
+ * failure it was built for.
+ */
+function getAllowedContentTypes(): Set<string> {
+  const raw = process.env.APPROVAL_SYNC_CONTENT_TYPES;
+  if (!raw) return new Set(['DEEP_DIVE']);
+  const parsed = raw
+    .split(',')
+    .map((s) => s.trim().toUpperCase())
+    .filter((s) => s.length > 0);
+  return parsed.length > 0 ? new Set(parsed) : new Set(['DEEP_DIVE']);
+}
+
+/** Posts on one injury thread share a canonical root. */
+function threadKey(p: ApprovedPost): string {
+  return String(p.parent_post_id ?? p.post_id ?? p.id ?? '');
+}
+
+/**
  * Decides which posts this loop may re-cast. Pure and exported because it is
  * the highest-consequence logic in the file: get it wrong and a backlog of
  * stale injury news goes out to the real accounts all at once.
@@ -178,19 +180,25 @@ export function selectPostsToRepublish(
   alreadyProcessed: ReadonlySet<string> = new Set()
 ): RepublishSelection {
   let suppressed = 0;
+  const allowedTypes = getAllowedContentTypes();
 
-  const pending = posts.filter((p) => {
+  const eligible = posts.filter((p) => {
     const postId = String(p.post_id ?? p.id ?? '');
     if (!postId || alreadyProcessed.has(postId)) return false;
 
     const status = (p.status ?? '').toUpperCase();
     if (status !== 'PUBLISHED') return false;
-    if ((p.content_type ?? '').toUpperCase() !== 'DEEP_DIVE') return false;
+
+    const contentType = (p.content_type ?? '').toUpperCase();
+    if (!allowedTypes.has(contentType)) return false;
     if (p.farcaster_hash || p.twitter_id) return false;
     if (!p.created_at) return false;
 
     const createdAt = new Date(p.created_at).getTime();
-    if (now - createdAt >= LOOKBACK_MS) return false;
+    // Unknown types never reach here, so the fallback only guards a type added
+    // to the allowlist before it gets an age budget — treat it as the strictest.
+    const maxAge = MAX_AGE_BY_TYPE[contentType] ?? MAX_AGE_BY_TYPE.BREAKING;
+    if (now - createdAt >= maxAge) return false;
 
     if (notBeforeMs !== null && createdAt < notBeforeMs) {
       suppressed++;
@@ -200,6 +208,26 @@ export function selectPostsToRepublish(
     return true;
   });
 
+  // One per thread, newest wins. This loop calls publishApprovedPost, which
+  // skips the dedup and cadence checks publishInjuryPost performs — so without
+  // this, three hashless CONFLICT_FLAGs on one injury go out back to back,
+  // and the two older ones carry a superseded team timeline.
+  const newestPerThread = new Map<string, ApprovedPost>();
+  for (const p of eligible) {
+    const key = threadKey(p);
+    const existing = newestPerThread.get(key);
+    if (
+      !existing ||
+      new Date(p.created_at ?? 0).getTime() > new Date(existing.created_at ?? 0).getTime()
+    ) {
+      newestPerThread.set(key, p);
+    }
+  }
+
+  const pending = [...newestPerThread.values()].sort(
+    (a, b) => new Date(a.created_at ?? 0).getTime() - new Date(b.created_at ?? 0).getTime()
+  );
+
   return { pending, suppressed };
 }
 
@@ -208,6 +236,11 @@ export interface SocialReachReport {
   published: number;
   missing_social: number;
   oldest_missing: string | null;
+  /** Rows actually read. Without it, a scan that saw 20 rows and one that saw
+   *  400 report identically — which is exactly how the 20-row cap hid. */
+  scanned: number;
+  /** True when the page cap ended the scan early, so the counts are a floor. */
+  truncated: boolean;
   sample: Array<{
     post_id: string;
     athlete_name: string;
@@ -228,15 +261,16 @@ export async function getSocialReachReport(windowHours = 24): Promise<SocialReac
     throw new Error('Web MCP server unavailable');
   }
 
-  const raw = await callTool('web', 'web_list_posts', {});
-  const wrapped = raw as { isError?: boolean; content?: Array<{ text?: string }> };
-  if (wrapped?.isError === true) {
-    throw new Error(`web_list_posts failed: ${wrapped.content?.[0]?.text ?? 'unknown MCP error'}`);
-  }
-
-  const posts = parseListPostsResponse(raw);
   const now = Date.now();
   const windowMs = windowHours * 60 * 60 * 1000;
+
+  // Filter by status server-side and stop at the window edge: the scan costs
+  // one page in the common case and still sees every PUBLISHED row in a 30-day
+  // window, which the old unpaged call could not do at any window size.
+  const { posts, truncated } = await listAllPosts<ApprovedPost>(
+    { status: 'PUBLISHED' },
+    { stopWhenOlderThan: now - windowMs },
+  );
 
   const inWindow = posts.filter((p) => {
     if ((p.status ?? '').toUpperCase() !== 'PUBLISHED') return false;
@@ -255,6 +289,8 @@ export async function getSocialReachReport(windowHours = 24): Promise<SocialReac
     published: inWindow.length,
     missing_social: missing.length,
     oldest_missing: missing[0]?.created_at ?? null,
+    scanned: posts.length,
+    truncated,
     sample: missing.slice(0, 20).map((p) => ({
       post_id: String(p.post_id ?? p.id ?? ''),
       athlete_name: String(p.athlete_name ?? ''),
@@ -277,17 +313,21 @@ async function runApprovalSyncCycle(): Promise<void> {
     return;
   }
 
-  let raw: unknown;
+  const now = Date.now();
+
+  // One scan feeds both consumers below: the 7-day republish lookback is the
+  // wider of the two windows, so it contains the 24h audit window as well.
+  let posts: ApprovedPost[];
   try {
-    raw = await callTool('web', 'web_list_posts', {});
+    ({ posts } = await listAllPosts<ApprovedPost>(
+      { status: 'PUBLISHED' },
+      { stopWhenOlderThan: now - LOOKBACK_MS },
+    ));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`[ApprovalSync] web_list_posts failed: ${message}`);
     return;
   }
-
-  const posts = parseListPostsResponse(raw);
-  const now = Date.now();
 
   auditSocialReach(posts, now);
 
@@ -307,29 +347,51 @@ async function runApprovalSyncCycle(): Promise<void> {
 
   if (pending.length === 0) return;
 
-  console.log(`[ApprovalSync] Found ${pending.length} approved DEEP_DIVE post(s) not yet on socials`);
+  const types = pending.map((p) => String(p.content_type ?? '?')).join(', ');
+  console.log(
+    `[ApprovalSync] Found ${pending.length} approved post(s) not yet on socials (${types})`
+  );
+
+  // A backlog drips, it does not flood. Even inside the cutoff, a recovered
+  // publish path should not fire everything it finds in one cycle.
+  const batch = pending.slice(0, MAX_REPUBLISH_PER_CYCLE);
+  if (pending.length > batch.length) {
+    console.log(
+      `[ApprovalSync] Publishing ${batch.length} this cycle; ${pending.length - batch.length} deferred to the next`
+    );
+  }
 
   const siteUrl = (process.env.SITE_URL ?? 'https://sidelineiq.vercel.app').replace(/\/$/, '');
 
-  for (const post of pending) {
+  for (const [index, post] of batch.entries()) {
     const webPostId = String(post.post_id ?? post.id ?? '');
-    const content = reconstructContent(post);
+    const { content, reason } = reconstructPostContent(post);
 
     if (!content) {
-      console.warn(`[ApprovalSync] Skipping post ${webPostId} — missing RTP data`);
+      console.warn(
+        `[ApprovalSync] Skipping post ${webPostId} — ${
+          reason === 'unknown_content_type'
+            ? `unrecognized content_type "${post.content_type ?? ''}"`
+            : 'missing RTP data'
+        }`
+      );
       continue;
     }
 
     const slug = String(post.slug ?? '');
     const postUrl = slug ? `${siteUrl}/post/${slug}` : '';
 
+    if (index > 0) await sleep(REPUBLISH_SPACING_MS);
+
     // Mark before publishing so a slow publish doesn't cause a duplicate on the
     // next cycle if the loop fires again before hashes are written back.
     processedIds.add(webPostId);
 
-    console.log(`[ApprovalSync] Publishing to socials: ${webPostId} (${content.athlete_name})`);
+    console.log(
+      `[ApprovalSync] Publishing to socials: ${webPostId} (${content.content_type}: ${content.athlete_name})`
+    );
     try {
-      await publishApprovedDeepDive(content, postUrl, webPostId);
+      await publishApprovedPost(content, postUrl, webPostId);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[ApprovalSync] Failed for post ${webPostId}: ${message}`);

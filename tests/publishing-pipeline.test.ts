@@ -8,7 +8,7 @@ vi.mock('../src/utils/mcp-client-manager.js', () => ({
 }));
 
 import { callTool, isServerAvailable } from '../src/utils/mcp-client-manager.js';
-import { publishInjuryPost } from '../src/utils/publishing-pipeline.js';
+import { publishInjuryPost, publishApprovedPost } from '../src/utils/publishing-pipeline.js';
 
 const mockCallTool = vi.mocked(callTool);
 const mockIsServerAvailable = vi.mocked(isServerAvailable);
@@ -394,5 +394,60 @@ describe('publishInjuryPost — social reach reporting', () => {
     expect(errorLines().some((l) => l.includes('SOCIAL PUBLISH FAILED'))).toBe(false);
     expect(errorLines().some((l) => l.includes('SOCIAL HASH UNPARSEABLE'))).toBe(false);
     expect(logLines().some((l) => l.includes('Wrote social hashes back'))).toBe(true);
+  });
+});
+
+/**
+ * publishApprovedPost was named publishApprovedDeepDive and said "DEEP_DIVE" in
+ * every log line and in the persisted update_reason, so an MD approving a
+ * BREAKING post saw "Approved DEEP_DIVE social publish" — misleading in exactly
+ * the logs relied on to tell whether a publish reached anyone. The function
+ * itself was always content-type agnostic; only the wording lied.
+ */
+describe('publishApprovedPost — content type is not assumed', () => {
+  const POST_URL = 'https://sidelineiq.vercel.app/post/mahomes-ankle';
+
+  it('sends a single cast for CONFLICT_FLAG and a thread for DEEP_DIVE', async () => {
+    await publishApprovedPost(makeContent({ content_type: 'CONFLICT_FLAG' }), POST_URL, 'post-1');
+    const conflictTools = mockCallTool.mock.calls.map((c) => c[1]);
+    expect(conflictTools).toContain('farcaster_publish_cast');
+    expect(conflictTools).not.toContain('farcaster_publish_thread');
+
+    mockCallTool.mockClear();
+
+    await publishApprovedPost(makeContent({ content_type: 'DEEP_DIVE' }), POST_URL, 'post-2');
+    const deepDiveTools = mockCallTool.mock.calls.map((c) => c[1]);
+    expect(deepDiveTools).toContain('farcaster_publish_thread');
+  });
+
+  it('records the real content type in the persisted update_reason', async () => {
+    await publishApprovedPost(makeContent({ content_type: 'BREAKING' }), POST_URL, 'post-3');
+
+    const writeback = mockCallTool.mock.calls.find((c) => c[1] === 'web_update_injury_post');
+    expect(writeback).toBeDefined();
+    expect((writeback![2] as { update_reason: string }).update_reason).toBe(
+      'Approved BREAKING social hash writeback'
+    );
+  });
+
+  it('writes both hashes back so the post stops looking unreached', async () => {
+    await publishApprovedPost(makeContent({ content_type: 'BREAKING' }), POST_URL, 'post-4');
+
+    const writeback = mockCallTool.mock.calls.find((c) => c[1] === 'web_update_injury_post');
+    expect((writeback![2] as { updates: Record<string, string> }).updates).toEqual({
+      farcaster_hash: '0xdeadbeef',
+      twitter_id: 'tweet-xyz-456',
+    });
+  });
+
+  it('says a publish reached nobody rather than reporting success', async () => {
+    const errors: string[] = [];
+    const spy = vi.spyOn(console, 'error').mockImplementation((msg) => errors.push(String(msg)));
+    mockIsServerAvailable.mockImplementation((server) => server === 'web');
+
+    await publishApprovedPost(makeContent({ content_type: 'TRACKING' }), POST_URL, 'post-5');
+
+    expect(errors.join('\n')).toContain('SOCIAL PUBLISH FAILED');
+    spy.mockRestore();
   });
 });
