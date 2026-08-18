@@ -144,6 +144,36 @@ case, so the structured feeds are untouched. Without the fallback,
 a news-sourced sport is silenced for the whole 21-day entity
 window after its first post about an injury.
 
+### The Tagged Athlete Is Not Always the Injured One
+ESPN's injuries feed is one row per athlete, so its tag is normally
+authoritative — with one exception that matters: a row for a **healthy**
+athlete (`status: "Active"`, `details: null`) exists to carry a comment
+about a TEAMMATE. Allgeier's row is where Jeremiyah Love's high ankle
+sprain was reported. News sources are weaker still: `extractAthleteName`
+takes the first capitalized bigram in the headline.
+
+So classifier-vs-source name drift is not evidence the classifier is
+wrong. `attemptAthleteReanchor` (athlete-reanchor.ts) re-points the event
+onto the classifier's athlete when ALL of these hold, and forces MD
+review exactly as before when any fails:
+- the roster resolves a **different**, non-ambiguous player, and
+- the name came from the SOURCE TEXT (the roster is keyed on the source's
+  spelling — the classifier wrote "Jeremiah Love", the roster holds
+  "Jeremiyah Love", and `web_resolve_player` is exact-normalized-name), and
+- the classifier's surname actually appears in the source text, and
+- the event is an article OR a feed row whose tagged athlete is healthy.
+
+It runs BEFORE the significance gate and fact validation, because
+everything downstream reads an identity off the event: the player row,
+the team check, the dedup fingerprint and the entity. When it applies it
+also drops `espn_athlete_id` (the id resolves ahead of the name and would
+silently revert the re-anchor) and re-scores significance on the new
+athlete's tier.
+
+`ATHLETE_REANCHOR_MODE` is `off | shadow | on`, default **shadow** —
+shadow decides and logs but changes nothing at all, including the cases
+that look obviously safe.
+
 ### OrthoIQ Reference Rule
 Append OrthoIQ referral link ONLY on DEEP_DIVE content type,
 on the final post/cast only. Never on BREAKING or TRACKING.
@@ -168,6 +198,59 @@ their tool-schema descriptions distinct — when the RTP one had no description
 at all, the model emitted the same number into both.
 Posts pending review are stored in database with status PENDING_REVIEW.
 They do NOT publish to Farcaster or Twitter until approved.
+
+### forceMDReviewReason outranks all of that
+
+The poller's `forceMDReviewReason` makes review unconditional — no confidence
+score and no threshold change can un-gate a post once it is set. Sites:
+`x_insider` (poller.ts, env-gated), `athlete_name_drift`, `fact_soft_fail:*`
+(the 8 soft codes), `laterality_thread_mismatch`, `content_type_drift`,
+`post_team_mismatch`, `post_team_unverifiable`. Between Aug 16-18 2026 **every**
+routed post went through this path, never through the confidence gate.
+
+Two levers, both fail-closed by default:
+- `MD_REVIEW_ANNOTATE_ONLY_CODES` — comma-separated soft codes downgraded to an
+  annotation (logged + written to the validation audit row, post still
+  publishes). Empty by default; every code forces review as before.
+- `ATHLETE_REANCHOR_MODE` — see "The Tagged Athlete Is Not Always the Injured One".
+
+The forced reason no longer REPLACES what `needsMDReview` would have said; both
+are recorded (`athlete_name_drift; severity is SEVERE`). The short-circuit meant
+a reviewer could not see a forced post was also SEVERE.
+
+### An entity can outlive the post that justified it
+
+Entities are minted BEFORE any post exists (`resolveThreadAndDates`, pre-OTM),
+and both FKs back to `injury_posts` are `ON DELETE SET NULL`. The MD's Reject
+button deletes the post — so rejecting one used to leave the thread ACTIVE,
+post-less, and still inside the 21-day `web_find_matching_entity` window, where
+it absorbed every later report about that athlete as a duplicate. Greenard's
+false "back / surgery" thread collected 7 post-less CORRECTION rows that way.
+
+`web_thread_close` now takes `outcome: 'VOID'` (mcp migration 020) and the
+frontend reject route voids the thread when the rejected post is its only link
+to published content. VOID writes **no** `accuracy_record` — scoring a
+projection that was never valid pollutes the accuracy number the platform is
+judged on — and it is excluded from matching, from the accuracy view, and from
+every `listThreads` call the dashboard makes.
+
+### Body parts that are also English words
+
+`back`, `head`, `hand` and `neck` need a positive anatomical signal in the
+adjacent word before `extractBodyParts` will believe them: a qualifier before
+("lower back"), an injury noun after ("back surgery"), or an injury verb two
+back ("injured his back"). Matching them bare cost real damage twice — "won't
+be **back** at practice" created the Greenard back-surgery thread, and "**Head**
+coach said…" put `head` in SPINAL_PARTS next to a stated side, raising
+`laterality_inconsistent` and forcing review on an ankle injury.
+
+Parts are returned in TEXT ORDER, not `BODY_PARTS` declaration order —
+`parts[0]` is the primary body part and it keys entity matching.
+
+Prefer the source's own fielded data: `RawInjuryEvent.injury_details`
+(ESPN's `{type, location, detail, side}`) beats re-scraping the prose that
+`buildDescription` assembled FROM those fields. `side: "Not Specified"` means
+the source declined to say, so the text still gets its turn.
 
 ## Did It Reach an Audience?
 

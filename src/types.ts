@@ -113,6 +113,32 @@ export interface RawInjuryEvent {
    * share one, and the seed for registering a fighter who has no roster.
    */
   espn_athlete_id?: string;
+  /**
+   * The tagged athlete's own injury status, verbatim from a structured feed
+   * ("Active", "Out", "Questionable", "Day-To-Day"…). Undefined for news
+   * sources, which have no status field.
+   *
+   * Distinct from is_update, which asks whether the REPORT is a change. This
+   * asks whether the TAGGED ATHLETE is the injured one: an ESPN injuries row
+   * for a healthy player exists only to carry a comment about a teammate —
+   * "Allgeier could open the season as primary RB, as Adam Schefter reports
+   * that Jeremiyah Love sustained a high-ankle sprain". The athlete re-anchor
+   * keys on that (see athlete-reanchor.ts).
+   */
+  athlete_status?: string;
+  /**
+   * The source's own structured breakdown of the injury, when it has one.
+   * ESPN's injuries feed carries {type:"Pectoral", location:"Torso",
+   * detail:"Surgery", side:"Not Specified"} — fielded data that beats
+   * regex-scraping the same facts back out of the prose summary. `side` uses
+   * the literal "Not Specified" rather than omitting itself.
+   */
+  injury_details?: {
+    type?: string;
+    location?: string;
+    detail?: string;
+    side?: string;
+  };
 }
 
 export type AthleteTier = 1 | 2 | 3 | 4;

@@ -548,7 +548,7 @@ const NAME_SUFFIX_RE = /\b(jr|sr|ii|iii|iv)\b/g;
  * the tier lookup treated one of them as an unknown athlete and defaulted it
  * to tier 3.
  */
-function looseNameKey(s: string): string {
+export function looseNameKey(s: string): string {
   return normalizeText(s).replace(NAME_SUFFIX_RE, '').replace(/\s+/g, '');
 }
 

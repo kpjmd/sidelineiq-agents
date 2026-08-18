@@ -287,6 +287,149 @@ describe('validateEvent — soft signals', () => {
 });
 
 /**
+ * Body-part extraction: four part names are also ordinary English words, and
+ * injury prose is full of them. Both cases below are live production strings.
+ *
+ * The damage was not cosmetic. primary_body_part keys web_find_matching_entity,
+ * so a wrong one creates and then feeds a wrong clinical thread; and 'back',
+ * 'head' and 'neck' are in SPINAL_PARTS, so extracting one alongside a stated
+ * side raises laterality_inconsistent — a soft failure, which becomes
+ * forceMDReviewReason, which bypasses the confidence gate entirely.
+ */
+describe('validateEvent — body parts that are also English words', () => {
+  // ESPN, Jonathan Greenard, 2026-08-11. This produced primary_body_part
+  // 'back' (BODY_PARTS list order put it ahead of 'pectoral') and a live
+  // entity reading "back / surgery" for a pectoralis injury.
+  const GREENARD =
+    'Not Specified Torso Pectoral Surgery — out — Status: Out — Defensive ' +
+    'coordinator Vic Fangio said Tuesday that Greenard (pectoral) won\'t be ' +
+    'back at practice "for another couple weeks, at least," Tim McManus of ' +
+    'ESPN.com reports.';
+
+  // ESPN, Alec Pierce, 2026-08-17. "Head coach" + a stated side of Left was
+  // the whole of soft_fact=1 in the 2026-08-18 cycle.
+  const PIERCE =
+    'Left Leg Ankle Surgery — out — Status: Out — Head coach Shane Steichen ' +
+    "said Sunday that he doesn't expect Pierce (ankle) to return during joint " +
+    'practices leading up to the Colts\' second preseason game.';
+
+  it('does not read "won\'t be back at practice" as a back injury', async () => {
+    const res = await validateEvent(makeEvent({ injury_description: GREENARD }), makePlayer(), {
+      now: new Date('2026-08-12T00:00:00Z'),
+    });
+    expect(res.metadata.body_parts).not.toContain('back');
+    expect(res.metadata.primary_body_part).toBe('pectoral');
+  });
+
+  it('does not read "Head coach" as a head injury, or flag its laterality', async () => {
+    const res = await validateEvent(makeEvent({ injury_description: PIERCE }), makePlayer(), {
+      now: new Date('2026-08-18T00:00:00Z'),
+    });
+    expect(res.metadata.body_parts).not.toContain('head');
+    expect(res.metadata.primary_body_part).toBe('ankle');
+    expect(res.metadata.laterality).toBe('LEFT');
+    expect(res.softFailures.map((f) => f.code)).not.toContain('laterality_inconsistent');
+  });
+
+  it('still reads a genuinely anatomical use', async () => {
+    const cases: Array<[string, string]> = [
+      ['lower back tightness', 'back'],
+      ['back spasms limited him in practice', 'back'],
+      ['underwent back surgery on Tuesday', 'back'],
+      ['Head coach said he fractured his hand', 'hand'],
+      ['right hand fracture', 'hand'],
+      ['injured his neck on the play', 'neck'],
+      ['head injury sustained on a helmet-to-helmet hit', 'head'],
+    ];
+    for (const [description, expected] of cases) {
+      const res = await validateEvent(makeEvent({ injury_description: description }), makePlayer(), {
+        now: NOW,
+      });
+      expect(res.metadata.primary_body_part, description).toBe(expected);
+    }
+  });
+
+  // ESPN's house style, and the most common anatomical reference in their
+  // prose: the injury in a bare parenthetical after the athlete's surname. No
+  // adjacency rule can see it — the neighbours are a surname and a verb.
+  it('reads the "Player (back)" parenthetical', async () => {
+    const cases: Array<[string, string]> = [
+      ['Bates (back) returned to practice Monday.', 'back'],
+      ['The Cardinals placed Blount (neck) on injured reserve.', 'neck'],
+      ['Carter (hand) was a full participant Tuesday.', 'hand'],
+    ];
+    for (const [description, expected] of cases) {
+      const res = await validateEvent(makeEvent({ injury_description: description }), makePlayer(), {
+        now: NOW,
+      });
+      expect(res.metadata.primary_body_part, description).toBe(expected);
+    }
+  });
+
+  it('distinguishes "his back" from "the back" — and from "the head coach"', async () => {
+    const possessive = await validateEvent(
+      makeEvent({ injury_description: 'Downs left after landing hard on his back.' }),
+      makePlayer(),
+      { now: NOW },
+    );
+    expect(possessive.metadata.primary_body_part).toBe('back');
+
+    const article = await validateEvent(
+      makeEvent({ injury_description: 'The head coach said he is the No. 2 running back.' }),
+      makePlayer(),
+      { now: NOW },
+    );
+    expect(article.metadata.body_parts).toEqual([]);
+  });
+
+  it('orders parts by where they appear, not by the BODY_PARTS list', async () => {
+    // 'ankle' sits above 'shoulder' in the list; the sentence says otherwise.
+    const res = await validateEvent(
+      makeEvent({ injury_description: 'shoulder subluxation, plus a minor ankle sprain' }),
+      makePlayer(),
+      { now: NOW },
+    );
+    expect(res.metadata.body_parts).toEqual(['shoulder', 'ankle']);
+  });
+});
+
+/**
+ * ESPN's injuries feed carries a fielded `details` block — the same facts the
+ * prose summary is BUILT from. Reading the fields beats scraping them back out.
+ */
+describe('validateEvent — structured injury details', () => {
+  it('prefers the source\'s own fields over the prose', async () => {
+    const res = await validateEvent(
+      makeEvent({
+        // The prose alone yields no body part, no side and no procedure — every
+        // one of the three assertions below can only come from the fields.
+        injury_description: 'Status: Out — Head coach Vic Fangio said he is week to week',
+        injury_details: { type: 'Pectoral', location: 'Torso', detail: 'Surgery', side: 'Left' },
+      }),
+      makePlayer(),
+      { now: NOW },
+    );
+    expect(res.metadata.primary_body_part).toBe('pectoral');
+    expect(res.metadata.laterality).toBe('LEFT');
+    expect(res.metadata.injury_type_hint).toBe('surgery');
+  });
+
+  // Passes in both directions by design: "Not Specified" must not be mistaken
+  // for an answer, and the text's own side must survive the fields being read.
+  it('treats "Not Specified" as no answer, so the text still gets its turn', async () => {
+    const res = await validateEvent(
+      makeEvent({
+        injury_description: 'right knee sprain',
+        injury_details: { type: 'Knee', location: 'Leg', side: 'Not Specified' },
+      }),
+      makePlayer(),
+      { now: NOW },
+    );
+    expect(res.metadata.laterality).toBe('RIGHT');
+  });
+});
+
+/**
  * x.com is deliberately NOT in data/source-tiers.json, so hostname tiering
  * returns 'unknown' and every X insider event soft-failed source_tier_low —
  * which silently overrode X_INSIDER_FORCE_MD_REVIEW=false and made the whole

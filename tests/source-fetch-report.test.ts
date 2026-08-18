@@ -56,6 +56,67 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/**
+ * The feed's own fielded data, carried onto the event instead of being
+ * flattened into prose and regex-scraped back out downstream.
+ *
+ * `status` is separately load-bearing: an injuries row for an ACTIVE athlete is
+ * carrying news about a teammate, which is what the athlete re-anchor keys on.
+ */
+describe('ESPNInjurySource — structured fields on the event', () => {
+  it('carries athlete_status and injury_details through', async () => {
+    const feed = {
+      injuries: [
+        {
+          team: { displayName: 'Arizona Cardinals' },
+          injuries: [
+            {
+              athlete: { displayName: 'Tyler Allgeier' },
+              status: 'Active',
+              date: new Date().toISOString(),
+              details: { type: 'Pectoral', location: 'Torso', detail: 'Surgery', side: 'Left' },
+              shortComment: 'Allgeier could open the season as the primary back.',
+            },
+          ],
+        },
+      ],
+    };
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(feed)));
+    const [event] = await new TestESPNSource().fetchLatestEvents();
+
+    expect(event.athlete_status).toBe('Active');
+    expect(event.injury_details).toEqual({
+      type: 'Pectoral',
+      location: 'Torso',
+      detail: 'Surgery',
+      side: 'Left',
+    });
+  });
+
+  it('leaves both undefined when the row has neither', async () => {
+    const feed = {
+      injuries: [
+        {
+          team: { displayName: 'Golden State Warriors' },
+          injuries: [
+            {
+              athlete: { displayName: 'Test Player' },
+              date: new Date().toISOString(),
+              shortComment: 'Knee soreness kept him out.',
+            },
+          ],
+        },
+      ],
+    };
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(feed)));
+    const [event] = await new TestESPNSource().fetchLatestEvents();
+
+    // Not null, not "" — absent, so isReanchorEligible fails closed on it.
+    expect(event.athlete_status).toBeUndefined();
+    expect(event.injury_details).toBeUndefined();
+  });
+});
+
 describe('ESPNInjurySource.lastFetchReport', () => {
   it('reports ok when the feed yields events', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(POPULATED_FEED)));

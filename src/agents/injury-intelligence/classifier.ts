@@ -33,7 +33,13 @@ const CLASSIFIER_TOOL = {
       },
       athlete_name: {
         type: 'string',
-        description: 'The primary athlete affected by the injury.',
+        description:
+          'The athlete who sustained the injury, spelled exactly as the description spells it. ' +
+          'The "Athlete" line above is the source\'s tag, not a given: a structured feed files a ' +
+          'story under a healthy teammate who stands to benefit, and a news source picks the first ' +
+          'name in the headline. If the description names someone else as the injured party, return ' +
+          'that name. Copy the description\'s spelling verbatim even where it differs from the ' +
+          'Athlete line — downstream identity resolution matches on the source\'s spelling.',
       },
       team: {
         type: 'string',
@@ -208,7 +214,7 @@ export async function classifyEvent(raw: RawInjuryEvent, tierContext: TierContex
   const userMessage = `Classify this injury news item:
 
 Sport: ${raw.sport}
-Athlete: ${raw.athlete_name}
+Athlete (source's tag — may be a teammate, not the injured player): ${raw.athlete_name}
 Team: ${raw.team}
 Description: ${raw.injury_description}
 ${raw.team_timeline ? `Team timeline: ${raw.team_timeline}` : ''}
