@@ -244,6 +244,31 @@ real payload (`tests/fixtures/injury-post-row.json`), never by hand — the
 previous suite passed only because its fixtures used the same wrong names the
 code did.
 
+### x.com is deliberately absent from data/source-tiers.json
+
+Do not "fix" it by adding the hostname. `sourceTier()` keys on the URL host, so
+adding `x.com` would promote **every** x.com URL — including ones that never
+passed the insider allowlist (the mention monitor, user-submitted corrections).
+Parsing the handle back out of the URL is worse: `src/config/x-insiders.ts`
+exists because handle-spoofing of verified-looking accounts is the documented
+attack, and identity there is the numeric `userId` ONLY.
+
+Tier X events by **provenance** instead — `resolveEventSourceTier()` in
+`fact-validator.ts` keys on `source_name` starting with `X:`, which our own
+fetcher sets only after the userId allowlist check has passed. Same signal and
+same test that `shouldForceMDReviewForXSource` (poller.ts) already uses.
+
+The tier file (`updated_at: 2026-05-31`) predates the X insider feature
+(shipped 2026-07-18), so for a month every X event scored `unknown` and
+therefore low-tier. That had two effects, and the second was the worse one:
+- `source_tier_low` fired on 100% of X events, routing them all to MD review.
+  It silently overrode `X_INSIDER_FORCE_MD_REVIEW=false` — a soft fact-validator
+  failure becomes `forceMDReviewReason`, which bypasses `needsMDReview` outright.
+- The `team_mismatch` gate hard-DROPPED them. T1/T2 sources get a soft
+  `team_mismatch_unconfirmed` with the reported team preserved; T3/unknown get a
+  hard drop plus a roster correction. So a trade-plus-injury scoop — the thing
+  these accounts break most often — disappeared with no review at all.
+
 ### Which content types actually print percentages
 
 Config-dependent, and easy to get wrong. `TWITTER_CHAR_LIMIT > 500` (production

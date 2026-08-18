@@ -286,6 +286,84 @@ describe('validateEvent — soft signals', () => {
   });
 });
 
+/**
+ * x.com is deliberately NOT in data/source-tiers.json, so hostname tiering
+ * returns 'unknown' and every X insider event soft-failed source_tier_low —
+ * which silently overrode X_INSIDER_FORCE_MD_REVIEW=false and made the whole
+ * source review-only. Tiering is now keyed on provenance (`source_name`, set by
+ * our fetcher only after the numeric-userId allowlist check), never on the URL.
+ *
+ * The URLs below are the two real ones this actually happened to in production:
+ * Mariota (Schefter) and Mekari (Rapoport).
+ */
+describe('validateEvent — X insider provenance tiering', () => {
+  const X_URL = 'https://x.com/RapSheet/status/2089506345070342458';
+
+  it('does not soft-flag an event that came through the X insider allowlist', async () => {
+    const res = await validateEvent(
+      makeEvent({ source_url: X_URL, source_name: 'X:RapSheet' }),
+      makePlayer(),
+      { now: NOW },
+    );
+    expect(res.softFailures.map((f) => f.code)).not.toContain('source_tier_low');
+  });
+
+  it('still soft-flags an x.com URL that did NOT come from the allowlist', async () => {
+    // The security case. A bare x.com URL — from the mention monitor, a
+    // user-submitted correction, or anything else — must not inherit insider
+    // trust. If this ever passes, tiering has drifted back onto the hostname.
+    const res = await validateEvent(
+      makeEvent({ source_url: 'https://x.com/SomeRandomAccount/status/1' }),
+      makePlayer(),
+      { now: NOW },
+    );
+    expect(res.softFailures.map((f) => f.code)).toContain('source_tier_low');
+  });
+
+  it('does not treat a non-X source_name as insider provenance', async () => {
+    const res = await validateEvent(
+      makeEvent({ source_url: X_URL, source_name: 'newsapi-nfl' }),
+      makePlayer(),
+      { now: NOW },
+    );
+    expect(res.softFailures.map((f) => f.code)).toContain('source_tier_low');
+  });
+
+  it('routes a team mismatch on an X insider event to review instead of dropping it', async () => {
+    // Before: x.com scored 'unknown', so the tier gate took the T3 branch and
+    // HARD-dropped the event — a trade-plus-injury scoop, which is exactly what
+    // these accounts break, vanished with no review.
+    const res = await validateEvent(
+      makeEvent({
+        source_url: 'https://x.com/AdamSchefter/status/2089003329997144213',
+        source_name: 'X:AdamSchefter',
+        team: 'Los Angeles Clippers',
+      }),
+      makePlayer({ current_team_abbreviation: null }),
+      { now: NOW },
+    );
+    expect(res.passed).toBe(true);
+    expect(res.hardFailures.map((f) => f.code)).not.toContain('team_mismatch');
+    expect(res.softFailures.map((f) => f.code)).toContain('team_mismatch_unconfirmed');
+    // The reported team must survive to Sonnet and MD review — overwriting it
+    // with the possibly-stale roster team is the false-drop this branch prevents.
+    expect(res.corrections.map((c) => c.field)).not.toContain('team');
+  });
+
+  it('hard-drops the same team mismatch when provenance is absent', async () => {
+    const res = await validateEvent(
+      makeEvent({
+        source_url: 'https://x.com/AdamSchefter/status/2089003329997144213',
+        team: 'Los Angeles Clippers',
+      }),
+      makePlayer({ current_team_abbreviation: null }),
+      { now: NOW },
+    );
+    expect(res.passed).toBe(false);
+    expect(res.hardFailures.map((f) => f.code)).toContain('team_mismatch');
+  });
+});
+
 describe('teamClaimCheck — post-Sonnet recheck helper (F7)', () => {
   it('returns match for a correct team claim', () => {
     expect(teamClaimCheck('Los Angeles Lakers', makePlayer())).toBe('match');
