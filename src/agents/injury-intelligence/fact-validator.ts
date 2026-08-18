@@ -408,10 +408,25 @@ function hostnameFromUrl(url: string): string | null {
   }
 }
 
-function sourceTier(url: string, tiers: SourceTiersFile): 'T1' | 'T2' | 'T3' | 'unknown' {
+export type SourceTier = 'T1' | 'T2' | 'T3' | 'unknown';
+
+/**
+ * Tier for events fetched through the curated X insider allowlist.
+ *
+ * T2, not T1: T1 is publisher-of-record (nfl.com, AP, Reuters, ESPN). A named
+ * insider breaking news AHEAD of official confirmation is highly reliable but
+ * still single-source and pre-confirmation, which is exactly what T2 means in
+ * this file. T2 is also what keeps a roster team mismatch on the SOFT path —
+ * see the tier gate in the team-corroboration block, where T3/unknown hard-drops
+ * the event instead. A trade-plus-injury scoop is the thing these accounts break
+ * most often, so hard-dropping it was the worse of the two bugs here.
+ */
+const X_INSIDER_SOURCE_TIER: SourceTier = 'T2';
+
+function sourceTier(url: string, tiers: SourceTiersFile): SourceTier {
   const host = hostnameFromUrl(url);
   if (!host) return 'unknown';
-  let best: 'T1' | 'T2' | 'T3' | 'unknown' = 'unknown';
+  let best: SourceTier = 'unknown';
   let bestLen = 0;
   for (const tier of ['T1', 'T2', 'T3'] as const) {
     for (const suffix of tiers.tiers[tier]) {
@@ -429,10 +444,36 @@ function sourceTier(url: string, tiers: SourceTiersFile): 'T1' | 'T2' | 'T3' | '
 // Public accessor for the source corroboration tier of a URL. Single source
 // of truth (same source-tiers.json + matching logic the validator uses), so
 // promotion scoring and the replay harness don't re-implement tiering.
-export async function resolveSourceTier(url: string | null | undefined): Promise<'T1' | 'T2' | 'T3' | 'unknown'> {
+export async function resolveSourceTier(url: string | null | undefined): Promise<SourceTier> {
   if (!url) return 'unknown';
   const tiers = await loadTiers();
   return sourceTier(url, tiers);
+}
+
+/**
+ * Tier for a whole event — provenance first, hostname second.
+ *
+ * X insider events carry `https://x.com/<handle>/status/<id>` as their URL, and
+ * x.com is DELIBERATELY absent from data/source-tiers.json. Tiering it by
+ * hostname would promote every x.com URL, including ones that never passed the
+ * insider allowlist (the mention monitor, user-submitted corrections). Parsing
+ * the handle back out of the URL is worse still: src/config/x-insiders.ts exists
+ * specifically because handle-spoofing of verified-looking accounts is the
+ * documented attack, and identity there is the numeric userId ONLY.
+ *
+ * `source_name` is the trustworthy signal. Our own fetcher sets it to
+ * `X:<handle>` (x-insider-base.ts) only AFTER the numeric-userId allowlist check
+ * has passed, so no upstream can forge it — the same reasoning, and the same
+ * `startsWith('X:')` test, that shouldForceMDReviewForXSource already uses.
+ *
+ * Everything else falls through to hostname tiering unchanged.
+ */
+export function resolveEventSourceTier(
+  event: Pick<RawInjuryEvent, 'source_url' | 'source_name'>,
+  tiers: SourceTiersFile,
+): SourceTier {
+  if (event.source_name?.startsWith('X:')) return X_INSIDER_SOURCE_TIER;
+  return sourceTier(event.source_url, tiers);
 }
 
 // ── The validator itself ───────────────────────────────────────────────
@@ -525,7 +566,7 @@ export async function validateEvent(
       // MD review with the reported (new) team preserved rather than hard-drop it.
       // A low-trust source (T3/unknown) is most likely the "wrong team tagged"
       // failure this guard exists for → keep the hard drop + roster correction.
-      const reportTier = sourceTier(event.source_url, tiers);
+      const reportTier = resolveEventSourceTier(event, tiers);
       if (reportTier === 'T1' || reportTier === 'T2') {
         softFailures.push({
           code: 'team_mismatch_unconfirmed',
@@ -598,7 +639,7 @@ export async function validateEvent(
   }
 
   // ── Source corroboration ──────────────────────────────────────────────
-  const tier = sourceTier(event.source_url, tiers);
+  const tier = resolveEventSourceTier(event, tiers);
   if (tier === 'T3' || tier === 'unknown') {
     softFailures.push({
       code: 'source_tier_low',
