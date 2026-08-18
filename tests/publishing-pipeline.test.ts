@@ -296,6 +296,28 @@ describe('publishInjuryPost — MD review gate hardening (F3, F4, F6)', () => {
     expect(result.status).toBe('pending_review');
     expect(result.reason).toBe('fact_soft_fail:source_tier_low');
   });
+
+  // The force flag used to short-circuit needsMDReview entirely, so whatever
+  // else was true of the post never reached the queue. A reviewer opening a
+  // post flagged 'athlete_name_drift' had no way to see it was also SEVERE.
+  it('keeps the intrinsic reason alongside a forced one', async () => {
+    const result = await publishInjuryPost(
+      makeContent({ confidence: 0.99, injury_severity: 'SEVERE' }),
+      { forceMDReviewReason: 'athlete_name_drift' },
+    );
+    expect(result.status).toBe('pending_review');
+    expect(result.reason).toContain('athlete_name_drift');
+    expect(result.reason).toContain('SEVERE');
+  });
+
+  it('records the forced reason alone when nothing intrinsic applies', async () => {
+    const result = await publishInjuryPost(
+      makeContent({ confidence: 0.99, injury_severity: 'MODERATE' }),
+      { forceMDReviewReason: 'athlete_name_drift' },
+    );
+    // No trailing separator, no empty second clause.
+    expect(result.reason).toBe('athlete_name_drift');
+  });
 });
 
 /**

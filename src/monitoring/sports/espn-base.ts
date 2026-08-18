@@ -235,6 +235,22 @@ export abstract class ESPNInjurySource implements SportDataSource {
           // Every event carries the SAME url — this is the league-wide injuries
           // endpoint, not a story. Anything keyed on source_url must know that.
           source_kind: 'feed',
+          // The tagged athlete's OWN status, and the source's fielded view of
+          // the injury. buildDescription() flattens `details` into prose that
+          // downstream regexes then try to pick apart again; carrying the
+          // fields themselves lets the fact validator read ESPN's answer
+          // instead of re-deriving it. `status` additionally says whether the
+          // tagged athlete is the injured one at all — a row on an Active
+          // player exists to carry a comment about a teammate.
+          ...(record.status && { athlete_status: record.status }),
+          ...(record.details && {
+            injury_details: {
+              type: record.details.type,
+              location: record.details.location,
+              detail: record.details.detail,
+              side: record.details.side,
+            },
+          }),
           ...(teamTimeline && { team_timeline: teamTimeline }),
           // Set explicitly, both ways. This source HAS a status field, so
           // `false` here is a real answer ("ESPN says this is not a change"),

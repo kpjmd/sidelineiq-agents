@@ -27,6 +27,11 @@ import {
   getDeferConfig,
   tierMarker,
 } from '../agents/injury-intelligence/significance.js';
+import {
+  applyAthleteReanchor,
+  attemptAthleteReanchor,
+  getReanchorMode,
+} from './athlete-reanchor.js';
 import { evictExpired, handleDeferDecision } from './defer-queue.js';
 import { maybeProposeReturnWatch } from './return-watch.js';
 import { callTool, callToolWithRetry, isServerAvailable } from '../utils/mcp-client-manager.js';
@@ -36,6 +41,7 @@ import {
   summarizeFailures,
   teamClaimCheck,
   type ResolvedPlayerInfo,
+  type ValidationFailure,
   type ValidationResult,
 } from '../agents/injury-intelligence/fact-validator.js';
 import { refreshTierSnapshotsIfStale } from '../agents/injury-intelligence/tier-snapshots.js';
@@ -277,6 +283,10 @@ interface PollSummary {
   dropped_concussion: number;
   /** Events where the classifier's athlete disagreed with the source's. */
   athlete_name_drift: number;
+  /** Drifted events re-pointed at the classifier's athlete after roster proof. */
+  athlete_reanchored: number;
+  /** Drift that was only a spelling difference — both names, one player row. */
+  athlete_drift_spelling: number;
   /** Posts the agent re-typed after the gate had already scored the old type. */
   content_type_drift: number;
   dropped_fact_validation: number;
@@ -452,6 +462,38 @@ export function shouldForceMDReviewForXSource(sourceName: string | undefined): s
   if (!sourceName?.startsWith('X:')) return undefined;
   if (process.env.X_INSIDER_FORCE_MD_REVIEW === 'false') return undefined;
   return `x_insider_unverified_source:${sourceName}`;
+}
+
+/**
+ * Split fact-validator soft failures into the ones that force MD review and the
+ * ones the operator has downgraded to an annotation.
+ *
+ * Every soft code forces review by default; MD_REVIEW_ANNOTATE_ONLY_CODES is an
+ * explicit, per-code opt-out set in Railway (comma-separated, e.g.
+ * `source_tier_low`). It exists because a soft failure becomes
+ * forceMDReviewReason, which short-circuits needsMDReview entirely — so with no
+ * lever, a single noisy code silently gates every post regardless of confidence
+ * or severity, and only a deploy can change that.
+ *
+ * Downgraded codes are not discarded: they are logged and written to the
+ * validation audit row, so a published post still carries the record of what
+ * was known to be unverified about it.
+ */
+export function partitionSoftFailures(
+  failures: ValidationFailure[],
+  env: string | undefined = process.env.MD_REVIEW_ANNOTATE_ONLY_CODES,
+): { forcing: ValidationFailure[]; annotateOnly: ValidationFailure[] } {
+  const allowed = new Set(
+    (env ?? '')
+      .split(',')
+      .map((c) => c.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  if (allowed.size === 0) return { forcing: failures, annotateOnly: [] };
+  return {
+    forcing: failures.filter((f) => !allowed.has(f.code.toLowerCase())),
+    annotateOnly: failures.filter((f) => allowed.has(f.code.toLowerCase())),
+  };
 }
 
 export function addWeeksIso(baseIso: string, weeks: number): string | null {
@@ -682,6 +724,12 @@ async function auditValidation(
   event: RawInjuryEvent,
   result: ValidationResult,
   action: 'fact_validate_drop' | 'fact_validate_soft_fail' | 'fact_validate_pass',
+  // A re-anchor rewrites the event's identity upstream of this call, so without
+  // it the audit row would record the corrected athlete with no trace of the
+  // one the source actually tagged. Carried here rather than written at the
+  // re-anchor site because that site is above the publish budget cap, where
+  // side effects would repeat every cycle for a capped event.
+  extra?: { athlete_reanchor?: Record<string, string>; annotate_only?: string },
 ): Promise<void> {
   if (!isServerAvailable('web')) return;
   try {
@@ -699,6 +747,8 @@ async function auditValidation(
         soft_failures: result.softFailures,
         corrections: result.corrections,
         resolved_player_id: result.resolvedPlayer?.player_id ?? null,
+        ...(extra?.athlete_reanchor && { athlete_reanchor: extra.athlete_reanchor }),
+        ...(extra?.annotate_only && { annotate_only: extra.annotate_only }),
       },
     });
   } catch (err) {
@@ -722,6 +772,8 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
     dropped_significance: 0,
     dropped_concussion: 0,
     athlete_name_drift: 0,
+    athlete_reanchored: 0,
+    athlete_drift_spelling: 0,
     content_type_drift: 0,
     dropped_fact_validation: 0,
     soft_failed_fact_validation: 0,
@@ -828,8 +880,14 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
 
   // Sequential to avoid races on dedup lookups for the same athlete
   for (const event of events) {
-    const context = `${event.athlete_name} (${sport}/${event.team})`;
+    // Rebuilt if the athlete re-anchor re-points this event at another player —
+    // otherwise every log line below would keep naming the mis-tagged athlete.
+    let context = `${event.athlete_name} (${sport}/${event.team})`;
     let forceMDReviewReason: string | undefined = shouldForceMDReviewForXSource(event.source_name);
+    // Set by a successful re-anchor; folded into the fact-validation audit row
+    // rather than written here, because this point is upstream of the publish
+    // budget cap and a capped event must stay free of side effects.
+    let reanchorAudit: Record<string, string> | undefined;
     try {
       if (isObviousNonInjury(event)) {
         summary.pre_filtered++;
@@ -928,16 +986,75 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
       // was resolved from the SOURCE's name before classification. If the
       // classifier came back with a different athlete, the score belongs to
       // someone other than the post's subject, and the post may be about the
-      // wrong player entirely. Neither the score nor the content can be trusted
-      // without a human look.
+      // wrong player entirely.
+      //
+      // Drift is not always the classifier being wrong, though. An ESPN
+      // injuries row for a HEALTHY athlete carries news about a teammate, and
+      // a news source's tag is a first-capitalized-bigram guess. When the
+      // roster can confirm the classifier named a different, real, unambiguous
+      // player that the source text actually mentions, follow it: re-point the
+      // event before anything downstream reads an identity off it. Otherwise
+      // fall through to the review that has always happened here.
       if (!isSameAthleteName(event.athlete_name, classified.athlete_name)) {
         summary.athlete_name_drift++;
-        console.warn(
-          `[Poller] ${sport} — athlete name drift: source="${event.athlete_name}" classifier="${classified.athlete_name}" (tier resolved from source) — routing to MD review`,
-        );
-        forceMDReviewReason = forceMDReviewReason
-          ? `${forceMDReviewReason},athlete_name_drift`
-          : 'athlete_name_drift';
+        const outcome = await attemptAthleteReanchor(event, classified, {
+          resolvePlayer: (name, forSport) => resolvePlayer(name, forSport),
+          cycleEvents: events,
+        });
+        // shadow means shadow: EVERY behaviour change below is gated on 'on',
+        // including the two that look obviously safe. A mode whose observable
+        // effects depend on which branch fired teaches the operator nothing
+        // about what flipping it to 'on' will do.
+        const applying = getReanchorMode() === 'on' && outcome.kind !== 'review';
+
+        if (!applying) {
+          if (outcome.kind !== 'review') {
+            console.warn(
+              `[Reanchor] ${sport} — shadow: would ${outcome.kind} ` +
+                `"${event.athlete_name}" → "${outcome.to}" — routing to MD review anyway`,
+            );
+          }
+          console.warn(
+            `[Poller] ${sport} — athlete name drift: source="${event.athlete_name}" classifier="${classified.athlete_name}" (tier resolved from source) — routing to MD review` +
+              ` [reanchor:${outcome.kind === 'review' ? outcome.reason : 'shadow'}]`,
+          );
+          forceMDReviewReason = forceMDReviewReason
+            ? `${forceMDReviewReason},athlete_name_drift`
+            : 'athlete_name_drift';
+        } else if (outcome.kind === 'skip') {
+          console.log(
+            `[Reanchor] ${sport} — "${event.athlete_name}" row is second-hand news about ` +
+              `"${outcome.to}", who has their own event this cycle — skipping`,
+          );
+          summary.skipped++;
+          continue;
+        } else if (outcome.kind === 'spelling_variant') {
+          // Same player row, two spellings. Nothing to review; adopt the
+          // roster's spelling so the post and the thread agree.
+          summary.athlete_drift_spelling++;
+          console.log(
+            `[Reanchor] ${sport} — "${event.athlete_name}" and "${classified.athlete_name}" are ` +
+              `the same player (${outcome.player.player_id}); using "${outcome.player.full_name}"`,
+          );
+          event.athlete_name = outcome.player.full_name;
+          classified.athlete_name = outcome.player.full_name;
+          context = `${event.athlete_name} (${sport}/${event.team})`;
+        } else {
+          applyAthleteReanchor(event, classified, outcome);
+          summary.athlete_reanchored++;
+          reanchorAudit = {
+            from: outcome.from,
+            to: outcome.to,
+            player_id: outcome.player.player_id,
+            method: outcome.candidateFrom,
+          };
+          context = `${event.athlete_name} (${sport}/${event.team})`;
+          console.log(
+            `[Reanchor] ${sport} — re-anchored "${outcome.from}" → "${outcome.to}" ` +
+              `(player=${outcome.player.player_id} via=${outcome.candidateFrom} ` +
+              `tier=${outcome.tier.tier}/${outcome.tier.source}) — no MD review`,
+          );
+        }
       }
 
       // ── Significance gate ────────────────────────────────────────────────
@@ -997,26 +1114,46 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
         contentTypeHint: classified.content_type,
       });
 
+      const audited = reanchorAudit ? { athlete_reanchor: reanchorAudit } : undefined;
+
       if (!validation.passed) {
         const codes = summarizeFailures(validation.hardFailures);
         console.warn(
           `[FactValidator] ${sport} DROP — ${context} — codes=${codes}`,
         );
         summary.dropped_fact_validation++;
-        await auditValidation(event, validation, 'fact_validate_drop');
+        await auditValidation(event, validation, 'fact_validate_drop', audited);
         continue;
       }
       if (validation.softFailures.length > 0) {
-        const codes = summarizeFailures(validation.softFailures);
-        const reason = `fact_soft_fail:${codes}`;
-        forceMDReviewReason = forceMDReviewReason ? `${forceMDReviewReason},${reason}` : reason;
+        // MD_REVIEW_ANNOTATE_ONLY_CODES lets the operator downgrade named soft
+        // codes to an annotation without a deploy. Empty by default — every
+        // code forces review exactly as before.
+        const { forcing, annotateOnly } = partitionSoftFailures(validation.softFailures);
         summary.soft_failed_fact_validation++;
-        console.log(
-          `[FactValidator] ${sport} SOFT — ${context} — codes=${codes} (routing to MD review)`,
-        );
-        await auditValidation(event, validation, 'fact_validate_soft_fail');
+
+        if (forcing.length > 0) {
+          const codes = summarizeFailures(forcing);
+          const reason = `fact_soft_fail:${codes}`;
+          forceMDReviewReason = forceMDReviewReason ? `${forceMDReviewReason},${reason}` : reason;
+          console.log(
+            `[FactValidator] ${sport} SOFT — ${context} — codes=${codes} (routing to MD review)`,
+          );
+        }
+        if (annotateOnly.length > 0) {
+          console.log(
+            `[FactValidator] ${sport} SOFT (annotate-only) — ${context} — ` +
+              `codes=${summarizeFailures(annotateOnly)} (publishing; recorded in the audit trail)`,
+          );
+        }
+        await auditValidation(event, validation, 'fact_validate_soft_fail', {
+          ...audited,
+          ...(annotateOnly.length > 0 && {
+            annotate_only: summarizeFailures(annotateOnly),
+          }),
+        });
       } else {
-        await auditValidation(event, validation, 'fact_validate_pass');
+        await auditValidation(event, validation, 'fact_validate_pass', audited);
       }
 
       // Apply any roster-derived team correction before Sonnet runs. validateEvent
@@ -1204,7 +1341,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
   }
 
   console.log(
-    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} dropped_concussion=${summary.dropped_concussion} name_drift=${summary.athlete_name_drift} ct_drift=${summary.content_type_drift} dropped_fact=${summary.dropped_fact_validation} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} expired=${summary.expired_from_defer} defer_q=${summary.defer_queue_size} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} skipped=${summary.skipped} capped=${summary.capped} source_err=${summary.source_errors} classifier_err=${summary.classifier_errors} errors=${summary.errors}`
+    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} dropped_concussion=${summary.dropped_concussion} name_drift=${summary.athlete_name_drift} reanchored=${summary.athlete_reanchored} drift_spelling=${summary.athlete_drift_spelling} ct_drift=${summary.content_type_drift} dropped_fact=${summary.dropped_fact_validation} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} expired=${summary.expired_from_defer} defer_q=${summary.defer_queue_size} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} skipped=${summary.skipped} capped=${summary.capped} source_err=${summary.source_errors} classifier_err=${summary.classifier_errors} errors=${summary.errors}`
   );
   return summary;
 }

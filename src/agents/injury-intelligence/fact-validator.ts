@@ -304,9 +304,96 @@ const BODY_PARTS = [
 
 const SPINAL_PARTS = new Set(['back', 'spine', 'neck', 'head', 'chest', 'abdomen']);
 
+// Four body-part names are also ordinary English words, and injury prose is full
+// of them: "won't be BACK at practice", "HEAD coach said", "on the other HAND".
+// Matching them as anatomy did real damage. Both of these are live cases:
+//
+//   Greenard — "Torso Pectoral Surgery … Greenard (pectoral) won't be back at
+//   practice" produced primary_body_part 'back' (BODY_PARTS list order put
+//   'back' ahead of 'pectoral'), and the entity minted from it has been
+//   absorbing his pectoralis reports as a "back surgery" thread ever since.
+//
+//   Alec Pierce — "Left Leg Ankle Surgery … Head coach Shane Steichen said…"
+//   extracted 'head', which is in SPINAL_PARTS, so a stated laterality of LEFT
+//   became a laterality_inconsistent soft failure and a forced MD review, on an
+//   ankle injury whose side ESPN had told us outright.
+//
+// These tokens now need a POSITIVE anatomical signal in the immediate
+// neighbourhood, not merely the absence of a known false friend — a blocklist
+// of "coach", "at practice" and the like only ever covers the phrasings we
+// already saw fail. Adjacency (one or two words) rather than a proximity
+// window, because a window wide enough to be useful also reaches the unrelated
+// "Surgery" four words earlier in the Pierce string.
+const AMBIGUOUS_PARTS = new Set(['back', 'head', 'hand', 'neck']);
+
+// "lower back", "left hand", "cervical neck".
+const ANATOMICAL_QUALIFIERS = new Set([
+  'lower', 'upper', 'mid', 'middle', 'cervical', 'lumbar', 'thoracic', 'spinal',
+  'left', 'right', 'bilateral',
+]);
+
+// "back surgery", "hand fracture", "neck strain".
+const INJURY_NOUNS = new Set([
+  'injury', 'injuries', 'surgery', 'surgical', 'procedure', 'strain', 'strains',
+  'sprain', 'sprains', 'spasm', 'spasms', 'pain', 'soreness', 'stiffness',
+  'tightness', 'contusion', 'fracture', 'fractures', 'laceration', 'discomfort',
+  'issue', 'issues', 'problem', 'problems', 'tear', 'rupture', 'bruise',
+  'herniation', 'impingement', 'inflammation', 'stinger', 'concussion',
+  'trauma', 'wound', 'mri', 'scan',
+]);
+
+// "injured his back", "fractured her hand", "grabbed his neck".
+const INJURY_VERBS = new Set([
+  'injured', 'hurt', 'broke', 'fractured', 'sprained', 'strained', 'dislocated',
+  'tweaked', 'grabbed', 'holding', 'clutching', 'bruised', 'jammed', 'tore',
+]);
+const POSSESSIVES = new Set(['his', 'her', 'their', 'the']);
+
+function isAnatomicalUse(words: string[], i: number): boolean {
+  const prev = words[i - 1];
+  const next = words[i + 1];
+  if (prev && ANATOMICAL_QUALIFIERS.has(prev)) return true;
+  if (next && INJURY_NOUNS.has(next)) return true;
+  if (prev && POSSESSIVES.has(prev) && words[i - 2] && INJURY_VERBS.has(words[i - 2])) return true;
+  return false;
+}
+
+// Letter runs only. Splitting on non-letters rather than whitespace is what
+// makes token equality identical to the /\bpart\b/ test this replaces, while
+// still exposing neighbours: "shoulder/arm" yields both parts, "(pectoral)"
+// yields the part, "back-to-back" yields three tokens none of which is
+// anatomical. Contractions split ("won't" → won, t), which can only ever break
+// an adjacency match, never invent one.
+function tokenize(lower: string): string[] {
+  return lower.match(/[a-z]+/g) ?? [];
+}
+
+/**
+ * Body parts named in `text`, in the order they appear.
+ *
+ * Order is load-bearing: callers read `parts[0]` as the primary body part, and
+ * it keys entity matching. Returning them in BODY_PARTS declaration order meant
+ * the primary was whichever part happened to sit highest in a hand-written
+ * list, not the one the sentence was about.
+ *
+ * Ambiguous tokens without an anatomical signal are dropped rather than
+ * guessed. That trades a false positive (a wrong thread, a spurious MD review)
+ * for a false negative (no body part extracted) — which is a state this
+ * pipeline already handles everywhere: a null body_part wildcards entity
+ * matching and raises no soft failure.
+ */
 function extractBodyParts(text: string): string[] {
-  const lower = text.toLowerCase();
-  return BODY_PARTS.filter((p) => new RegExp(`\\b${p}\\b`).test(lower));
+  const words = tokenize(text.toLowerCase());
+  const found: string[] = [];
+
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
+    if (!BODY_PART_SET.has(word)) continue;
+    if (AMBIGUOUS_PARTS.has(word) && !isAnatomicalUse(words, i)) continue;
+    if (!found.includes(word)) found.push(word);
+  }
+
+  return found;
 }
 
 // A body-part lookup set for proximity matching below.
@@ -324,7 +411,9 @@ function extractLaterality(text: string): 'left' | 'right' | 'bilateral' | null 
   const lower = text.toLowerCase();
   if (/\bbilateral\b/.test(lower)) return 'bilateral';
 
-  const words = lower.split(/\s+/).map((w) => w.replace(/[^a-z]/g, ''));
+  // Same tokenizer as extractBodyParts, so "grabbing his right shoulder/arm"
+  // sees a body part next to the side word instead of one glued-together token.
+  const words = tokenize(lower);
   let sawLeft = false;
   let sawRight = false;
 
@@ -382,20 +471,63 @@ function extractInjuryTypeHint(text: string): string | null {
   return null;
 }
 
-export function extractInjuryMetadata(description: string): ExtractedInjuryMetadata {
-  const parts = extractBodyParts(description);
+// ESPN's structured `details` block, when the source carries one. These are
+// fielded values the source asserts outright — {type:"Ankle", location:"Leg",
+// side:"Left"} — so they beat scraping the same facts back out of the prose
+// summary built from them, which is what buildDescription() does and what every
+// caller here was reading. `side` uses the literal "Not Specified" rather than
+// omitting itself, and that is not the same as LEFT/RIGHT/BILATERAL: it means
+// the source declined to say, so the text still gets its turn.
+type StructuredDetails = NonNullable<RawInjuryEvent['injury_details']>;
+
+function partsFromStructured(details: StructuredDetails | undefined): string[] {
+  if (!details) return [];
+  const out: string[] = [];
+  // type before location: ESPN's `type` is the specific part ("Pectoral",
+  // "Ankle") and `location` the coarse region ("Torso", "Leg"), so type is the
+  // better primary. Both are scanned — some rows only fill one.
+  for (const field of [details.type, details.location]) {
+    for (const word of tokenize((field ?? '').toLowerCase())) {
+      if (BODY_PART_SET.has(word) && !out.includes(word)) out.push(word);
+    }
+  }
+  return out;
+}
+
+function lateralityFromStructured(
+  details: StructuredDetails | undefined,
+): 'LEFT' | 'RIGHT' | 'BILATERAL' | null {
+  const side = details?.side?.trim().toLowerCase();
+  if (side === 'left') return 'LEFT';
+  if (side === 'right') return 'RIGHT';
+  if (side === 'bilateral') return 'BILATERAL';
+  return null;
+}
+
+export function extractInjuryMetadata(
+  description: string,
+  details?: StructuredDetails,
+): ExtractedInjuryMetadata {
+  const structuredParts = partsFromStructured(details);
+  const textParts = extractBodyParts(description);
+  // Structured parts lead; text parts follow so nothing the prose adds is lost.
+  const parts = [...structuredParts, ...textParts.filter((p) => !structuredParts.includes(p))];
+
   const lat = extractLaterality(description);
+  const textLaterality =
+    lat === 'bilateral' ? 'BILATERAL' : lat === 'left' ? 'LEFT' : lat === 'right' ? 'RIGHT' : 'UNSPECIFIED';
+
   return {
     body_parts: parts,
     primary_body_part: parts[0] ?? null,
-    laterality: lat === 'bilateral'
-      ? 'BILATERAL'
-      : lat === 'left'
-        ? 'LEFT'
-        : lat === 'right'
-          ? 'RIGHT'
-          : 'UNSPECIFIED',
-    injury_type_hint: extractInjuryTypeHint(description),
+    laterality: lateralityFromStructured(details) ?? textLaterality,
+    // `detail` is the source's own procedure/mechanism word ("Surgery",
+    // "Sprain"). Still passed through the same keyword list, so an unrecognized
+    // value falls through to the description rather than becoming the hint.
+    injury_type_hint:
+      extractInjuryTypeHint(details?.detail ?? '') ??
+      extractInjuryTypeHint(details?.type ?? '') ??
+      extractInjuryTypeHint(description),
   };
 }
 
@@ -596,8 +728,13 @@ export async function validateEvent(
   }
 
   // ── Body part / laterality / spine-laterality nonsense ───────────────
-  const bodyParts = extractBodyParts(event.injury_description);
-  const laterality = extractLaterality(event.injury_description);
+  // Extracted ONCE and reused for both checks below and for the returned
+  // metadata. These used to be three separate extractions off the same string,
+  // free to disagree: the checks read the raw description while the metadata
+  // (which keys entity matching) could be computed from the structured fields.
+  const metadata = extractInjuryMetadata(event.injury_description, event.injury_details);
+  const bodyParts = metadata.body_parts;
+  const laterality = metadata.laterality === 'UNSPECIFIED' ? null : metadata.laterality;
   if (laterality && bodyParts.some((p) => SPINAL_PARTS.has(p))) {
     softFailures.push({
       code: 'laterality_inconsistent',
@@ -653,7 +790,7 @@ export async function validateEvent(
     softFailures,
     corrections,
     resolvedPlayer: resolved,
-    metadata: extractInjuryMetadata(event.injury_description),
+    metadata,
   };
 }
 

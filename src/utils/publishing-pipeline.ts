@@ -568,10 +568,16 @@ export async function publishInjuryPost(
     console.warn(`[Pipeline] Dedup/cadence check failed for ${context}, proceeding: ${message}`);
   }
 
-  // Step 2: MD review check (force flag wins over confidence/severity rules)
+  // Step 2: MD review check. The force flag makes review unconditional, but it
+  // does NOT replace what needsMDReview would have said — both reasons are
+  // recorded. Short-circuiting dropped the second half on every forced post, so
+  // a SEVERE injury flagged for e.g. athlete_name_drift reached the queue with
+  // no indication it was also SEVERE, and the reviewer had to infer it.
+  const intrinsic = needsMDReview(content);
+  const reasons = [opts.forceMDReviewReason, intrinsic.reason].filter(Boolean);
   const review = opts.forceMDReviewReason
-    ? { needed: true, reason: opts.forceMDReviewReason }
-    : needsMDReview(content);
+    ? { needed: true, reason: reasons.join('; ') }
+    : intrinsic;
   if (review.needed) {
     console.log(`[Pipeline] Routing to MD review: ${context} — ${review.reason}`);
 
