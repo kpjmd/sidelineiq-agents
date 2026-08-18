@@ -59,7 +59,7 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { initializeMCPClients, callTool, disconnectAll } from '../utils/mcp-client-manager.js';
 import { listAllPosts } from '../utils/web-posts.js';
-import { reconstructPostContent } from '../utils/post-content.js';
+import { reconstructPostContent, describeReconstructFailure, type StoredPostRow } from '../utils/post-content.js';
 import { publishApprovedPost } from '../utils/publishing-pipeline.js';
 import { formatForFarcaster, formatForTwitter } from '../utils/content-formatter.js';
 
@@ -79,10 +79,18 @@ type Decision =
   | 'published_no_hash'
   | 'error';
 
-export interface OrphanRow {
+/**
+ * Extends StoredPostRow so the RTP columns are declared in exactly one place.
+ *
+ * This used to declare no RTP fields at all and lean on the index signature,
+ * which is precisely why TypeScript never noticed that the names
+ * reconstructPostContent read did not exist on injury_posts.
+ */
+export interface OrphanRow extends StoredPostRow {
   id?: string;
   post_id?: string;
   status?: string;
+  /** Narrowed from StoredPostRow's `unknown` — the orphan gates read these as strings. */
   content_type?: string;
   athlete_name?: string;
   sport?: string;
@@ -436,7 +444,7 @@ async function run(): Promise<void> {
       report.push({
         ...base,
         decision: 'skip_unreconstructable',
-        reason: reason === 'unknown_content_type' ? 'unrecognized content_type' : 'missing RTP data',
+        reason: describeReconstructFailure(reason),
       });
       continue;
     }
@@ -538,8 +546,15 @@ async function run(): Promise<void> {
     for (const [index, row] of named.entries()) {
       const id = postId(row);
       const entry = report.find((r) => r.post_id === id)!;
-      const { content } = reconstructPostContent(row);
-      if (!content) continue;
+      const { content, reason } = reconstructPostContent(row);
+      if (!content) {
+        // Reachable if the row changed between the dry-run scan and here.
+        // Never skip a named --post-id silently: the operator asked for it.
+        console.warn(`[Republish] Skipping ${id} — ${describeReconstructFailure(reason)}`);
+        entry.decision = 'skip_unreconstructable';
+        entry.reason = describeReconstructFailure(reason);
+        continue;
+      }
 
       const siteUrl = (process.env.SITE_URL ?? 'https://sidelineiq.vercel.app').replace(/\/$/, '');
       const slug = String(row.slug ?? '');
