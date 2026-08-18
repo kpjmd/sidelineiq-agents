@@ -34,7 +34,7 @@
 //
 // Usage (inside the container):
 //   npx tsx src/scripts/republish-social-orphans.ts                    # dry run
-//   npx tsx src/scripts/republish-social-orphans.ts --flag-stale       # dry run + file stale ones for MD review
+//   npx tsx src/scripts/republish-social-orphans.ts --flag-stale       # no casts; files stale posts for MD review
 //   npx tsx src/scripts/republish-social-orphans.ts \
 //     --publish --post-ids=<uuid>,<uuid> --confirm                     # live
 //
@@ -44,7 +44,10 @@
 //   --max-age-days=<d>       staleness for other types (default 14)
 //   --max-publishes=<n>      abort if more ids are named (default 3)
 //   --delay-ms=<n>           spacing between publishes (default 60000)
-//   --flag-stale             file skip_stale posts into the MD queue
+//   --flag-stale             file skip_stale posts into the MD queue. This is a
+//                            write and needs no --publish: a review row is not a
+//                            public cast. Safe to re-run — already-pending
+//                            social_orphan reviews are skipped.
 //   --publish --post-ids --confirm   all three required to cast anything
 //
 // The container filesystem is ephemeral and has no editor, so the CSV and the
@@ -469,10 +472,32 @@ async function run(): Promise<void> {
   }
 
   // File the stale ones so a human owns the call rather than losing it.
+  //
+  // Deliberately NOT gated behind --publish: adding a row to the internal review
+  // queue is not a public cast, and holding it hostage to the publish flag would
+  // mean the only way to file a stale post is to also be casting something.
   if (opts.flagStale) {
+    // web_flag_for_md_review is explicitly not idempotent — it appends a new
+    // PENDING row every call — so a second run would pile up duplicates.
+    const alreadyFlagged = new Set<string>();
+    try {
+      const pending = unwrap<{ reviews?: Array<{ post_id?: string; reason?: string }> }>(
+        await callTool('web', 'web_list_md_reviews', { status: 'PENDING' }),
+      );
+      for (const r of pending?.reviews ?? []) {
+        if (String(r.reason ?? '').startsWith('social_orphan:')) {
+          alreadyFlagged.add(String(r.post_id ?? ''));
+        }
+      }
+    } catch (err) {
+      throw new Error(
+        `could not read the pending review queue, so flagging would risk duplicate rows: ${String(err)}`,
+      );
+    }
+
     for (const entry of report.filter((r) => r.decision === 'skip_stale')) {
-      if (!live) {
-        console.log(`[republish] would flag ${entry.post_id} (${entry.athlete_name}) for MD review`);
+      if (alreadyFlagged.has(entry.post_id)) {
+        console.log(`[republish] ${entry.post_id} (${entry.athlete_name}) already has a pending social_orphan review — skipping`);
         continue;
       }
       try {
@@ -485,7 +510,15 @@ async function run(): Promise<void> {
           flagged_by: ACTOR_ID,
           preserve_status: true,
         });
-        console.log(`[republish] flagged ${entry.post_id} (${entry.athlete_name}) for MD review`);
+        await callTool('web', 'web_audit_append', {
+          actor: 'automation',
+          actor_id: ACTOR_ID,
+          entity_type: 'injury_post',
+          entity_id: entry.post_id,
+          action: 'social_orphan_flagged',
+          payload: { reason: entry.reason, age_days: entry.age_days, content_type: entry.content_type },
+        });
+        console.log(`[republish] flagged ${entry.post_id} (${entry.athlete_name}, ${entry.age_days}d) for MD review`);
       } catch (err) {
         console.error(`[republish] flag failed for ${entry.post_id}: ${String(err)}`);
       }
