@@ -12,7 +12,8 @@ import type {
 
 const MODEL = 'claude-sonnet-4-6';
 
-const AGENT_TOOL = {
+/** Exported so tests can assert on the schema the model actually receives. */
+export const AGENT_TOOL = {
   name: 'emit_injury_post',
   description:
     'Emit a structured injury post after completing the OTM three-axis classification, RTP estimation, and content drafting steps from SKILL.md.',
@@ -53,7 +54,11 @@ const AGENT_TOOL = {
           probability_week_2: { type: 'number' },
           probability_week_4: { type: 'number' },
           probability_week_8: { type: 'number' },
-          confidence: { type: 'number' },
+          confidence: {
+            type: 'number',
+            description:
+              'Confidence in THIS RTP range specifically, 0 to 1 — how good the literature behind the timeline is, NOT how well-sourced the news report is. Anchor to the SKILL.md evidence tier for this injury: T1 (multiple RCTs or large prospective cohorts — ACL reconstruction, Achilles repair, Jones fracture) → 0.85-0.95. T2 (observational studies, expert consensus, established protocols — hamstring Grade 2, MCL sprain, high ankle sprain) → 0.65-0.85. T3 (limited studies, high variability — chondral injury, multi-ligament knee, turf toe Grade 3) → 0.40-0.65. T4 (biological anchor only, no reliable RTP literature) → 0.20-0.40. Set 0 for CONCUSSION and SYSTEMIC events, where no RTP estimate may be made at all.',
+          },
         },
         required: [
           'min_weeks',
@@ -68,7 +73,8 @@ const AGENT_TOOL = {
       },
       confidence: {
         type: 'number',
-        description: 'Overall confidence in the post, 0 to 1. Below 0.75 routes to MD review.',
+        description:
+          'Confidence in the POST as a whole, 0 to 1. This is a DIFFERENT judgement from return_to_play.confidence and will usually be a different number — do not copy one into the other. Score what you know about the EVENT, not the strength of the literature: is the injury confirmed by imaging or a team statement rather than inferred from a mechanism; are the athlete, team and side unambiguous in the source; do the sources agree; is this a primary outlet or an aggregator repeating one. Start at 0.90 when the diagnosis is confirmed and the reporting is unambiguous, then subtract for each thing you are inferring rather than reading: about 0.10 for an inferred grade, 0.10 for unconfirmed laterality, 0.15 for a single anonymous-source report, 0.20 when sources conflict on the diagnosis itself. A low score routes the post to physician review before publication, so do not lower it to express ordinary clinical caution — return_to_play.confidence and the clinical_summary carry that. This field measures how sure you are of the facts.',
       },
       team: {
         type: 'string',
@@ -116,7 +122,7 @@ function buildSystemPrompt(core: string, rtpTables: string, sportReference: stri
     '\n\n--- OUTPUT INSTRUCTIONS ---\n\n',
     'You must call the emit_injury_post tool exactly once with your final structured output. ',
     'Complete the OTM three-axis classification before selecting an RTP range. ',
-    'Never emit an RTP estimate for CONCUSSION or SYSTEMIC events — in those cases, set return_to_play probabilities to 0 and confidence to a low value. ',
+    'Never emit an RTP estimate for CONCUSSION or SYSTEMIC events — in those cases, set return_to_play probabilities to 0 and return_to_play.confidence to 0. The post-level confidence field is unaffected: it describes how sure you are of the reported facts, not of a timeline you are declining to give. ',
     'State whether the injury grade is CONFIRMED (imaging/team confirmed) or INFERRED (reasoned from mechanism and reporting) in the clinical_summary. ',
     'CRITICAL — clinical_summary format rules: The clinical_summary must be written as public-facing narrative prose throughout. ',
     'Do NOT include internal taxonomy labels such as "Axis 1 — Tissue:", "Axis 2 — Severity:", "Axis 3 — Region:", "Evidence Tier:", "Flag: ESCALATION", or "ESCALATION —". ',
