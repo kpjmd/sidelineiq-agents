@@ -31,6 +31,7 @@ import {
   applyAthleteReanchor,
   attemptAthleteReanchor,
   getReanchorMode,
+  isSurnameReference,
 } from './athlete-reanchor.js';
 import { evictExpired, handleDeferDecision } from './defer-queue.js';
 import { maybeProposeReturnWatch } from './return-watch.js';
@@ -287,6 +288,8 @@ interface PollSummary {
   athlete_reanchored: number;
   /** Drift that was only a spelling difference — both names, one player row. */
   athlete_drift_spelling: number;
+  /** Classifier answered with the source athlete's bare surname. Not drift. */
+  athlete_surname_ref: number;
   /** Posts the agent re-typed after the gate had already scored the old type. */
   content_type_drift: number;
   dropped_fact_validation: number;
@@ -774,6 +777,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
     athlete_name_drift: 0,
     athlete_reanchored: 0,
     athlete_drift_spelling: 0,
+    athlete_surname_ref: 0,
     content_type_drift: 0,
     dropped_fact_validation: 0,
     soft_failed_fact_validation: 0,
@@ -995,7 +999,22 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
       // player that the source text actually mentions, follow it: re-point the
       // event before anything downstream reads an identity off it. Otherwise
       // fall through to the review that has always happened here.
-      if (!isSameAthleteName(event.athlete_name, classified.athlete_name)) {
+      //
+      // First, the case that is not drift at all: sources name the athlete by
+      // surname alone as a matter of house style ("Kittle (Achilles) said
+      // Sunday…"), and a classifier following the description's wording answers
+      // in kind. Restore the source's full name and carry on. NOT gated on the
+      // re-anchor mode — no identity changes here, and leaving it would publish
+      // a post whose athlete_name, dedup key, player row and entity all read
+      // "Kittle".
+      if (isSurnameReference(event.athlete_name, classified.athlete_name)) {
+        summary.athlete_surname_ref++;
+        console.log(
+          `[Poller] ${sport} — classifier named "${classified.athlete_name}" for ` +
+            `"${event.athlete_name}"; same athlete, short form — using the source's full name`,
+        );
+        classified.athlete_name = event.athlete_name;
+      } else if (!isSameAthleteName(event.athlete_name, classified.athlete_name)) {
         summary.athlete_name_drift++;
         const outcome = await attemptAthleteReanchor(event, classified, {
           resolvePlayer: (name, forSport) => resolvePlayer(name, forSport),
@@ -1341,7 +1360,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
   }
 
   console.log(
-    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} dropped_concussion=${summary.dropped_concussion} name_drift=${summary.athlete_name_drift} reanchored=${summary.athlete_reanchored} drift_spelling=${summary.athlete_drift_spelling} ct_drift=${summary.content_type_drift} dropped_fact=${summary.dropped_fact_validation} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} expired=${summary.expired_from_defer} defer_q=${summary.defer_queue_size} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} skipped=${summary.skipped} capped=${summary.capped} source_err=${summary.source_errors} classifier_err=${summary.classifier_errors} errors=${summary.errors}`
+    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} dropped_concussion=${summary.dropped_concussion} name_drift=${summary.athlete_name_drift} reanchored=${summary.athlete_reanchored} drift_spelling=${summary.athlete_drift_spelling} surname_ref=${summary.athlete_surname_ref} ct_drift=${summary.content_type_drift} dropped_fact=${summary.dropped_fact_validation} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} expired=${summary.expired_from_defer} defer_q=${summary.defer_queue_size} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} skipped=${summary.skipped} capped=${summary.capped} source_err=${summary.source_errors} classifier_err=${summary.classifier_errors} errors=${summary.errors}`
   );
   return summary;
 }
