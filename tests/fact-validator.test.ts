@@ -349,6 +349,39 @@ describe('validateEvent — body parts that are also English words', () => {
     }
   });
 
+  // ESPN's house style, and the most common anatomical reference in their
+  // prose: the injury in a bare parenthetical after the athlete's surname. No
+  // adjacency rule can see it — the neighbours are a surname and a verb.
+  it('reads the "Player (back)" parenthetical', async () => {
+    const cases: Array<[string, string]> = [
+      ['Bates (back) returned to practice Monday.', 'back'],
+      ['The Cardinals placed Blount (neck) on injured reserve.', 'neck'],
+      ['Carter (hand) was a full participant Tuesday.', 'hand'],
+    ];
+    for (const [description, expected] of cases) {
+      const res = await validateEvent(makeEvent({ injury_description: description }), makePlayer(), {
+        now: NOW,
+      });
+      expect(res.metadata.primary_body_part, description).toBe(expected);
+    }
+  });
+
+  it('distinguishes "his back" from "the back" — and from "the head coach"', async () => {
+    const possessive = await validateEvent(
+      makeEvent({ injury_description: 'Downs left after landing hard on his back.' }),
+      makePlayer(),
+      { now: NOW },
+    );
+    expect(possessive.metadata.primary_body_part).toBe('back');
+
+    const article = await validateEvent(
+      makeEvent({ injury_description: 'The head coach said he is the No. 2 running back.' }),
+      makePlayer(),
+      { now: NOW },
+    );
+    expect(article.metadata.body_parts).toEqual([]);
+  });
+
   it('orders parts by where they appear, not by the BODY_PARTS list', async () => {
     // 'ankle' sits above 'shoulder' in the list; the sentence says otherwise.
     const res = await validateEvent(

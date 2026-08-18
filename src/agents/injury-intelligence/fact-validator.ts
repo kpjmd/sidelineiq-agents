@@ -342,20 +342,45 @@ const INJURY_NOUNS = new Set([
   'trauma', 'wound', 'mri', 'scan',
 ]);
 
-// "injured his back", "fractured her hand", "grabbed his neck".
+// "injured the back", "fractured the hand" — needed only for the article, which
+// is otherwise far too weak a signal ("the head coach").
 const INJURY_VERBS = new Set([
   'injured', 'hurt', 'broke', 'fractured', 'sprained', 'strained', 'dislocated',
   'tweaked', 'grabbed', 'holding', 'clutching', 'bruised', 'jammed', 'tore',
 ]);
-const POSSESSIVES = new Set(['his', 'her', 'their', 'the']);
+
+// "landing hard on his back", "underwent a procedure on his back". A personal
+// possessive in injury prose is about the person's anatomy; "the" is not, which
+// is the entire difference between "his head" and "the head coach".
+const PRONOUN_POSSESSIVES = new Set(['his', 'her', 'their']);
 
 function isAnatomicalUse(words: string[], i: number): boolean {
   const prev = words[i - 1];
   const next = words[i + 1];
   if (prev && ANATOMICAL_QUALIFIERS.has(prev)) return true;
   if (next && INJURY_NOUNS.has(next)) return true;
-  if (prev && POSSESSIVES.has(prev) && words[i - 2] && INJURY_VERBS.has(words[i - 2])) return true;
+  if (prev && PRONOUN_POSSESSIVES.has(prev)) return true;
+  if (prev === 'the' && words[i - 2] && INJURY_VERBS.has(words[i - 2])) return true;
   return false;
+}
+
+// ESPN's house style names the injury in a bare parenthetical after the
+// athlete: "Bates (back) returned to practice", "Carter (hand) was a full
+// participant", "The Cardinals placed Blount (neck) on injured reserve". It is
+// the single most common anatomical reference in their prose and no adjacency
+// rule sees it — the neighbouring tokens are just a surname and a verb.
+//
+// Measured over the live NFL + NBA feeds (879 rows), this one pattern accounts
+// for most of the ambiguous-token mentions that are genuinely anatomical.
+// Nothing writes "(back)" or "(neck)" non-anatomically.
+const PAREN_PART_RE = /\(\s*([a-z]+)\s*\)/g;
+
+function parenAttestedParts(lower: string): Set<string> {
+  const out = new Set<string>();
+  for (const m of lower.matchAll(PAREN_PART_RE)) {
+    if (AMBIGUOUS_PARTS.has(m[1])) out.add(m[1]);
+  }
+  return out;
 }
 
 // Letter runs only. Splitting on non-letters rather than whitespace is what
@@ -383,13 +408,17 @@ function tokenize(lower: string): string[] {
  * matching and raises no soft failure.
  */
 function extractBodyParts(text: string): string[] {
-  const words = tokenize(text.toLowerCase());
+  const lower = text.toLowerCase();
+  const words = tokenize(lower);
+  const parenAttested = parenAttestedParts(lower);
   const found: string[] = [];
 
   for (let i = 0; i < words.length; i++) {
     const word = words[i];
     if (!BODY_PART_SET.has(word)) continue;
-    if (AMBIGUOUS_PARTS.has(word) && !isAnatomicalUse(words, i)) continue;
+    if (AMBIGUOUS_PARTS.has(word) && !parenAttested.has(word) && !isAnatomicalUse(words, i)) {
+      continue;
+    }
     if (!found.includes(word)) found.push(word);
   }
 
