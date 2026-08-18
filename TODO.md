@@ -176,7 +176,7 @@
 
 - [ ] Review significance gate logs after first week — check `dropped_sig` / `deferred` / `pre_filtered` counts per cycle; confirm no high-value events dropped
 - [ ] Watch first week of autonomous posts: dedup rates, MD review queue volume, confidence distribution
-- [ ] MD_REVIEW_CONFIDENCE_THRESHOLD at 0.6 (lowered from 0.75 for ESPN data quality) — revisit after observing queue
+- [ ] MD_REVIEW_CONFIDENCE_THRESHOLD is 0.70 in Railway as of 2026-08-17 (this line said 0.6, which was stale) — revisit after observing queue
 - [ ] NewsAPI athlete name extraction: misses DK/DJ/TJ/Za'Darius-style names — improve regex if miss rate is high
 - [ ] Batch clear for low-signal posts (confidence < 0.4 bulk dismiss in admin UI) — deferred
 - [ ] OTM signature truncated on X final cast (~10 chars) — minor cosmetic, fix when convenient

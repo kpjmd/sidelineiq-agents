@@ -150,8 +150,22 @@ on the final post/cast only. Never on BREAKING or TRACKING.
 
 ### MD Review Routing
 Route to review queue when:
-- confidence score < MD_REVIEW_CONFIDENCE_THRESHOLD (default 0.75)
+- confidence score < MD_REVIEW_CONFIDENCE_THRESHOLD (code default 0.75;
+  **production runs 0.70**, set in Railway — check the env var, not the default)
 - injury_severity === 'SEVERE'
+
+These two are independent, and the second is the one people forget: a SEVERE
+post routes to review at confidence 0.99, so no threshold change can un-gate it.
+`content_type === 'DEEP_DIVE'` also always routes, short-circuiting before
+confidence is even read (`needsMDReview` in publishing-pipeline.ts).
+
+The confidence itself is model-emitted via `emit_injury_post`, and there are
+**two** confidence fields — post-level `confidence` (what this gate reads,
+stored as `md_review_confidence`) and `return_to_play.confidence` (stored as
+`rtp_confidence`). They measure different things: how sure we are of the
+reported facts, versus how good the literature behind the timeline is. Keep
+their tool-schema descriptions distinct — when the RTP one had no description
+at all, the model emitted the same number into both.
 Posts pending review are stored in database with status PENDING_REVIEW.
 They do NOT publish to Farcaster or Twitter until approved.
 
