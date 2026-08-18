@@ -100,9 +100,16 @@ describe('reconstructPostContent', () => {
     content_type: 'BREAKING',
     headline: 'Jaren Kanak suffers hamstring strain',
     clinical_summary: 'Grade 2 biceps femoris strain.',
-    confidence: 0.85,
+    md_review_confidence: 0.85,
     return_to_play_min_weeks: 3,
     return_to_play_max_weeks: 5,
+    // Real injury_posts column names, as DECIMAL strings the way Postgres
+    // returns them. DEEP_DIVE and CONFLICT_FLAG now fail closed without these,
+    // because their formatters print the week-by-week percentages.
+    rtp_probability_week_2: '0.100',
+    rtp_probability_week_4: '0.400',
+    rtp_probability_week_8: '0.850',
+    rtp_confidence: '0.700',
     ...overrides,
   });
 

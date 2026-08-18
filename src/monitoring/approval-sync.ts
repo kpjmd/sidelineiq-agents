@@ -1,6 +1,6 @@
 import { isServerAvailable } from '../utils/mcp-client-manager.js';
 import { listAllPosts } from '../utils/web-posts.js';
-import { reconstructPostContent } from '../utils/post-content.js';
+import { reconstructPostContent, describeReconstructFailure, type StoredPostRow } from '../utils/post-content.js';
 import { publishApprovedPost } from '../utils/publishing-pipeline.js';
 
 const DEFAULT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
@@ -33,42 +33,24 @@ let lastSuppressionLogAt = 0;
 // when social-hash writeback hasn't landed yet on a subsequent poll cycle.
 const processedIds = new Set<string>();
 
-export interface ApprovedPost {
+/**
+ * A row as returned by web_list_posts / web_approve_injury_post.
+ *
+ * Extends StoredPostRow rather than restating the column names. The duplicated
+ * copy that used to live here had drifted to a set of names injury_posts does
+ * not have, and because reconstructPostContent had drifted the same way, the
+ * two agreed with each other and not with the database. One definition now.
+ */
+export interface ApprovedPost extends StoredPostRow {
   post_id?: string;
   id?: string;
   status?: string;
+  /** Narrowed from StoredPostRow's `unknown` — the selection filters read it as a string. */
   content_type?: string;
   farcaster_hash?: string | null;
   twitter_id?: string | null;
   created_at?: string;
-  athlete_name?: string;
-  sport?: string;
-  team?: string;
-  injury_type?: string;
-  injury_severity?: string;
-  headline?: string;
-  clinical_summary?: string;
-  confidence?: number;
   slug?: string;
-  conflict_reason?: string;
-  team_timeline_weeks?: number;
-  parent_post_id?: string;
-  // Flat RTP columns (from web_approve_injury_post / web_list_posts)
-  return_to_play_min_weeks?: number;
-  return_to_play_max_weeks?: number;
-  return_to_play_probability_week_2?: number;
-  return_to_play_probability_week_4?: number;
-  return_to_play_probability_week_8?: number;
-  return_to_play_confidence?: number;
-  // Nested RTP (from web_create_injury_post shape)
-  return_to_play_estimate?: {
-    min_weeks?: number;
-    max_weeks?: number;
-    probability_week_2?: number;
-    probability_week_4?: number;
-    probability_week_8?: number;
-    confidence?: number;
-  };
 }
 
 /**
@@ -372,7 +354,7 @@ async function runApprovalSyncCycle(): Promise<void> {
         `[ApprovalSync] Skipping post ${webPostId} — ${
           reason === 'unknown_content_type'
             ? `unrecognized content_type "${post.content_type ?? ''}"`
-            : 'missing RTP data'
+            : describeReconstructFailure(reason)
         }`
       );
       continue;

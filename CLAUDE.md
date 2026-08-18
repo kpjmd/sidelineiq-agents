@@ -208,6 +208,41 @@ defaulting: `content_type` picks the formatter, and the OrthoIQ CTA is emitted
 only by the DEEP_DIVE builders, so guessing wrong puts a referral link on
 breaking injury news.
 
+### The RTP columns are named asymmetrically
+
+`injury_posts` stores the RTP window as `return_to_play_min_weeks` /
+`return_to_play_max_weeks` but the probabilities as `rtp_probability_week_2/4/8`,
+plus `rtp_confidence` and `md_review_confidence`. There is no `confidence`,
+`return_to_play_confidence`, or `return_to_play_probability_week_*` column.
+Both earlier copies of the reconstruction read the second set, so every post
+rebuilt from a stored row cast `Wk 2: 0% | Wk 4: 0% | Wk 8: 0%`.
+
+It survived because the two halves fail differently: the `*_min_weeks` names
+ARE right, so the `missing_rtp` gate kept working, and `?? 0` produced a zero
+indistinguishable from a true `0.000` — a complete tendon rupture really does
+have a 0% chance of RTP at week 2. Reconstruction now fails closed
+(`missing_rtp_probabilities`) rather than defaulting, for the content types
+whose formatters print percentages.
+
+`web_get_post` / `web_list_posts` are plain `SELECT *` with no aliasing, so the
+row you get back is the raw column names. Build test fixtures by recording a
+real payload (`tests/fixtures/injury-post-row.json`), never by hand — the
+previous suite passed only because its fixtures used the same wrong names the
+code did.
+
+### Which content types actually print percentages
+
+Config-dependent, and easy to get wrong. `TWITTER_CHAR_LIMIT > 500` (production
+is 25000) selects the long-form builders:
+- DEEP_DIVE prints them on **both** platforms (`buildDeepDiveThread`,
+  `buildLongFormDeepDive`).
+- CONFLICT_FLAG prints them on **neither** in production —
+  `buildConflictFarcasterCast` and `buildLongFormConflict` both omit them. Only
+  `buildConflictTwitterThread`, the ≤500-char free-account path, prints them.
+
+CONFLICT_FLAG is still covered by the fail-closed guard precisely because that
+is one env var away from being live again.
+
 ## MCP Server Connections
 
 This repo connects to sidelineiq-mcp-servers via HTTP:

@@ -3,7 +3,7 @@ import express from 'express';
 import { timingSafeEqual } from 'node:crypto';
 import { initializeMCPClients, disconnectAll, getServerStatus, callTool, isServerAvailable } from './utils/mcp-client-manager.js';
 import { publishInjuryPost, publishApprovedPost } from './utils/publishing-pipeline.js';
-import { reconstructPostContent } from './utils/post-content.js';
+import { reconstructPostContent, describeReconstructFailure } from './utils/post-content.js';
 import { startPolling, stopPolling, pollSport } from './monitoring/poller.js';
 import { processInjuryEvent } from './agents/injury-intelligence/agent.js';
 import { startDeepDiveScheduler, stopDeepDiveScheduler } from './monitoring/deep-dive-scheduler.js';
@@ -189,7 +189,7 @@ app.post('/admin/approve/:post_id', async (req, res) => {
       error:
         reason === 'unknown_content_type'
           ? `Post has an unrecognized content_type: "${String(post.content_type ?? '')}"`
-          : 'Post missing RTP data',
+          : `Post ${describeReconstructFailure(reason)}`,
     });
     return;
   }
