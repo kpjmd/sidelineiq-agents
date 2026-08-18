@@ -31,6 +31,7 @@ import {
   getReanchorMode,
   isHealthyFeedStatus,
   isReanchorEligible,
+  isSurnameReference,
   surnameKey,
   type ReanchorOutcome,
 } from '../src/monitoring/athlete-reanchor.js';
@@ -378,5 +379,47 @@ describe('applyAthleteReanchor', () => {
       before.subscores.information_specificity,
     );
     expect(after.subscores.event_recency_novelty).toBe(before.subscores.event_recency_novelty);
+  });
+});
+
+/**
+ * A bare surname is not a different athlete.
+ *
+ * ESPN's comment style names the athlete by surname alone — "Kittle (Achilles)
+ * said Sunday…", "Nabers (knee) logged reps…", "Monangai (knee) is considered
+ * week-to-week". Asking the classifier to copy the description's spelling made
+ * it answer "Kittle" where the feed row said "George Kittle", and the drift
+ * guard read that as a different person: name_drift went 1 → 9 in a single NFL
+ * cycle, seven of them this shape, every one a forced MD review for nothing.
+ *
+ * It is not only a review-queue problem. post.athlete_name comes from the
+ * classifier, and it keys the dedup lookup, the player row and the entity — so
+ * a surname-only answer that got past the guard would publish a post filed
+ * under "Kittle".
+ */
+describe('isSurnameReference', () => {
+  it('recognizes the source\'s own surname standing in for the full name', () => {
+    expect(isSurnameReference('George Kittle', 'Kittle')).toBe(true);
+    expect(isSurnameReference('Malik Nabers', 'Nabers')).toBe(true);
+    expect(isSurnameReference('Kyle Monangai', 'Monangai')).toBe(true);
+  });
+
+  it('tolerates the suffix and punctuation differences sources disagree on', () => {
+    expect(isSurnameReference('Marvin Harrison Jr.', 'Harrison')).toBe(true);
+    expect(isSurnameReference('A.J. Brown', 'Brown')).toBe(true);
+  });
+
+  it('is false for a genuinely different athlete', () => {
+    expect(isSurnameReference('Tyler Allgeier', 'Jeremiyah Love')).toBe(false);
+    expect(isSurnameReference('Tyler Allgeier', 'Love')).toBe(false);
+  });
+
+  it('is false for a different player who shares nothing but a first name', () => {
+    expect(isSurnameReference('George Kittle', 'George')).toBe(false);
+  });
+
+  it('is false when the classifier gave a full name — that is drift, or nothing', () => {
+    expect(isSurnameReference('George Kittle', 'George Kittle')).toBe(false);
+    expect(isSurnameReference('George Kittle', 'Travis Kelce')).toBe(false);
   });
 });

@@ -34,12 +34,16 @@ const CLASSIFIER_TOOL = {
       athlete_name: {
         type: 'string',
         description:
-          'The athlete who sustained the injury, spelled exactly as the description spells it. ' +
+          'The FULL name (first and last) of the athlete who sustained the injury. ' +
           'The "Athlete" line above is the source\'s tag, not a given: a structured feed files a ' +
           'story under a healthy teammate who stands to benefit, and a news source picks the first ' +
           'name in the headline. If the description names someone else as the injured party, return ' +
-          'that name. Copy the description\'s spelling verbatim even where it differs from the ' +
-          'Athlete line — downstream identity resolution matches on the source\'s spelling.',
+          'that person instead. ' +
+          'Sources routinely refer to the athlete by surname alone ("Kittle (Achilles) said Sunday"); ' +
+          'when that surname is the Athlete line\'s athlete, return that athlete\'s full name. ' +
+          'NEVER return a surname on its own. ' +
+          'Where the description spells the full name differently from the Athlete line, prefer the ' +
+          'description\'s spelling — downstream identity resolution matches on the source\'s spelling.',
       },
       team: {
         type: 'string',

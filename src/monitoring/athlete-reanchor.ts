@@ -139,6 +139,37 @@ export function surnameKey(name: string): string {
   return looseNameKey(parts[parts.length - 1] ?? '');
 }
 
+/**
+ * Is the classifier's answer just the SOURCE athlete's surname?
+ *
+ * Sources refer to the athlete by surname alone as a matter of house style —
+ * ESPN's comments read "Kittle (Achilles) said Sunday…", "Nabers (knee) logged
+ * reps…", "Monangai (knee) is considered week-to-week". A classifier told to
+ * follow the description's wording answers "Kittle" for a row tagged "George
+ * Kittle", and a plain string comparison calls that a different athlete.
+ *
+ * It is not drift and it must not be treated as a re-anchor either: nobody's
+ * identity is in question, the source simply used the short form. The caller
+ * restores the source's full name — which matters beyond the review queue,
+ * because post.athlete_name comes from the classifier and keys the dedup
+ * lookup, the player row and the entity.
+ *
+ * Requires a single token, so "Travis Kelce" against "George Kittle" is still
+ * drift, and a bare first name ("George") is not a surname reference.
+ */
+export function isSurnameReference(sourceName: string, classifierName: string): boolean {
+  const classifierTokens = classifierName
+    .trim()
+    .split(/\s+/)
+    .map((t) => t.replace(/[^A-Za-z]/g, ''))
+    .filter((t) => t.length > 0 && !SUFFIX_TOKENS.has(t.toLowerCase()));
+  if (classifierTokens.length !== 1) return false;
+
+  const sourceSurname = surnameKey(sourceName);
+  if (!sourceSurname) return false;
+  return looseNameKey(classifierTokens[0]) === sourceSurname;
+}
+
 function firstNameOf(name: string): string {
   return looseNameKey(name.trim().split(/\s+/)[0] ?? '');
 }
