@@ -32,7 +32,8 @@ const PORT = process.env.PORT || 3100;
 app.use(express.json());
 
 /**
- * Machine-to-machine auth for the /admin/* endpoints. These are server-to-server
+ * Machine-to-machine auth for every endpoint that can spend money, write to the
+ * public site, or publish under the brand. These are server-to-server
  * calls from the frontend (e.g. the approve/promote route handlers), NOT browser
  * requests — the human-facing /admin dashboard authenticates via NextAuth in the
  * frontend and never reaches this service directly. The frontend forwards
@@ -64,9 +65,28 @@ function requireAdminSecret(
   next();
 }
 
-// Gate every /admin/* route (approve, promote, roster-sync, and any future one).
-// Registered before the route definitions so it runs first regardless of order.
-app.use('/admin', requireAdminSecret);
+// Gate by path prefix, registered before the route definitions so it runs first
+// regardless of declaration order — and so any route added under one of these
+// prefixes later is gated by default rather than by whoever remembers.
+//
+// /admin  — approve, promote, roster-sync.
+// /poll   — runs the full pipeline (pollSport -> publishInjuryPost), so an open
+//           one lets anyone with the Railway URL force live brand casts on
+//           demand, outside the 6-hour cadence, and drain the daily publish
+//           budget. Note POLLING_ENABLED=false does NOT disable this route; it
+//           only skips startPolling() at boot.
+// /test   — /test/publish publishes live with hardcoded values chosen to clear
+//           every needsMDReview branch; /test/deep-dive takes an
+//           attacker-controlled body and spends Sonnet tokens per request.
+// /seed   — writes rows with status PUBLISHED and real athlete names, which
+//           appear on the public site immediately, and is repeatable.
+//
+// Prefixes rather than a rename to /admin/*: nothing in the frontend calls
+// these, but they are used by hand, and a moved path fails as a 404 that looks
+// like the service being down.
+for (const prefix of ['/admin', '/poll', '/test', '/seed']) {
+  app.use(prefix, requireAdminSecret);
+}
 
 app.get('/health', (_req, res) => {
   res.json({
@@ -274,7 +294,7 @@ interface PromoteEntity {
  * upsert a desk_candidate (PROPOSED) via web_propose_candidate.
  *
  * Additive — does NOT touch the post's machine-brand review/publish lane.
- * Frontend-gated (no secret check here), mirroring /admin/approve. Manual
+ * Gated by requireAdminSecret via the /admin prefix, like /admin/approve. Manual
  * promote always proposes regardless of PROMOTION_PROPOSE_THRESHOLD; `proposed`
  * in the response is informational (would the auto-propose gate have fired).
  *
