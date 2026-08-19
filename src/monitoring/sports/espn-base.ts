@@ -31,7 +31,20 @@ interface ESPNInjuryRecord {
     location?: string;
     detail?: string;
     side?: string;
+    /**
+     * ESPN's lapsed ESTIMATED return, NOT a carryover signal. 64 of 111 live
+     * rows carry one BEFORE the row's own date, median lag −2 days; Mykel
+     * Williams' is −6, indistinguishable from the pack. Declared so the shape
+     * is documented, and deliberately NEVER copied onto RawInjuryEvent —
+     * making it structurally unreachable from detectCarryoverSignals is a
+     * stronger guarantee than a comment telling the next reader not to use it.
+     */
     returnDate?: string;
+    /**
+     * Which roster LIST the player is on — a different question from `status`.
+     * Williams is status "Out" and fantasyStatus "PUP-P".
+     */
+    fantasyStatus?: { description?: string; abbreviation?: string };
   };
   type?: { description?: string };
 }
@@ -250,6 +263,17 @@ export abstract class ESPNInjurySource implements SportDataSource {
               detail: record.details.detail,
               side: record.details.side,
             },
+          }),
+          // Prose context buildDescription drops (it takes shortComment and
+          // discards longComment on 790 of 800 rows). Carried as a SIBLING so
+          // injury_description stays byte-identical — it keys body-part
+          // extraction, the classifier, significance, dedup and entity
+          // matching. Only date resolution reads this.
+          ...(record.longComment?.trim() && {
+            injury_description_long: record.longComment.trim(),
+          }),
+          ...(record.details?.fantasyStatus?.abbreviation?.trim() && {
+            roster_designation: record.details.fantasyStatus.abbreviation.trim(),
           }),
           ...(teamTimeline && { team_timeline: teamTimeline }),
           // Set explicitly, both ways. This source HAS a status field, so

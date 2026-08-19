@@ -174,6 +174,90 @@ athlete's tier.
 shadow decides and logs but changes nothing at all, including the cases
 that look obviously safe.
 
+### The report date is not the injury date
+
+ESPN's injuries endpoint is a **status table, not a news wire**. Each row's `date`
+is a last-refresh timestamp, re-stamped whenever the athlete's availability
+changes — and it becomes `RawInjuryEvent.reported_at`, which both DATE ANCHORING
+prompts describe as "when the SOURCE ARTICLE was published". Of the 21 in-window
+rows carrying an `injury_details` block, 20 use elapsed-time language and **none**
+describe a fresh injury with no elapsed frame.
+
+Mykel Williams' ACL reconstruction of 2025-11-02 was dated 2026-08-19 that way and
+projected a 2027-05-15 return for an athlete being discussed for Week 1.
+
+Three things carry the fix, and all three are load-bearing:
+- `DATE_ANCHORING_SHARED` (`date-anchoring.ts`) is imported by BOTH
+  `date-resolution.ts` and `agent.ts`. They used to be copy-pasted and had already
+  drifted in three bullets. Never re-type it. It now says an ANNOUNCEMENT is not an
+  OCCURRENCE, and that an unresolvable carryover must emit NO date rather than
+  falling back on the report date.
+- `injury_description_long` and `roster_designation` on `RawInjuryEvent`.
+  `buildDescription` prefers `shortComment` and DROPS `longComment` on 790 of 800
+  rows — and 13 of the 21 in-window detail rows state their historical anchor ONLY
+  in longComment. Without carrying it, no prompt wording can help. They are
+  SIBLING fields: `injury_description` must stay byte-identical, because it keys
+  body-part extraction, the classifier, significance, dedup and entity matching.
+- `detectCarryoverSignals` (`carryover.ts`). `roster_designation` PUP-P/PUP-R/
+  NFI-A/NFI-R is a league-rule fact (26/26 live rows were genuine carryovers) but
+  LOW recall — of 6 in-window surgical rows all 6 were carryovers and it caught 1.
+  Recall comes from prose patterns over the narrative.
+
+**`details.returnDate` is deliberately never copied onto `RawInjuryEvent`.** It is
+ESPN's lapsed ESTIMATED return: 64 of 111 live rows carry one dated BEFORE the row
+itself, median lag −2 days, and Williams' is −6 — indistinguishable from the pack.
+Keying on it would flag more than half the feed. Making it unreachable is stronger
+than a comment. Two other traps the live diff caught: ESPN's longComment closes
+with career biography ("an undrafted free agent in April 2024") and future dates,
+so a month reference only counts when injury words sit next to it; and a fresh
+event ("had surgery Friday", "placed on injured reserve") vetoes a prose-only
+inference. Re-verify with `src/scripts/carryover-dryrun.ts` — the number that must
+be zero is rows whose `injury_description` changed.
+
+`injury_date_unresolved` forces MD review only on the PAIR: gating carryover
+evidence AND `injury_date_confidence` of `unknown`/`possible`. Either alone is
+normal traffic. It is in `MD_REVIEW_ANNOTATE_ONLY_CODES`, so it can be downgraded
+without a deploy.
+
+### RTP weeks are TOTAL from injury_date
+
+`min_weeks`/`max_weeks` are the literature range measured from the injury/surgery
+date. They do NOT shrink as the athlete rehabs: an ACL reconstruction is ~39-52
+whether surgery was last week or nine months ago. Remaining time is DERIVED for
+display by `formatRtpWindow` and never stored.
+
+This was ambiguous in three places at once and the model resolved it its own way:
+`agent.ts` told it REMAINING in two spots and TOTAL in a third, the tool schema
+said nothing at all (the PR #30 undescribed-field failure again), and
+`buildOtmProjection` added the weeks to `injury_date` as if TOTAL. Keep all four in
+agreement — the schema descriptions are the authority.
+
+`formatRtpWindow` always names the anchor, because a bare "39–52 weeks" beside a
+story about an athlete nine months post-op reads as "39 MORE weeks". It has three
+widths; `minimal` exists for `buildConflictFarcasterCast`, which assembles a whole
+post and hard-truncates it at 320.
+
+Two `injury_date`s exist and used to disagree: OTM emits its own, and the resolver
+produces one. The poller reconciles them into a single `dateAnchor` before the
+projection is frozen and the post is formatted, preferring the resolver at
+probable/confirmed. Without that, the elapsed time a reader sees and
+`projected_return_date` are measured from different dates.
+
+### A corrected date re-anchors its projection
+
+`projected_return_date` is frozen at thread open as `injury_date` + the midpoint of
+the OTM week window. When an MD corrects `injury_date`, `updateThreadDates`
+(mcp `client.ts`) recomputes it from the STORED weeks and writes an
+`otm_projection_reanchored` row to `audit_log`. One place, covering both the
+frontend MD edit and the poller.
+
+OTM is deliberately NOT re-run: the WEEKS are a clinical judgement about the injury
+and do not change when the calendar anchor is corrected — only the arithmetic does,
+and re-running would rewrite published content behind the MD's back. Pass an
+explicit `otm_projection` to override. It fails closed on a missing or non-numeric
+week bound (note `Number(null)` is 0, which IS finite — check the type, not the
+coercion).
+
 ### OrthoIQ Reference Rule
 Append OrthoIQ referral link ONLY on DEEP_DIVE content type,
 on the final post/cast only. Never on BREAKING or TRACKING.
@@ -205,10 +289,11 @@ The poller's `forceMDReviewReason` makes review unconditional — no confidence
 score and no threshold change can un-gate a post once it is set. Sites:
 `x_insider` (poller.ts, env-gated), `athlete_name_drift`, `fact_soft_fail:*`
 (the 8 soft codes), `laterality_thread_mismatch`, `content_type_drift`,
-`post_team_mismatch`, `post_team_unverifiable`. Between Aug 16-18 2026 **every**
+`post_team_mismatch`, `post_team_unverifiable`, `injury_date_unresolved`. Between Aug 16-18 2026 **every**
 routed post went through this path, never through the confidence gate.
 
-Two levers, both fail-closed by default:
+Two levers, both fail-closed by default (`injury_date_unresolved` is governed by
+the first — see "The report date is not the injury date"):
 - `MD_REVIEW_ANNOTATE_ONLY_CODES` — comma-separated soft codes downgraded to an
   annotation (logged + written to the validation audit row, post still
   publishes). Empty by default; every code forces review as before.

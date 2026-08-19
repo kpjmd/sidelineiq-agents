@@ -15,6 +15,12 @@ import {
   type InjuryThreadContext,
 } from '../agents/injury-intelligence/agent.js';
 import { resolveInjuryDate } from '../agents/injury-intelligence/date-resolution.js';
+import type { DateConfidence } from '../agents/injury-intelligence/date-resolution.js';
+import {
+  detectCarryoverSignals,
+  isGatingCarryover,
+  type CarryoverSignals,
+} from '../agents/injury-intelligence/carryover.js';
 import { checkForExisting, parseListPostsResponse, type DedupResult } from './deduplicator.js';
 import { publishInjuryPost, getMDReviewThreshold } from '../utils/publishing-pipeline.js';
 import {
@@ -280,6 +286,8 @@ interface PollSummary {
   classified_positive: number;
   pre_filtered: number;
   dropped_significance: number;
+  date_carryover_review: number;
+  date_carryover_annotated: number;
   /** Concussion-only events dropped by the tier rule, before any model call. */
   dropped_concussion: number;
   /** Events where the classifier's athlete disagreed with the source's. */
@@ -482,21 +490,62 @@ export function shouldForceMDReviewForXSource(sourceName: string | undefined): s
  * validation audit row, so a published post still carries the record of what
  * was known to be unverified about it.
  */
-export function partitionSoftFailures(
-  failures: ValidationFailure[],
+export function parseAnnotateOnlyCodes(
   env: string | undefined = process.env.MD_REVIEW_ANNOTATE_ONLY_CODES,
-): { forcing: ValidationFailure[]; annotateOnly: ValidationFailure[] } {
-  const allowed = new Set(
+): Set<string> {
+  return new Set(
     (env ?? '')
       .split(',')
       .map((c) => c.trim().toLowerCase())
       .filter(Boolean),
   );
+}
+
+export function partitionSoftFailures(
+  failures: ValidationFailure[],
+  env: string | undefined = process.env.MD_REVIEW_ANNOTATE_ONLY_CODES,
+): { forcing: ValidationFailure[]; annotateOnly: ValidationFailure[] } {
+  const allowed = parseAnnotateOnlyCodes(env);
   if (allowed.size === 0) return { forcing: failures, annotateOnly: [] };
   return {
     forcing: failures.filter((f) => !allowed.has(f.code.toLowerCase())),
     annotateOnly: failures.filter((f) => allowed.has(f.code.toLowerCase())),
   };
+}
+
+/** The code recorded on forceMDReviewReason, in the audit row, and in the log. */
+export const DATE_REVIEW_CODE = 'injury_date_unresolved';
+
+/**
+ * Force MD review when the source shows a CARRYOVER injury AND the date
+ * resolver could not pin the original date down.
+ *
+ * Deliberately narrow: an unresolved date on a genuinely new injury is normal
+ * traffic and publishes exactly as before. It is the COMBINATION that produces
+ * a wrong anchor, and a wrong anchor silently shifts every week of the RTP
+ * projection — Mykel Williams' nine-month-old ACL, dated to the day ESPN
+ * re-stamped his row, projected a 2027-05-15 return.
+ *
+ * `possible` is included alongside `unknown` because `possible` means "only a
+ * vague window" — precisely the confidence a carryover with "last season" and
+ * no resolvable date produces, and the one that would otherwise publish a
+ * plausible-looking guess.
+ *
+ * Downgradeable without a deploy via MD_REVIEW_ANNOTATE_ONLY_CODES, the same
+ * lever the fact-validator soft codes use.
+ */
+export function shouldForceDateReview(
+  carryover: CarryoverSignals,
+  event: RawInjuryEvent,
+  confidence: DateConfidence,
+  env: string | undefined = process.env.MD_REVIEW_ANNOTATE_ONLY_CODES,
+): { fires: boolean; force: boolean; annotate: boolean } {
+  const fires =
+    isGatingCarryover(carryover, event) &&
+    (confidence === 'unknown' || confidence === 'possible');
+  if (!fires) return { fires: false, force: false, annotate: false };
+  const annotateOnly = parseAnnotateOnlyCodes(env).has(DATE_REVIEW_CODE);
+  return { fires: true, force: !annotateOnly, annotate: annotateOnly };
 }
 
 export function addWeeksIso(baseIso: string, weeks: number): string | null {
@@ -624,10 +673,21 @@ async function resolveThreadAndDates(
   event: RawInjuryEvent,
   validation: ValidationResult,
   dedup: DedupResult,
-): Promise<{ entityId: string; thread: InjuryThreadContext } | null> {
+): Promise<{
+  entityId: string;
+  thread: InjuryThreadContext;
+  carryover: CarryoverSignals;
+  /**
+   * THIS cycle's resolution confidence, not the thread's. The thread read-back
+   * lets a persisted entity value win (see below), so a stale 'confirmed' from
+   * an earlier cycle would otherwise mask a resolution that just failed.
+   */
+  resolvedConfidence: DateConfidence;
+} | null> {
   const player = validation.resolvedPlayer;
   if (!player) return null;
   const metadata = validation.metadata;
+  const carryover = detectCarryoverSignals(event);
   try {
     // 1. Resolve-or-create the entity early. No canonical_post_id yet — no post
     //    exists at this point; maintainEntity() backfills it post-publish.
@@ -660,7 +720,12 @@ async function resolveThreadAndDates(
       surgery_date: resolution.surgery_date ?? undefined,
       surgery_confirmed: resolution.surgery_confirmed,
       date_resolution_sources: resolution.sources,
-      needs_date_review: resolution.injury_date_confidence === 'unknown',
+      // A carryover whose original date resolved only to a vague window is
+      // just as unusable as no date at all — put it on the MD worklist too.
+      needs_date_review:
+        resolution.injury_date_confidence === 'unknown' ||
+        (carryover.strength !== 'none' &&
+          resolution.injury_date_confidence === 'possible'),
     });
 
     const webSources = resolution.sources.filter((s) => s.stage === 'web_search').length;
@@ -669,7 +734,7 @@ async function resolveThreadAndDates(
         `injury_date=${resolution.injury_date ?? 'none'} confidence=${resolution.injury_date_confidence} ` +
         `surgery=${resolution.surgery_confirmed ? (resolution.surgery_date ?? 'confirmed') : 'no'} ` +
         `web_search=${resolution.used_web_search} web_sources=${webSources} ` +
-        `needs_date_review=${resolution.injury_date_confidence === 'unknown'}`,
+        `carryover=${carryover.strength}${carryover.codes.length ? `[${carryover.codes.join('|')}]` : ''}`,
     );
 
     // 4. Read the thread back (entity with dates + trajectory) and assemble context.
@@ -715,11 +780,51 @@ async function resolveThreadAndDates(
         laterality: entity?.laterality ?? metadata.laterality ?? null,
         prior_timelines: priorTimelines,
       },
+      carryover,
+      resolvedConfidence: resolution.injury_date_confidence,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`[ThreadManager] date resolution failed for ${event.athlete_name}: ${message}`);
     return null;
+  }
+}
+
+/**
+ * Record a carryover-date detection on the thread's audit trail, whether it
+ * gated or was downgraded to an annotation. Mirrors auditValidation: a
+ * downgraded signal is not discarded, so a published post still carries the
+ * record of what was known to be unverified about its date anchor.
+ */
+async function auditCarryover(
+  event: RawInjuryEvent,
+  entityId: string,
+  resolved: { carryover: CarryoverSignals; resolvedConfidence: DateConfidence },
+  gate: { force: boolean; annotate: boolean },
+): Promise<void> {
+  if (!isServerAvailable('web')) return;
+  try {
+    await callTool('web', 'web_audit_append', {
+      actor: 'system',
+      actor_id: 'date-resolver',
+      entity_type: 'injury_thread',
+      entity_id: entityId,
+      action: 'date_carryover_detected',
+      payload: {
+        athlete: event.athlete_name,
+        sport: event.sport,
+        strength: resolved.carryover.strength,
+        codes: resolved.carryover.codes,
+        evidence: resolved.carryover.evidence,
+        injury_date_confidence: resolved.resolvedConfidence,
+        roster_designation: event.roster_designation ?? null,
+        gated: gate.force,
+        annotate_only: gate.annotate,
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[ThreadManager] carryover audit failed for ${event.athlete_name}: ${message}`);
   }
 }
 
@@ -773,6 +878,8 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
     classified_positive: 0,
     pre_filtered: 0,
     dropped_significance: 0,
+    date_carryover_review: 0,
+    date_carryover_annotated: 0,
     dropped_concussion: 0,
     athlete_name_drift: 0,
     athlete_reanchored: 0,
@@ -1237,6 +1344,36 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
         if (resolved) {
           thread = resolved.thread;
           threadEntityId = resolved.entityId;
+
+          // A carryover injury dated to the day it was re-reported produces a
+          // confident, precise, WRONG clinical timeline. Gate on the pair —
+          // carryover evidence AND an unresolved date — not on either alone.
+          const dateGate = shouldForceDateReview(
+            resolved.carryover,
+            event,
+            resolved.resolvedConfidence,
+          );
+          if (dateGate.force) {
+            summary.date_carryover_review++;
+            console.warn(
+              `[ThreadManager] ${sport} — carryover injury with unresolved date for ${context}: ` +
+                `strength=${resolved.carryover.strength} codes=${resolved.carryover.codes.join('|')} ` +
+                `confidence=${resolved.resolvedConfidence} — routing to MD review`,
+            );
+            if (!forceMDReviewReason) forceMDReviewReason = DATE_REVIEW_CODE;
+            else if (!forceMDReviewReason.includes(DATE_REVIEW_CODE))
+              forceMDReviewReason = `${forceMDReviewReason},${DATE_REVIEW_CODE}`;
+          } else if (dateGate.annotate) {
+            summary.date_carryover_annotated++;
+            console.log(
+              `[ThreadManager] ${sport} — carryover date unresolved (annotate-only) — ${context} — ` +
+                `codes=${resolved.carryover.codes.join('|')} confidence=${resolved.resolvedConfidence} ` +
+                `(publishing; recorded in the audit trail)`,
+            );
+          }
+          if (dateGate.fires) {
+            await auditCarryover(event, resolved.entityId, resolved, dateGate);
+          }
         }
       }
 
@@ -1246,6 +1383,28 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
         summary.errors++;
         continue;
       }
+
+      // OTM emits its own injury_date (agent.ts) and the resolver produced one
+      // too; nothing used to reconcile them. The projection was frozen from the
+      // resolver's date while the post was formatted from OTM's, so the elapsed
+      // time a reader sees and projected_return_date could be measured from
+      // different anchors. Prefer the resolver when it is confident — it saw the
+      // source narrative and, on Pass 2, the open web; OTM saw only the short
+      // description. One anchor, chosen before either is used.
+      const dateAnchor =
+        thread?.injury_date &&
+        (thread.injury_date_confidence === 'probable' ||
+          thread.injury_date_confidence === 'confirmed')
+          ? thread.injury_date
+          : (post.injury_date ?? thread?.injury_date ?? null);
+      if (post.injury_date && dateAnchor && post.injury_date !== dateAnchor) {
+        console.warn(
+          `[Poller] ${sport} — date anchor divergence for ${context}: OTM said ` +
+            `${post.injury_date}, resolver said ${dateAnchor} ` +
+            `(confidence ${thread?.injury_date_confidence}) — using the resolver's`,
+        );
+      }
+      post.injury_date = dateAnchor ?? undefined;
 
       // ── Content-type drift re-check (see checkContentTypeDrift) ──────
       if (gateEnabled && post.content_type !== classified.content_type) {
@@ -1347,7 +1506,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
           threadEntityId
             ? {
                 entityId: threadEntityId,
-                otmProjection: buildOtmProjection(post, thread?.injury_date ?? null),
+                otmProjection: buildOtmProjection(post, dateAnchor),
               }
             : undefined,
         );
@@ -1360,7 +1519,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
   }
 
   console.log(
-    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} dropped_concussion=${summary.dropped_concussion} name_drift=${summary.athlete_name_drift} reanchored=${summary.athlete_reanchored} drift_spelling=${summary.athlete_drift_spelling} surname_ref=${summary.athlete_surname_ref} ct_drift=${summary.content_type_drift} dropped_fact=${summary.dropped_fact_validation} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} expired=${summary.expired_from_defer} defer_q=${summary.defer_queue_size} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} skipped=${summary.skipped} capped=${summary.capped} source_err=${summary.source_errors} classifier_err=${summary.classifier_errors} errors=${summary.errors}`
+    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} date_carry_review=${summary.date_carryover_review} date_carry_annot=${summary.date_carryover_annotated} dropped_concussion=${summary.dropped_concussion} name_drift=${summary.athlete_name_drift} reanchored=${summary.athlete_reanchored} drift_spelling=${summary.athlete_drift_spelling} surname_ref=${summary.athlete_surname_ref} ct_drift=${summary.content_type_drift} dropped_fact=${summary.dropped_fact_validation} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} expired=${summary.expired_from_defer} defer_q=${summary.defer_queue_size} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} skipped=${summary.skipped} capped=${summary.capped} source_err=${summary.source_errors} classifier_err=${summary.classifier_errors} errors=${summary.errors}`
   );
   return summary;
 }
