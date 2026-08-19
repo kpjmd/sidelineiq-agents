@@ -14,6 +14,8 @@
 // web_thread_update_dates. This keeps the loop unit-testable without a DB.
 
 import Anthropic from '@anthropic-ai/sdk';
+import { DATE_ANCHORING_SHARED } from './date-anchoring.js';
+import { detectCarryoverSignals } from './carryover.js';
 import type { RawInjuryEvent } from '../../types.js';
 import type { ResolvedPlayerInfo, ExtractedInjuryMetadata } from './fact-validator.js';
 
@@ -37,11 +39,13 @@ const EMIT_TOOL = {
       injury_date: {
         type: 'string',
         description:
-          'ISO 8601 date (YYYY-MM-DD) when the injury or surgery occurred, resolved per the DATE ANCHORING rules. Empty string if undeterminable.',
+          'ISO 8601 date (YYYY-MM-DD) when the injury or surgery ORIGINALLY occurred, resolved per the DATE ANCHORING rules. For a carryover — an injury the source describes as an ongoing recovery — this is the original date, never the date of the status update being read. Empty string if undeterminable; emit an empty string rather than substituting the report date, and set injury_date_confidence to \'unknown\'.',
       },
       injury_date_confidence: {
         type: 'string',
         enum: ['unknown', 'possible', 'probable', 'confirmed'],
+        description:
+          'How well-anchored injury_date is, per the CONFIDENCE TIERS above. This measures the DATE only — not how sure you are of the injury itself. Use \'unknown\' when no rule resolves an original date, including when the only candidate is the report date on a report describing an ongoing recovery.',
       },
       surgery_date: {
         type: 'string',
@@ -120,26 +124,20 @@ export function _setClientForTesting(fake: AnthropicLike | null): void {
 }
 
 // ── Prompt construction ──────────────────────────────────────────────
-// The DATE ANCHORING block is lifted verbatim from agent.ts so resolution logic
-// is identical to OTM's. Confidence tiers are added below it.
+// The DATE ANCHORING block now comes from the shared constant, so resolution
+// logic is genuinely identical to OTM's rather than a copy that drifted.
+// Confidence tiers are added below it.
 function buildSystemPrompt(): string {
   return `You resolve WHEN a professional athlete's injury or surgery occurred. Accuracy is critical — these dates drive evidence-based return-to-play projections and conflict-flag generation. Output ONLY via the emit_date_resolution tool.
 
-DATE ANCHORING — CRITICAL:
-- "Reported at" is when the SOURCE ARTICLE was published. "Current date" is today. Neither is automatically when the injury/surgery occurred — but "Reported at" IS the anchor for resolving relative date language in the source.
-- Resolve relative date references in the source against "Reported at":
-    - "today", "this morning", "earlier today" → the calendar date of "Reported at"
-    - "yesterday" → one day before "Reported at"
-    - A weekday name ("Wednesday", "Monday", etc.) → the most recent occurrence of that weekday on or before "Reported at". Example: if "Reported at" is Wed 2026-05-06 and the source says "the team announced Wednesday", the anchor date is 2026-05-06; if the source says "announced Monday", it is 2026-05-04.
-    - "last week", "earlier this week", "recently" → ambiguous; do not set a specific injury_date.
-- When a source says the team "announced [surgery/injury] [day]", resolve that day to a calendar date. The announcement date is the operative anchor even if the procedure itself occurred 1-2 days earlier — that variance is negligible against a multi-week RTP window.
-- Extract or infer the actual injury/surgery date from absolute references too (e.g., "underwent surgery in January", "injured three weeks ago", "recovering since October").
+${DATE_ANCHORING_SHARED}
 
 CONFIDENCE TIERS (set injury_date_confidence):
 - confirmed = an explicit calendar date stated by the team or a Tier-1 credentialed reporter (Shams, Woj, Rapoport, Pelissero, Schefter equivalent).
 - probable = a relative reference ("Wednesday", "yesterday", "today") resolvable against the report date, OR "underwent surgery [month]" with an unambiguous year.
 - possible = only a vague window ("a few weeks ago", "earlier this season").
 - unknown = no usable date anchor at all.
+- For a FEED-kind source, the row's own timestamp NEVER justifies 'probable' or 'confirmed' on its own — textual corroboration in the source narrative is required. A carryover with no resolvable original date is 'unknown', not a confident guess at the report date.
 
 DISTINCTIONS:
 - The injury-occurred date and the surgery-performed date are different — resolve each separately.
@@ -150,24 +148,48 @@ DISTINCTIONS:
 
 function buildUserMessage(input: DateResolutionInput, withSearch: boolean): string {
   const { event, player, metadata, reportedAt, today } = input;
+  const carryover = detectCarryoverSignals(event);
+  const isFeed = (event.source_kind ?? 'feed') === 'feed';
+
+  // The narrative is where the historical anchor actually lives — of the
+  // in-window ESPN rows carrying an injury_details block, 13 of 21 state it
+  // ONLY in longComment, which buildDescription drops. Without this the
+  // anchoring rules above have nothing to read.
+  const narrative = event.injury_description_long
+    ? `Source narrative (published alongside the summary above — for a carryover injury the historical anchor is usually HERE, not in the summary):\n${event.injury_description_long}\n`
+    : '';
+  const designation = event.roster_designation
+    ? `Roster designation: ${event.roster_designation}\n`
+    : '';
+
   const base = `Resolve the injury/surgery date.
 Athlete: ${player.full_name}
 Team: ${player.current_team_name ?? event.team}
 Sport: ${event.sport}
 Injury (raw): ${event.injury_description}
 Body part: ${metadata.primary_body_part ?? 'unspecified'}${metadata.injury_type_hint ? ` (${metadata.injury_type_hint})` : ''}
+${narrative}${designation}Source kind: ${isFeed ? 'feed — a league-wide status table; the URL below is the same for every athlete and is NOT a story about this injury' : 'article'}
 Source: ${event.source_url}
 Source name: ${event.source_name ?? 'unknown'}
 Reported at: ${reportedAt.toISOString()}
 Current date: ${today}`;
 
+  const carryoverBlock =
+    carryover.strength === 'none'
+      ? ''
+      : `
+
+CARRYOVER SIGNAL DETECTED (${carryover.strength}): ${carryover.codes.join(', ')}
+Evidence: ${carryover.evidence.map((e) => `"${e}"`).join(' | ')}
+This report is very likely a STATUS UPDATE on an injury that occurred BEFORE the report date. Resolve the ORIGINAL injury/surgery date, not the date of this update. If the narrative gives only a relative period ("last season", "in December", "Week 4"), resolve it to the best-supported calendar date and set the confidence tier accordingly. Do NOT emit the report date.`;
+
   if (!withSearch) {
-    return `${base}
+    return `${base}${carryoverBlock}
 
 Resolve the date from the source text above, then emit via emit_date_resolution.`;
   }
 
-  return `${base}
+  return `${base}${carryoverBlock}
 
 The source text alone was insufficient to resolve the date with confidence. Use web_search to find the specific date this injury or surgery occurred — search the athlete name plus the injury and team, targeting recent, credentialed reporting. Then emit via emit_date_resolution with the best-supported date and confidence tier.`;
 }

@@ -1,0 +1,362 @@
+{
+  "injuries": [
+    {
+      "team": {},
+      "injuries": [
+        {
+          "id": "633978",
+          "longComment": "Collins was let go by the Giants on Friday after reaching an injury settlement with the team following a concussion he suffered at training camp. The wide receiver will now have a chance to compete for a practice-squad spot with Atlanta in 2026.",
+          "shortComment": "Collins (concussion) and the Falcons agreed on a contract Monday, Mike Garafolo of NFL Network reports.",
+          "status": "Questionable",
+          "date": "2026-08-17T23:33Z",
+          "athlete": {
+            "displayName": "Beaux Collins"
+          },
+          "type": {
+            "id": "2",
+            "name": "INJURY_STATUS_QUESTIONABLE",
+            "description": "questionable",
+            "abbreviation": "Q"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "QUESTIONABLE",
+              "abbreviation": "QUESTIONABLE"
+            },
+            "type": "Concussion",
+            "location": "Head",
+            "detail": "Not Specified",
+            "side": "Not Specified",
+            "returnDate": "2026-08-15"
+          }
+        },
+        {
+          "id": "633911",
+          "longComment": "Atlanta hasn't yet cleared Penix for 11-on-11 drills as he works his way back from ACL surgery, and until he checks off that box in the recovery process, the quarterback won't be available for preseason action. The Falcons are seemingly preparing for both Penix and Tua Tagovailoa (rest) to sit out their second preseason game Saturday versus the Colts, as Stefanski told Raimondi that Cooper Rush and Jack Strand are under consideration to start that game.",
+          "shortComment": "Falcons head coach Kevin Stefanski said Monday that Penix (knee) will remain limited to taking part in 7-on-7 drills during practices this week, Marc Raimondi of ESPN.com reports.",
+          "status": "Questionable",
+          "date": "2026-08-17T13:27Z",
+          "athlete": {
+            "displayName": "Michael Penix Jr."
+          },
+          "type": {
+            "id": "2",
+            "name": "INJURY_STATUS_QUESTIONABLE",
+            "description": "questionable",
+            "abbreviation": "Q"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "QUESTIONABLE",
+              "abbreviation": "QUESTIONABLE"
+            },
+            "type": "Knee - ACL",
+            "location": "Leg",
+            "detail": "Surgery",
+            "side": "Left",
+            "returnDate": "2026-08-28"
+          }
+        }
+      ]
+    },
+    {
+      "team": {},
+      "injuries": [
+        {
+          "id": "633565",
+          "longComment": "Buchanan passed his physical just eight months after tearing his ACL during the 2025 Week 12 divisional showdown against the Bengals. The inside linebacker can now take the next step in his recovery, working his way through padded practice. With such an early activation date, there is a good chance the initial prediction of a Week 1 return date is not only possible, but likely.",
+          "shortComment": "The Ravens activated Buchanan (knee) off the active/PUP list Friday.",
+          "status": "Out",
+          "date": "2026-08-14T23:08Z",
+          "athlete": {
+            "displayName": "Teddye Buchanan"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "PUP-P",
+              "abbreviation": "PUP-P"
+            },
+            "type": "Knee - ACL",
+            "location": "Leg",
+            "detail": "Surgery",
+            "side": "Right",
+            "returnDate": "2026-08-15"
+          }
+        }
+      ]
+    },
+    {
+      "team": {},
+      "injuries": [
+        {
+          "id": "633236",
+          "longComment": "Chicago's prized offseason signing on defense now seems more likely than not to miss the entire regular season. The Bears reportedly have some hope that Bryant can return for Week 18 or the playoffs, but it's not something the team can count on as they prepare for the campaign ahead. With Bryant unavailable, Xavier Woods and Cam Lewis (leg) are the top candidates to step up at safety alongside first-round pick Dillon Thieneman.",
+          "shortComment": "Bryant (knee) had surgery Friday and will be out for 4-to-6 months, Courtney Cronin of ESPN.com reports.",
+          "status": "Questionable",
+          "date": "2026-08-11T19:51Z",
+          "athlete": {
+            "displayName": "Coby Bryant"
+          },
+          "type": {
+            "id": "2",
+            "name": "INJURY_STATUS_QUESTIONABLE",
+            "description": "questionable",
+            "abbreviation": "Q"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "QUESTIONABLE",
+              "abbreviation": "QUESTIONABLE"
+            },
+            "type": "Knee",
+            "location": "Leg",
+            "detail": "Fracture",
+            "side": "Left",
+            "returnDate": "2026-09-28"
+          }
+        }
+      ]
+    },
+    {
+      "team": {},
+      "injuries": [
+        {
+          "id": "633941",
+          "longComment": "Dell didn't play in Friday's preseason game against the Chargers, which comes as no surprise because he's been limited to individual drills after missing the entire 2025 campaign following a December 2024 play in which he dislocated his left kneecap while also tearing the ACL and MCL in that knee. The Texans' next exhibition is Thursday versus the Raiders, and Houston opens the regular season Sunday, Sept. 13 against the Bills.",
+          "shortComment": "Coach DeMeco Ryans said Monday that he's unsure if Dell (knee) will play during the Texans' preseason slate, Aaron Wilson of KPRC 2 Houston reports. \"With Tank, he's on his own plan,\" Ryans noted. \"Whatever that entails, geared toward what's best for Tank Dell.\"",
+          "status": "Questionable",
+          "date": "2026-08-17T17:37Z",
+          "athlete": {
+            "displayName": "Tank Dell"
+          },
+          "type": {
+            "id": "2",
+            "name": "INJURY_STATUS_QUESTIONABLE",
+            "description": "questionable",
+            "abbreviation": "Q"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "QUESTIONABLE",
+              "abbreviation": "QUESTIONABLE"
+            },
+            "type": "Knee - ACL + MCL",
+            "location": "Leg",
+            "detail": "Surgery",
+            "side": "Left",
+            "returnDate": "2026-08-13"
+          }
+        }
+      ]
+    },
+    {
+      "team": {},
+      "injuries": [
+        {
+          "id": "634034",
+          "longComment": "Activated from the NFI list a day earlier, Bell is already increasing his workload but will continue to wear a non-contact jersey for the time being. While he hasn't been ruled out for Week 1, the Dolphins aren't likely to rush the third-round pick into action after he had ACL repair surgery in December. Caleb Douglas and Malik Washington dominated first-team WR snaps in Miami's preseason opener against Washington last week.",
+          "shortComment": "Bell (knee) will increase his practice involvement Tuesday, Marcel Louis-Jacques of ESPN.com reports.",
+          "status": "Out",
+          "date": "2026-08-18T13:36Z",
+          "athlete": {
+            "displayName": "Chris Bell"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "NFI-A",
+              "abbreviation": "NFI-A"
+            },
+            "type": "Knee - ACL",
+            "location": "Leg",
+            "detail": "Surgery",
+            "side": "Not Specified",
+            "returnDate": "2026-08-15"
+          }
+        }
+      ]
+    },
+    {
+      "team": {},
+      "injuries": [
+        {
+          "id": "633952",
+          "longComment": "Previously, Nabers' hadn't worked in full-speed live team drills, but he expanded his workload to that context Monday for the first time since tearing the ACL in his right knee Week 4 of last season. It's a another step in the right direction for Nabers, but he presumably will need to stack days with 11-on-11 drills and also ditch the non-contact jersey before the Giants will consider allowing him to suit up in games.",
+          "shortComment": "Nabers (knee) logged reps in 11-on-11 drills while donning a red non-contact jersey during Monday's practice, Jordan Raanan of ESPN.com reports.",
+          "status": "Questionable",
+          "date": "2026-08-17T19:47Z",
+          "athlete": {
+            "displayName": "Malik Nabers"
+          },
+          "type": {
+            "id": "2",
+            "name": "INJURY_STATUS_QUESTIONABLE",
+            "description": "questionable",
+            "abbreviation": "Q"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "QUESTIONABLE",
+              "abbreviation": "QUESTIONABLE"
+            },
+            "type": "Knee - ACL",
+            "location": "Leg",
+            "detail": "Surgery",
+            "side": "Right",
+            "returnDate": "2026-08-15"
+          }
+        }
+      ]
+    },
+    {
+      "team": {},
+      "injuries": [
+        {
+          "id": "634120",
+          "longComment": "Despite the relatively discouraging update, Shanahan did not completely rule out the possibility of Williams being back up to full speed by the start of the regular season. Like Williams, fellow edge rusher Nick Bosa is also recovering from an ACL tear suffered last year, and the 49ers have already seen multiple other injuries on the front seven, so there's a strong possibility they will have to call on some unlikely players to begin the new campaign.",
+          "shortComment": "Coach Kyle Shanahan said Tuesday that Williams (knee) is considered a \"long shot\" to play in Week 1 against the Rams, Dylan Grausz of NBC Sports reports.",
+          "status": "Out",
+          "date": "2026-08-19T00:14Z",
+          "athlete": {
+            "displayName": "Mykel Williams"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "PUP-P",
+              "abbreviation": "PUP-P"
+            },
+            "type": "Knee - ACL",
+            "location": "Leg",
+            "detail": "Surgery",
+            "side": "Right",
+            "returnDate": "2026-08-13"
+          }
+        },
+        {
+          "id": "634094",
+          "longComment": "Bosa continues to work towards a return to the field. The 49ers' defense is in desperate need of the star pass rusher's services after preseason game and joint practice failures on the defensive line. The 28-year-old is still considered week-to-week, with coach Kyle Shanahan saying Tuesday that the star is doing well. With a displayed floor of 9.0 sacks when healthy, the team will likely do whatever it takes to ensure Bosa is on the field for the regular season.",
+          "shortComment": "Bosa's (knee) tendinitis symptoms have been subsiding recently, David Lombardi of SFStandard.com reports.",
+          "status": "Questionable",
+          "date": "2026-08-18T22:56Z",
+          "athlete": {
+            "displayName": "Nick Bosa"
+          },
+          "type": {
+            "id": "2",
+            "name": "INJURY_STATUS_QUESTIONABLE",
+            "description": "questionable",
+            "abbreviation": "Q"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "QUESTIONABLE",
+              "abbreviation": "QUESTIONABLE"
+            },
+            "type": "Knee - ACL",
+            "location": "Leg",
+            "detail": "Surgery",
+            "side": "Right",
+            "returnDate": "2026-08-13"
+          }
+        },
+        {
+          "id": "633849",
+          "longComment": "Kittle is recovering from a torn Achilles suffered on Jan. 11, and he's maintained this offseason that he'll be ready for the Week 1 opener versus the Rams in Melbourne, Australia on Thursday, Sept. 10. He added that the decision about whether he'll play Week 1 should be made before the 49ers depart for their international game versus the Rams, per Wagoner. The soon-to-be 33-year-old recorded back-to-back 1,000-yard campaigns in 2023 and 2024, but he tallied 628 yards on 57 catches across 11 appearances during the 2025 regular season. When healthy, Kittle should still be a key target for San Francisco quarterback Brock Purdy, especially after wide receiver Ricky Pearsall underwent a season-ending surgery to repair his PCL this August.",
+          "shortComment": "Kittle (Achilles) said Sunday that he's \"very confident\" he won't start the season on the reserve/PUP list and that he's still got a chance to play Week 1 versus the Rams, Nick Wagoner of ESPN.com reports.",
+          "status": "Out",
+          "date": "2026-08-16T21:19Z",
+          "athlete": {
+            "displayName": "George Kittle"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "PUP-P",
+              "abbreviation": "PUP-P"
+            },
+            "type": "Achilles",
+            "location": "Leg",
+            "detail": "Surgery",
+            "side": "Right",
+            "returnDate": "2026-09-10"
+          }
+        }
+      ]
+    },
+    {
+      "team": {},
+      "injuries": [
+        {
+          "id": "633912",
+          "longComment": "Though Tampa Bay hasn't placed Wirfs on any reserve list since training camp opened in late July, the standout left tackle hadn't practiced over the past three weeks after tweaking his hamstring during a conditioning test. He appears to have since healed up from the injury, though the Buccaneers still could limit his workload early on and hold him out of either or both of their remaining two preseason contests. Regardless, Wirfs looks like he'll be ready to go for Week 1, barring any setbacks with his hamstring.",
+          "shortComment": "Wirfs (hamstring) is participating in Monday's practice, Rick Stroud of the Tampa Bay Times reports.",
+          "status": "Questionable",
+          "date": "2026-08-17T13:38Z",
+          "athlete": {
+            "displayName": "Tristan Wirfs"
+          },
+          "type": {
+            "id": "2",
+            "name": "INJURY_STATUS_QUESTIONABLE",
+            "description": "questionable",
+            "abbreviation": "Q"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "QUESTIONABLE",
+              "abbreviation": "QUESTIONABLE"
+            },
+            "type": "Hamstring",
+            "location": "Leg",
+            "detail": "Strain",
+            "side": "Not Specified",
+            "returnDate": "2026-08-14"
+          }
+        }
+      ]
+    },
+    {
+      "team": {},
+      "injuries": [
+        {
+          "id": "633813",
+          "longComment": "Mariota sustained the injury in the first quarter of the Commanders' 20-7 preseason win over the Dolphins on Friday. Sam Hartman and undrafted rookie Athan Kaliakmanis are the other two reserve quarterbacks on the training camp roster, so the Commanders could look to acquire another QB via free agency or trade to provide depth behind Jayden Daniels. Mariota will focus on rehab and recovery over the next few weeks, and head coach Dan Quinn expressed optimism Sunday that Mariota will be available for the Commanders' regular-season opener against the Eagles on Sunday, Sept. 13, per Nicki Jhabvala of The Washington Post.",
+          "shortComment": "Mariota is expected to miss the rest of the preseason due to a sprained MCL in his knee, Adam Schefter of ESPN reports.",
+          "status": "Active",
+          "date": "2026-08-16T15:01Z",
+          "athlete": {
+            "displayName": "Marcus Mariota"
+          },
+          "type": {
+            "id": "0",
+            "name": "INJURY_STATUS_ACTIVE",
+            "description": "active",
+            "abbreviation": "A"
+          }
+        }
+      ]
+    }
+  ]
+}

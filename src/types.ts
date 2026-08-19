@@ -139,6 +139,38 @@ export interface RawInjuryEvent {
     detail?: string;
     side?: string;
   };
+  /**
+   * The source's own narrative context, published ALONGSIDE the one-line summary
+   * and deliberately kept OUT of `injury_description`.
+   *
+   * ESPN's injuries feed carries two comments per row and `buildDescription`
+   * takes only `shortComment` — 790 of 800 live rows have both. The historical
+   * anchor for a carryover injury lives almost exclusively here: of the 21
+   * in-window rows carrying an `injury_details` block, 13 state "last season" /
+   * "December 2024" / "works his way back from ACL surgery" ONLY in longComment,
+   * and ZERO state it only in shortComment.
+   *
+   * Read by date resolution and detectCarryoverSignals ONLY. It must never be
+   * merged into `injury_description` — that string keys body-part extraction
+   * (whose parts[0] keys entity matching), the classifier, the significance
+   * gate, athlete re-anchoring, the dedup fingerprint, and the injury_updates
+   * timeline row. Changing it changes which entity an event matches.
+   */
+  injury_description_long?: string;
+  /**
+   * The roster LIST designation the source assigns, verbatim ("PUP-P", "NFI-A",
+   * "IR", "QUESTIONABLE"). ESPN: `details.fantasyStatus.abbreviation`.
+   *
+   * NOT the same question as `athlete_status`, and the two disagree in exactly
+   * the case that matters: Mykel Williams is athlete_status "Out" with
+   * roster_designation "PUP-P". `athlete_status` is game availability; this is
+   * which list the player occupies. PUP-P/PUP-R/NFI-A/NFI-R are load-bearing
+   * because NFL rules require the injury to PREDATE training camp — 26 of 26
+   * live rows carrying one were carryovers. High precision, LOW recall: of 6
+   * in-window surgical rows all 6 were carryovers and this caught 1. Recall
+   * comes from `injury_description_long`.
+   */
+  roster_designation?: string;
 }
 
 export type AthleteTier = 1 | 2 | 3 | 4;

@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { DATE_ANCHORING_SHARED } from './date-anchoring.js';
 import { loadSkillContext } from '../../utils/skill-loader.js';
 import { validateRTPEstimate } from './rtp-estimator.js';
 import type {
@@ -49,8 +50,20 @@ export const AGENT_TOOL = {
       return_to_play: {
         type: 'object',
         properties: {
-          min_weeks: { type: 'number' },
-          max_weeks: { type: 'number' },
+          // Described deliberately and distinctly. An undescribed numeric
+          // field is exactly how the two confidence values collapsed onto one
+          // number (PR #30) — and how 34-43 TOTAL weeks came to be read as
+          // remaining time for an athlete nine months post-op.
+          min_weeks: {
+            type: 'number',
+            description:
+              'Lower bound of the return-to-play window, in weeks, measured as TOTAL time from the injury/surgery date (the injury_date field) — NOT remaining time from today. This is the literature floor for this injury per SKILL.md Section 2.3/2.4 and rtp-probability-tables.md, and it does not shrink as the athlete rehabs: an ACL reconstruction is roughly 39 whether the surgery was last week or nine months ago. Remaining time is derived downstream from injury_date; never pre-subtract elapsed time here.',
+          },
+          max_weeks: {
+            type: 'number',
+            description:
+              'Upper bound of the return-to-play window, in weeks, measured as TOTAL time from the injury/surgery date — the same anchor and the same non-shrinking semantics as min_weeks. When the procedure type is undisclosed, widen THIS bound rather than lowering min_weeks.',
+          },
           probability_week_2: { type: 'number' },
           probability_week_4: { type: 'number' },
           probability_week_8: { type: 'number' },
@@ -94,7 +107,7 @@ export const AGENT_TOOL = {
       injury_date: {
         type: 'string',
         description:
-          'ISO 8601 date (YYYY-MM-DD) when the injury or surgery originally occurred. Set this whenever the date is determinable — including when it is resolved from a relative reference in the source ("Wednesday", "yesterday", "today", "the team announced Wednesday") against the "Reported at" anchor per the DATE ANCHORING rules. Omit only when the source provides no usable date anchor at all. The value must reflect when the injury/surgery itself happened, not the report date — but resolving "Wednesday" against the report date IS a valid way to determine when it happened.',
+          'ISO 8601 date (YYYY-MM-DD) when the injury or surgery ORIGINALLY occurred. Set this whenever the date is determinable — including when it is resolved from a relative reference in the source ("Wednesday", "yesterday", "today", "the team announced Wednesday") against the "Reported at" anchor per the DATE ANCHORING rules. The value must reflect when the injury/surgery itself happened, not the report date — resolving "Wednesday" against the report date IS a valid way to determine that, but only when the source describes the event as NEW. For a carryover injury — one the source describes as an ongoing recovery ("works his way back from", "activated off the PUP list", "tore it last season", "N months post-op") — this is the ORIGINAL injury or surgery date, never the date of the status update you are reading. If you cannot determine the original date, OMIT this field rather than substituting the report date.',
       },
     },
     required: [
@@ -331,7 +344,7 @@ ${establishedSide ? `Established injury: ${establishedSide} (from prior reportin
                 )
                 .join('; ')}\n`
             : ''
-        }Use the resolved injury date above as the DATE ANCHOR when its confidence is probable or confirmed — it overrides relative-date inference from this single source. Present RTP as REMAINING time from today given that anchor. Do not treat a possible/unknown-confidence date as authoritative.
+        }Use the resolved injury date above as the DATE ANCHOR when its confidence is probable or confirmed — it overrides relative-date inference from this single source. min_weeks and max_weeks remain TOTAL time from that anchor — do not shorten them to reflect rehab already completed. State the elapsed time, and where in the window the athlete sits, in clinical_summary instead. Do not treat a possible/unknown-confidence date as authoritative.
 [END INJURY THREAD CONTEXT]
 
 `
@@ -351,18 +364,10 @@ Classifier hint — content_type: ${classified.content_type}, is_new: ${classifi
 ${parentPostId ? `This is an UPDATE to an existing story (parent post id: ${parentPostId}).` : ''}
 ${isNFLOffseason ? `NFL offseason context: It is currently the NFL offseason (April–August). A "Questionable" or "day-to-day" game-status designation is meaningless during the offseason — it is not a recovery timeline disclosure. Do NOT classify as CONFLICT_FLAG based solely on a stale game-status term. If OTM's recovery estimate aligns with a return by September (week 1 of the NFL season), classify as TRACKING and note the recovery trajectory. Reserve CONFLICT_FLAG only for cases where the team has provided a specific week-based timeline that is biologically irreconcilable with the injury.` : ''}
 
-DATE ANCHORING — CRITICAL:
-- "Reported at" is when the SOURCE ARTICLE was published. "Current date" is today. Neither is automatically when the injury/surgery occurred — but "Reported at" IS the anchor for resolving relative date language in the source.
-- Resolve relative date references in the source against "Reported at":
-    - "today", "this morning", "earlier today" → the calendar date of "Reported at"
-    - "yesterday" → one day before "Reported at"
-    - A weekday name ("Wednesday", "Monday", etc.) → the most recent occurrence of that weekday on or before "Reported at". Example: if "Reported at" is Wed 2026-05-06 and the source says "the team announced Wednesday", the anchor date is 2026-05-06; if the source says "announced Monday", it is 2026-05-04.
-    - "last week", "earlier this week", "recently" → ambiguous; do not set injury_date.
-- When the source says the team "announced [surgery/injury] [day]", resolve that day to a calendar date and set injury_date. The announcement date is the operative anchor for RTP even if the procedure itself occurred 1–2 days earlier — that variance is negligible against a multi-week RTP window.
-- Extract or infer the actual injury/surgery date from absolute references too (e.g., "underwent surgery in January", "injured three weeks ago", "recovering since October"). Set "injury_date" whenever determinable by any of these rules.
-- min_weeks and max_weeks in return_to_play must represent REMAINING recovery time from today, not total recovery time from the original injury/surgery date. Example: ACL surgery 9 months ago with a 9–12 month typical recovery → remaining time is 0–12 weeks, not 36–48 weeks.
-- clinical_summary must accurately state elapsed time since injury/surgery (e.g., "now 10 months post-op"), and must never present the report date or current date as if it were the injury/surgery date.
-- If no rule above resolves a date, omit "injury_date" and present RTP as total expected duration from injury, noting the start date is unconfirmed.
+${DATE_ANCHORING_SHARED}
+- min_weeks and max_weeks in return_to_play are TOTAL recovery time measured FROM the injury/surgery date — the value you set in "injury_date" — NOT remaining time from today. They are the literature range for this injury per SKILL.md Section 2.4 and rtp-probability-tables.md, and they do NOT shrink as the athlete rehabs. Example: an ACL reconstruction performed 9 months ago with a 9-12 month literature window is min_weeks 39, max_weeks 52 — not 0-12. Remaining time is derived downstream from injury_date plus these weeks; never pre-subtract elapsed time here.
+- clinical_summary MUST state the elapsed time since injury/surgery whenever injury_date is known (e.g., "now 10 months post-op, inside a 9-12 month window"), so a reader can see WHERE in the window the athlete sits. It must never present the report date or the current date as if it were the injury/surgery date.
+- If no rule above resolves a date, omit "injury_date". min_weeks and max_weeks remain the TOTAL range from injury regardless; state explicitly in clinical_summary that the start date is unconfirmed.
 
 SURGICAL PROCEDURE UNCERTAINTY:
 - If the source confirms surgery occurred but does not name the specific procedure (e.g., "underwent knee surgery" without specifying ACL reconstruction vs. meniscectomy vs. cartilage repair), the clinical_summary must explicitly state that the procedure type is not publicly disclosed.

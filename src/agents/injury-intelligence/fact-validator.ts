@@ -52,7 +52,11 @@ export type ValidationCode =
   //                       player's current_team_id. Do not merge them.
   | 'team_unverified'
   | 'team_unverifiable'
-  | 'team_mismatch_unconfirmed';
+  | 'team_mismatch_unconfirmed'
+  // Not produced by validateEvent — the date resolver runs later in the poller
+  // (it needs the resolved player) and synthesizes this code so the same
+  // MD_REVIEW_ANNOTATE_ONLY_CODES lever governs it. See shouldForceDateReview.
+  | 'injury_date_unresolved';
 
 export interface ValidationFailure {
   code: ValidationCode;

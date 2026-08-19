@@ -1,4 +1,4 @@
-import type { InjuryPostContent } from '../types.js';
+import type { InjuryPostContent, ReturnToPlayEstimate } from '../types.js';
 
 const FARCASTER_CHAR_LIMIT = 320;
 const TWITTER_CHAR_LIMIT = Number(process.env.TWITTER_CHAR_LIMIT) || 280;
@@ -14,6 +14,67 @@ const URL_REGEX = /https?:\/\/\S+/g;
 const ORTHOIQ_REFERRAL_URL = process.env.ORTHOIQ_REFERRAL_URL || 'https://orthoiq.com?ref=sidelineiq';
 const ORTHOIQ_CTA = `\n\nDealing with a similar injury? Get a personalized consultation at OrthoIQ. ${ORTHOIQ_REFERRAL_URL}`;
 const OTM_SIGNATURE = '— OrthoTriage Master | AI-generated analysis. Physician-founded.';
+
+/**
+ * Render the RTP window with its anchor named.
+ *
+ * min_weeks/max_weeks are TOTAL recovery time from the injury/surgery date —
+ * they are the literature range for the injury and do not shrink as the athlete
+ * rehabs (see the tool-schema descriptions in agent.ts). Printing them bare
+ * ("RTP: 39-52 weeks") beside a story about an athlete nine months post-op
+ * reads as "39 more weeks", which is how a clinically CORRECT window becomes a
+ * false public claim. So the anchor is always stated, and elapsed/remaining are
+ * derived here for display only — never stored, never round-tripped.
+ *
+ * Three widths, because the budgets differ by an order of magnitude:
+ *   - default  — the long-form builders (TWITTER_CHAR_LIMIT > 500, web)
+ *   - compact  — the <=500-char thread builders, whose clinical-anchor budget
+ *                is computed from this string's length
+ *   - minimal  — buildConflictFarcasterCast, which assembles a whole post and
+ *                hard-truncates it at 320. Naming the anchor is what stops the
+ *                number being read as "from now"; elapsed/remaining is the
+ *                enhancement, and it is the first thing to give up when every
+ *                character is taken from the clinical summary.
+ */
+export function formatRtpWindow(
+  rtp: ReturnToPlayEstimate,
+  injuryDate: string | undefined,
+  opts: { label?: string; compact?: boolean; minimal?: boolean; now?: Date } = {},
+): string {
+  const label = opts.label ?? 'RTP';
+  const terse = opts.compact || opts.minimal;
+  const dash = terse ? '-' : '\u2013';
+  const w = terse ? 'w' : ' weeks';
+  const range = `${rtp.min_weeks}${dash}${rtp.max_weeks}${w}`;
+
+  const t = injuryDate ? new Date(`${injuryDate.slice(0, 10)}T00:00:00Z`).getTime() : NaN;
+  if (!injuryDate || Number.isNaN(t)) {
+    if (opts.minimal) return `${label}: ${range}, start unconfirmed`;
+    return opts.compact
+      ? `${label}: ${range} from injury (start unconfirmed)`
+      : `${label}: ${range} from injury (start date unconfirmed)`;
+  }
+  if (opts.minimal) return `${label}: ${range} from ${injuryDate.slice(0, 10)}`;
+
+  const now = opts.now ?? new Date();
+  const elapsed = Math.floor((now.getTime() - t) / (7 * 86_400_000));
+  // Under a week elapsed the anchor adds nothing a reader does not assume, and
+  // this is the common breaking-news case — keep it short.
+  if (elapsed < 1) {
+    return `${label}: ${range} from injury (${injuryDate.slice(0, 10)})`;
+  }
+
+  const minLeft = Math.max(0, rtp.min_weeks - elapsed);
+  const maxLeft = Math.max(0, rtp.max_weeks - elapsed);
+  if (maxLeft === 0) {
+    return opts.compact
+      ? `${label}: ${range} from ${injuryDate.slice(0, 10)} \u00b7 window closed`
+      : `${label}: ${range} from injury (${injuryDate.slice(0, 10)}) \u00b7 ${elapsed} weeks elapsed \u00b7 return window has closed`;
+  }
+  return opts.compact
+    ? `${label}: ${range} from ${injuryDate.slice(0, 10)} \u00b7 ${elapsed}w in \u00b7 ${minLeft}-${maxLeft}w left`
+    : `${label}: ${range} from injury (${injuryDate.slice(0, 10)}) \u00b7 ${elapsed} weeks elapsed \u00b7 ${minLeft}\u2013${maxLeft} weeks remaining`;
+}
 
 function truncateWithEllipsis(text: string, maxLen: number): string {
   if (text.length <= maxLen) return text;
@@ -153,11 +214,15 @@ function buildBreakingThread(content: InjuryPostContent, charLimit: number): str
     charLimit
   );
 
-  const rtpLine = `RTP: ${rtp.min_weeks}–${rtp.max_weeks} weeks`;
+  const rtpLine = formatRtpWindow(rtp, content.injury_date, { compact: true });
   // Compute exact overhead so the anchor budget is never too large and the
   // assembled post2 never exceeds charLimit (which would clip OTM_SIGNATURE).
   const post2Overhead = 2 + rtpLine.length + 2 + OTM_SIGNATURE.length; // \n\n + rtp + \n\n + sig
-  const anchorBudget = charLimit - post2Overhead;
+  // Floor it: the RTP line now names its anchor and can carry elapsed/remaining,
+  // so on a 320-char cast the overhead can in principle exceed the limit and
+  // hand shortClinicalAnchor a negative budget (which yields a bare '...').
+  // truncateWithEllipsis does the real clamping downstream.
+  const anchorBudget = Math.max(40, charLimit - post2Overhead);
   const anchor = shortClinicalAnchor(content.clinical_summary, anchorBudget);
 
   const post2 = truncateWithEllipsis(
@@ -186,9 +251,13 @@ function buildTrackingThread(content: InjuryPostContent, charLimit: number): str
     charLimit
   );
 
-  const rtpLine = `RTP window: ${rtp.min_weeks}–${rtp.max_weeks} weeks`;
+  const rtpLine = formatRtpWindow(rtp, content.injury_date, { label: 'RTP window', compact: true });
   const post2Overhead = 2 + rtpLine.length + 2 + OTM_SIGNATURE.length; // \n\n + rtp + \n\n + sig
-  const anchorBudget = charLimit - post2Overhead;
+  // Floor it: the RTP line now names its anchor and can carry elapsed/remaining,
+  // so on a 320-char cast the overhead can in principle exceed the limit and
+  // hand shortClinicalAnchor a negative budget (which yields a bare '...').
+  // truncateWithEllipsis does the real clamping downstream.
+  const anchorBudget = Math.max(40, charLimit - post2Overhead);
   const anchor = shortClinicalAnchor(content.clinical_summary, anchorBudget);
 
   const post2 = truncateWithEllipsis(
@@ -222,7 +291,7 @@ function buildDeepDiveThread(
   // Cast 4: RTP breakdown
   const rtp = content.return_to_play;
   casts.push(truncateWithEllipsis(
-    `⏱️ Return to Play: ${rtp.min_weeks}-${rtp.max_weeks} weeks\nWk 2: ${Math.round(rtp.probability_week_2 * 100)}% | Wk 4: ${Math.round(rtp.probability_week_4 * 100)}% | Wk 8: ${Math.round(rtp.probability_week_8 * 100)}%`,
+    `${formatRtpWindow(rtp, content.injury_date, { label: '⏱️ Return to Play', compact: true })}\nWk 2: ${Math.round(rtp.probability_week_2 * 100)}% | Wk 4: ${Math.round(rtp.probability_week_4 * 100)}% | Wk 8: ${Math.round(rtp.probability_week_8 * 100)}%`,
     charLimit
   ));
 
@@ -255,7 +324,7 @@ function buildConflictFarcasterCast(content: InjuryPostContent, charLimit: numbe
   const teamLine = content.team_timeline_weeks != null
     ? `Team timeline: ${content.team_timeline_weeks} weeks`
     : 'Team timeline: not disclosed';
-  const otmLine = `OTM read: ${rtp.min_weeks}–${rtp.max_weeks} weeks`;
+  const otmLine = formatRtpWindow(rtp, content.injury_date, { label: 'OTM read', minimal: true });
   const deltaLine = content.team_timeline_weeks != null
     ? `Delta: ${Math.abs(content.team_timeline_weeks - rtp.max_weeks)}+ weeks — conflict threshold met`
     : 'Delta: exceeds 2-week conflict threshold';
@@ -298,7 +367,7 @@ function buildConflictTwitterThread(content: InjuryPostContent, charLimit: numbe
     truncateWithEllipsis(
       [
         `The injury: ${content.injury_type}`,
-        `Standard recovery: ${rtp.min_weeks}–${rtp.max_weeks} weeks`,
+        formatRtpWindow(rtp, content.injury_date, { label: 'Standard recovery', compact: true }),
         `Team disclosed: ${teamDisclosure}`,
         delta != null ? `The gap: ${delta}+ weeks` : 'Gap: exceeds 2-week conflict threshold',
       ].join('\n'),
@@ -311,7 +380,7 @@ function buildConflictTwitterThread(content: InjuryPostContent, charLimit: numbe
     ),
     // Post 4: RTP + evidence
     truncateWithEllipsis(
-      `OTM read: ${rtp.min_weeks}–${rtp.max_weeks} weeks\nWk 2: ${Math.round(rtp.probability_week_2 * 100)}% | Wk 4: ${Math.round(rtp.probability_week_4 * 100)}% | Wk 8: ${Math.round(rtp.probability_week_8 * 100)}%`,
+      `${formatRtpWindow(rtp, content.injury_date, { label: 'OTM read', compact: true })}\nWk 2: ${Math.round(rtp.probability_week_2 * 100)}% | Wk 4: ${Math.round(rtp.probability_week_4 * 100)}% | Wk 8: ${Math.round(rtp.probability_week_8 * 100)}%`,
       charLimit
     ),
     // Post 5: watch + signature
@@ -336,8 +405,8 @@ function buildLongFormBreakingOrTracking(content: InjuryPostContent): string[] {
   const isTracking = content.content_type === 'TRACKING';
   const prefix = isTracking ? '📋 UPDATE: ' : '🚨 ';
   const rtpLine = isTracking
-    ? `RTP window: ${rtp.min_weeks}–${rtp.max_weeks} weeks`
-    : `RTP: ${rtp.min_weeks}–${rtp.max_weeks} weeks`;
+    ? formatRtpWindow(rtp, content.injury_date, { label: 'RTP window' })
+    : formatRtpWindow(rtp, content.injury_date);
 
   const post = [
     `${prefix}${content.headline}`,
@@ -371,7 +440,7 @@ function buildLongFormDeepDive(content: InjuryPostContent, postUrl?: string): st
     '',
     stripMarkdown(content.clinical_summary),
     '',
-    `⏱️ Return to Play: ${rtp.min_weeks}–${rtp.max_weeks} weeks`,
+    formatRtpWindow(rtp, content.injury_date, { label: '⏱️ Return to Play' }),
     `Wk 2: ${Math.round(rtp.probability_week_2 * 100)}% | Wk 4: ${Math.round(rtp.probability_week_4 * 100)}% | Wk 8: ${Math.round(rtp.probability_week_8 * 100)}%`,
     '',
     OTM_SIGNATURE,
@@ -408,7 +477,7 @@ function buildLongFormConflict(content: InjuryPostContent): string[] {
     '',
     'The gap:',
     `Team disclosed: ${teamDisclosure}`,
-    `OTM read: ${rtp.min_weeks}–${rtp.max_weeks} weeks`,
+    formatRtpWindow(rtp, content.injury_date, { label: 'OTM read' }),
     delta != null ? `Delta: ${delta}+ weeks — conflict threshold met` : 'Delta: exceeds 2-week conflict threshold',
     ...(content.conflict_reason ? ['', content.conflict_reason] : []),
   ].join('\n');
