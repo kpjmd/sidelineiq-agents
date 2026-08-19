@@ -469,9 +469,17 @@ async function main(): Promise<void> {
   // ── D. Structured feeds must not flip ─────────────────────────────────────
   console.log('\nD. STRUCTURED-FEED NO-FLIP CHECK');
 
-  // The structured sources set is_update explicitly, both ways, so
-  // resolveUpdateSignal must never consult the classifier for them. Exhaustive
-  // over the input space rather than sampled: the space is tiny.
+  // Where a structured source SPEAKS, resolveUpdateSignal must never consult
+  // the classifier. Exhaustive over the input space rather than sampled: the
+  // space is tiny.
+  //
+  // Note this used to sweep [true, false], on the belief that ESPN's feed set
+  // is_update "explicitly, both ways". It does not, and never could: ESPN's
+  // status is a STATE, not a DELTA, so the feed now answers `true` for the
+  // day-to-day family and leaves the key ABSENT for everything else (see
+  // inferIsUpdate in espn-base.ts). `false` remains part of the contract for
+  // any future source that genuinely can say "this is not a change", so it is
+  // still swept here — it is simply no longer reachable from ESPN.
   let flips = 0;
   for (const sourceFlag of [true, false] as const) {
     for (const isNew of [true, false, undefined]) {
@@ -489,6 +497,22 @@ async function main(): Promise<void> {
     }
   }
   if (flips === 0) pass('the source flag always wins where the source has one (6/6 combinations)');
+
+  // And where a structured source STAYS SILENT, the classifier must be
+  // consulted — the same fallback the news sources rely on. This is the case
+  // ESPN's injuries feed is in for every row that is not day-to-day.
+  let silent = 0;
+  for (const isNew of [true, false, undefined]) {
+    const { updateSignal } = resolveUpdateSignal({} as RawInjuryEvent, isNew);
+    if (updateSignal === 'source') {
+      violate(
+        `an event with NO is_update and classifier is_new=${String(isNew)} resolved via ` +
+          `'source' — a silent source cannot be the authority`,
+      );
+      silent++;
+    }
+  }
+  if (silent === 0) pass('a silent source always defers to the classifier (3/3 combinations)');
 
   // And the news-source space, where the fallback is allowed to act.
   const newsCases: Array<[boolean | undefined, boolean, string]> = [

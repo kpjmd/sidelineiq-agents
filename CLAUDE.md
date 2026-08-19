@@ -136,13 +136,56 @@ Three predicates in `roster-sync.ts` say what used to be one
   never a bare name, which would invent players from misspellings.
 
 ### The Update Signal
-`RawInjuryEvent.is_update` is a TRI-STATE and the third value
-matters: `undefined` means the source has no status field to
-answer with, which is every news source. `resolveUpdateSignal()`
-in poller.ts falls back to the classifier's `is_new` only in that
-case, so the structured feeds are untouched. Without the fallback,
-a news-sourced sport is silenced for the whole 21-day entity
-window after its first post about an injury.
+
+`RawInjuryEvent.is_update` is a TRI-STATE and the third value matters:
+`undefined` means **the source cannot answer the question** — a larger set than
+"has no status field". `resolveUpdateSignal()` in poller.ts falls back to the
+classifier's `is_new` exactly there. Without the fallback a sport is silenced
+for the whole 21-day entity window after its first post about an injury.
+
+Two source classes leave it `undefined`, for different reasons:
+- **Every news source** — no status field at all.
+- **ESPN's structured injuries feed, for every row that is not a day-to-day
+  designation.** This one used to emit a confident `false`, and that was a
+  category error: ESPN's `status` is a STATE, not a DELTA. There is no change
+  indicator anywhere in the payload. A transition TO "Out" — the most
+  newsworthy transition in the sport — read as "not an update", and a source
+  `false` is final, so it also blocked the fallback built for this case. Across
+  two NFL cycles in Aug 2026 every one of the six events that reached PROCESS
+  died at `entity_match_skip update_signal=source`, and nothing ever reached
+  OTM.
+
+So `inferIsUpdate` returns `true` ONLY for the day-to-day family
+(`day-to-day|questionable|probable|doubtful`), whose designations genuinely are
+a live availability question, and `undefined` for everything else — including
+`Active` and `Out`. **`false` is now unreachable from this feed**, which is the
+honest answer: no ESPN injuries status supports the claim "this report is not a
+change".
+
+`Active` gets the same treatment as `Out`, and the intuition that they should
+differ is the same category error one layer down: they sit at opposite ends of
+the AVAILABILITY axis, while `is_update` asks about the NOVELTY axis, on which
+ESPN publishes nothing. `Active` is also the status that carries a comment about
+a TEAMMATE and the one an athlete re-anchor may re-point, so its identity is not
+even settled when dedup runs.
+
+**The change is MONOTONE** — it can only turn a former `false` into `undefined`,
+never a `true` into anything else, so every downstream effect only ADDS
+pass-throughs. Verified over the live feed: 539 NFL + 7 NBA rows relaxed, zero
+`true` lost. `src/scripts/update-signal-dryrun.ts` re-checks it; the numbers
+that must be zero are `true → ¬true` and `→ false`.
+
+`Injured Reserve` never reaches this function — `SKIP_STATUS_RE` drops those
+rows earlier in `parse()`. Do not count them when reasoning about the feed's
+status distribution; the naive census says 591 rows assert `false`, the real
+number is 530.
+
+`ESPN_UPDATE_SIGNAL_MODE=legacy` restores the old boolean without a deploy.
+
+One second-order effect: `is_update` also selects `updateKind`
+(`TRACKING` vs `CORRECTION`) in deduplicator.ts, and only `TRACKING` is
+Return-Watch-worthy — so newly-passed-through events also propose Return Watch
+candidates. Watch `[ReturnWatch]` volume after a change here.
 
 ### The Tagged Athlete Is Not Always the Injured One
 ESPN's injuries feed is one row per athlete, so its tag is normally

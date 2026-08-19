@@ -276,12 +276,12 @@ export abstract class ESPNInjurySource implements SportDataSource {
             roster_designation: record.details.fantasyStatus.abbreviation.trim(),
           }),
           ...(teamTimeline && { team_timeline: teamTimeline }),
-          // Set explicitly, both ways. This source HAS a status field, so
-          // `false` here is a real answer ("ESPN says this is not a change"),
-          // distinct from the `undefined` a news source leaves behind because
-          // it has nothing to answer with. The poller only substitutes the
-          // classifier's judgement for the latter.
-          is_update: isUpdate,
+          // Set ONLY when the status actually encodes a change. This source
+          // has a status field, but it answers a different question — see
+          // inferIsUpdate. An ABSENT key is what resolveUpdateSignal's
+          // classifier fallback keys on, and for most rows absent is the
+          // truthful answer.
+          ...(isUpdate !== undefined && { is_update: isUpdate }),
         });
       }
     }
@@ -455,8 +455,56 @@ function extractTeamTimeline(record: ESPNInjuryRecord): string | undefined {
   return undefined;
 }
 
-function inferIsUpdate(status: string | undefined): boolean {
-  if (!status) return false;
-  // ESPN "Day-To-Day", "Questionable", "Probable" tend to be recurring status rows
-  return /day-to-day|questionable|probable|doubtful/i.test(status);
+/**
+ * Whether this row reports a CHANGE — or, far more often, whether ESPN simply
+ * cannot say.
+ *
+ * `RawInjuryEvent.is_update` is a tri-state, and `undefined` means "this source
+ * has nothing to answer the question with". This feed is one of those sources
+ * for most of its rows, and returning a confident `false` for them was a
+ * category error: ESPN's `status` is a STATE, not a DELTA. There is no change
+ * indicator anywhere in the payload. "Out" does not mean "newly out" — and a
+ * transition TO "Out", the most newsworthy transition in the sport, read here
+ * as "not an update". `resolveUpdateSignal` treats a source-supplied `false` as
+ * final, so that answer also blocked the classifier fallback built for exactly
+ * this case. Across two NFL cycles in Aug 2026 every one of the six events that
+ * reached PROCESS died at `entity_match_skip update_signal=source`.
+ *
+ * So: `true` ONLY for the day-to-day family, whose designations genuinely are a
+ * live, re-evaluated availability question. Everything else — INCLUDING
+ * "Active" and "Out" — returns undefined and lets the classifier's `is_new`
+ * judgement stand in.
+ *
+ * `false` is now unreachable from this feed, and that is the honest answer: no
+ * ESPN injuries status supports the claim "this report is not a change".
+ *
+ * "Active" gets the same treatment as "Out", and the intuition that they should
+ * differ is the same category error one layer down: they sit at opposite ends
+ * of the AVAILABILITY axis, while is_update asks about the NOVELTY axis, on
+ * which ESPN publishes nothing at all.
+ *
+ * THE CHANGE IS MONOTONE — it can only turn a former `false` into `undefined`,
+ * never a `true` into anything else. Every downstream effect therefore only
+ * ADDS pass-throughs and can never remove one. See update-signal-inference.test.ts.
+ *
+ * Note "Injured Reserve" never reaches this function: SKIP_STATUS_RE drops
+ * those rows earlier in parse(). Do not count them when reasoning about the
+ * feed's status distribution.
+ */
+const DAY_TO_DAY_STATUS_RE = /day-to-day|questionable|probable|doubtful/i;
+
+/**
+ * `legacy` restores the pre-fix boolean, so the widest-blast-radius change in
+ * this area is revertible from Railway without a deploy — the same lever shape
+ * as ATHLETE_REANCHOR_MODE and MD_REVIEW_ANNOTATE_ONLY_CODES. Default is the
+ * tri-state; `legacy` exists to be turned ON in an emergency, not left on.
+ */
+function legacyUpdateSignal(): boolean {
+  return process.env.ESPN_UPDATE_SIGNAL_MODE === 'legacy';
+}
+
+function inferIsUpdate(status: string | undefined): boolean | undefined {
+  if (legacyUpdateSignal()) return status ? DAY_TO_DAY_STATUS_RE.test(status) : false;
+  if (!status) return undefined;
+  return DAY_TO_DAY_STATUS_RE.test(status) ? true : undefined;
 }
