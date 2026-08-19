@@ -73,9 +73,42 @@ interface ExistingPost {
   parent_post_id?: string | null;
 }
 
+/**
+ * The FALLBACK duplicate check: a flat 24h (athlete, sport) match, for when
+ * there is no thread context to reason with.
+ *
+ * Two things it must not do, both of which it did until 2026-08-19:
+ *
+ * 1. **Count posts nobody saw.** web_list_posts returns every status, so an
+ *    unapproved post sitting in the MD queue silenced every later report about
+ *    that athlete for 24h. With almost everything routing to review, the queue
+ *    was suppressing its own follow-ups. checkFollowUpCadence below already
+ *    filters to PUBLISHED for exactly this reason; this never got the same
+ *    filter.
+ *
+ * 2. **Outrank the entity-aware dedup.** When `parent_post_id` is set, the
+ *    poller has already matched an entity and decided this is a legitimate
+ *    follow-up on a known thread. checkFollowUpCadence is what governs those,
+ *    and it has the domain rules — a 5-day per-thread window, bypassed by a
+ *    materially new team-disclosed timeline. A blanket 24h name match running
+ *    FIRST just vetoed that decision: Jayden Higgins cleared entity dedup as
+ *    `entity_match_pass_through`, reached the thread manager, resolved his
+ *    dates, and then died here.
+ *
+ * The exemption is deliberately narrow — only the content types
+ * checkFollowUpCadence actually governs — so nothing becomes ungoverned.
+ */
 function isDuplicate(content: InjuryPostContent, existingPosts: ExistingPost[]): boolean {
+  const governedByCadence =
+    Boolean(content.parent_post_id) &&
+    (content.content_type === 'TRACKING' || content.content_type === 'CONFLICT_FLAG');
+  if (governedByCadence) return false;
+
   const now = Date.now();
   return existingPosts.some((post) => {
+    // Only a post that actually reached an audience is evidence we covered
+    // this. PENDING_REVIEW, DRAFT, rejected or status-less rows are not.
+    if (post.status !== 'PUBLISHED') return false;
     if (post.athlete_name !== content.athlete_name || post.sport !== content.sport) {
       return false;
     }
