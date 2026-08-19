@@ -1,0 +1,23 @@
+{
+  "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/107910?lang=en&region=us",
+  "id": "107910",
+  "firstName": "Cam",
+  "lastName": "Ward",
+  "fullName": "Cam Ward",
+  "displayName": "Cam Ward",
+  "shortName": "C. Ward",
+  "position": {
+    "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/positions/8?lang=en&region=us",
+    "id": "8",
+    "name": "Quarterback",
+    "displayName": "Quarterback",
+    "abbreviation": "QB",
+    "leaf": true,
+    "parent": {
+      "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/positions/70?lang=en&region=us"
+    }
+  },
+  "athlete": {
+    "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/college-football/athletes/4688380?lang=en&region=us"
+  }
+}

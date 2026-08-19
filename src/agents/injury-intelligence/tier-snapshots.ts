@@ -12,6 +12,7 @@ import {
   refreshDerivedTierSnapshotIfStale,
   invalidateDerivedTierSnapshot,
 } from './derived-tier-snapshot.js';
+import { refreshDraftSnapshotIfStale } from './draft-snapshot.js';
 
 /**
  * A refresh already running. Concurrent callers await it instead of starting
@@ -50,6 +51,7 @@ export async function refreshTierSnapshotsIfStale(): Promise<void> {
     try {
       await refreshSalarySnapshotIfStale();
       await refreshDerivedTierSnapshotIfStale();
+      await refreshDraftSnapshotIfStale();
     } finally {
       // Cleared before the awaiting callers resume, so the NEXT cycle is free
       // to refresh again once its TTL genuinely expires.
@@ -67,4 +69,9 @@ export async function refreshTierSnapshotsIfStale(): Promise<void> {
 export function invalidateTierSnapshots(): void {
   invalidateSalarySnapshot();
   invalidateDerivedTierSnapshot();
+  // The draft snapshot is DELIBERATELY not invalidated here, and the asymmetry
+  // is the point: roster sync changes salaries and club assignments, it does
+  // not change draft results. Those are immutable once a draft completes, so
+  // wiring this in would spend ~180 HTTP calls every 6h re-reading data that
+  // changes once a year, against a host that rate-limits. Pinned by a test.
 }

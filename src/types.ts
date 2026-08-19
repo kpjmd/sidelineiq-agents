@@ -193,7 +193,13 @@ export type AthleteTier = 1 | 2 | 3 | 4;
  * ever promote to 1 or 2. The distinction between them and `default` is what
  * poller.ts's concussion pre-drop keys on, so they must stay distinguishable.
  */
-export type AthleteTierSource = 'lookup' | 'salary' | 'club' | 'card' | 'default';
+export type AthleteTierSource =
+  | 'lookup'
+  | 'salary'
+  | 'club'
+  | 'card'
+  | 'draft'
+  | 'default';
 
 export type TriageDecision = 'PROCESS' | 'DEFER' | 'DROP';
 

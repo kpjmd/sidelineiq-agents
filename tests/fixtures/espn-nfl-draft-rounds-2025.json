@@ -1,0 +1,916 @@
+{
+  "count": 7,
+  "pageIndex": 1,
+  "pageSize": 25,
+  "pageCount": 1,
+  "items": [
+    {
+      "number": 1,
+      "displayName": "1st Round",
+      "picks": [
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 1,
+          "overall": 1,
+          "round": 1,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/107910?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 2,
+          "overall": 2,
+          "round": 1,
+          "traded": true,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109188?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 3,
+          "overall": 3,
+          "round": 1,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109198?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 4,
+          "overall": 4,
+          "round": 1,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109195?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 5,
+          "overall": 5,
+          "round": 1,
+          "traded": true,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109186?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 6,
+          "overall": 6,
+          "round": 1,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109201?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 7,
+          "overall": 7,
+          "round": 1,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109329?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 8,
+          "overall": 8,
+          "round": 1,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109190?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 9,
+          "overall": 9,
+          "round": 1,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109191?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 10,
+          "overall": 10,
+          "round": 1,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109216?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 11,
+          "overall": 11,
+          "round": 1,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109194?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 12,
+          "overall": 12,
+          "round": 1,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109239?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 13,
+          "overall": 13,
+          "round": 1,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109214?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 14,
+          "overall": 14,
+          "round": 1,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109258?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 15,
+          "overall": 15,
+          "round": 1,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109211?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 16,
+          "overall": 16,
+          "round": 1,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109220?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 17,
+          "overall": 17,
+          "round": 1,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109295?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 18,
+          "overall": 18,
+          "round": 1,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109324?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 19,
+          "overall": 19,
+          "round": 1,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109232?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 20,
+          "overall": 20,
+          "round": 1,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109246?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 21,
+          "overall": 21,
+          "round": 1,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109215?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 22,
+          "overall": 22,
+          "round": 1,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109208?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 23,
+          "overall": 23,
+          "round": 1,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109383?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 24,
+          "overall": 24,
+          "round": 1,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109244?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 25,
+          "overall": 25,
+          "round": 1,
+          "traded": true,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109275?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 26,
+          "overall": 26,
+          "round": 1,
+          "traded": true,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109189?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 27,
+          "overall": 27,
+          "round": 1,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109197?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 28,
+          "overall": 28,
+          "round": 1,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109202?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 29,
+          "overall": 29,
+          "round": 1,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109290?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 30,
+          "overall": 30,
+          "round": 1,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109243?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 31,
+          "overall": 31,
+          "round": 1,
+          "traded": true,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109228?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 32,
+          "overall": 32,
+          "round": 1,
+          "traded": true,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109266?lang=en&region=us"
+          }
+        }
+      ]
+    },
+    {
+      "number": 2,
+      "displayName": "2nd Round",
+      "picks": [
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 1,
+          "overall": 33,
+          "round": 2,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109382?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 2,
+          "overall": 34,
+          "round": 2,
+          "traded": true,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109245?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 3,
+          "overall": 35,
+          "round": 2,
+          "traded": true,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109207?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 4,
+          "overall": 36,
+          "round": 2,
+          "traded": true,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109223?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 5,
+          "overall": 37,
+          "round": 2,
+          "traded": true,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109210?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 6,
+          "overall": 38,
+          "round": 2,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109302?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 7,
+          "overall": 39,
+          "round": 2,
+          "traded": true,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109204?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 8,
+          "overall": 40,
+          "round": 2,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/107815?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 9,
+          "overall": 41,
+          "round": 2,
+          "traded": true,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109385?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 10,
+          "overall": 42,
+          "round": 2,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109256?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 11,
+          "overall": 43,
+          "round": 2,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/107798?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 12,
+          "overall": 44,
+          "round": 2,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109268?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 13,
+          "overall": 45,
+          "round": 2,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109231?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 14,
+          "overall": 46,
+          "round": 2,
+          "traded": true,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109308?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 15,
+          "overall": 47,
+          "round": 2,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109187?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 16,
+          "overall": 48,
+          "round": 2,
+          "traded": true,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109205?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 17,
+          "overall": 49,
+          "round": 2,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109398?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 18,
+          "overall": 50,
+          "round": 2,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109335?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 19,
+          "overall": 51,
+          "round": 2,
+          "traded": true,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109203?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 20,
+          "overall": 52,
+          "round": 2,
+          "traded": true,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109396?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 21,
+          "overall": 53,
+          "round": 2,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109196?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 22,
+          "overall": 54,
+          "round": 2,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/108723?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 23,
+          "overall": 55,
+          "round": 2,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109212?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 24,
+          "overall": 56,
+          "round": 2,
+          "traded": true,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109421?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 25,
+          "overall": 57,
+          "round": 2,
+          "traded": true,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109260?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 26,
+          "overall": 58,
+          "round": 2,
+          "traded": true,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109424?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 27,
+          "overall": 59,
+          "round": 2,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109304?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 28,
+          "overall": 60,
+          "round": 2,
+          "traded": true,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109323?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 29,
+          "overall": 61,
+          "round": 2,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109297?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 30,
+          "overall": 62,
+          "round": 2,
+          "traded": true,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109222?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 31,
+          "overall": 63,
+          "round": 2,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109341?lang=en&region=us"
+          }
+        },
+        {
+          "status": {
+            "id": 3,
+            "name": "SELECTION_MADE",
+            "description": "Selection Made"
+          },
+          "pick": 32,
+          "overall": 64,
+          "round": 2,
+          "traded": false,
+          "athlete": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/draft/athletes/109309?lang=en&region=us"
+          }
+        }
+      ]
+    }
+  ]
+}
