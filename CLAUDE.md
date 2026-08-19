@@ -174,6 +174,85 @@ athlete's tier.
 shadow decides and logs but changes nothing at all, including the cases
 that look obviously safe.
 
+### The athlete tier chain
+
+`lookupAthleteTier` (significance.ts) asks four sources in a fixed order and stops
+at the first answer. The order is pinned by tests:
+
+1. **`athlete-tiers.json`** — a human's assertion about a named athlete. An
+   OVERRIDE, not a floor despite what the file's own notes say: it is consulted
+   first and returns unconditionally, so an entry set below what an athlete rates
+   actively suppresses them. Tier 4 DROPS BREAKING outright.
+2. **`salary`** — what the market pays him today. NFL/NBA only.
+3. **`draft`** — where the league itself took him, within a recency window. NFL.
+4. **`club` / `card`** — PREMIER_LEAGUE and UFC, which have no contract data.
+
+**2, 3 and 4 are all promote-only.** Each mapping function returns `1 | 2 | null`
+and the narrow return type IS the invariant — a later edit that tries to return 4
+is a compile error rather than a silent policy change that stops publishing every
+depth player's injuries. `validateSalaryBands`, `validateDraftTiers` and
+`validateDerivedTiers` each DROP a config entry naming tier 3 or 4 rather than
+honouring it, degrading to the flat tier-3 default, which is the previous
+behaviour and therefore the safe direction.
+
+**None of `salary`, `draft`, `club` or `card` may be added to poller.ts's
+concussion pre-drop, which gates on `source === 'lookup'` only.** Do not
+"complete" the union. All are promote-only, so an event carrying one of those
+sources can never be `concussionBlocked` in the first place
+(`isConcussionTierBlocked` is `tier > 2 && …`) — naming them would be inert
+today. It stays out because writing it encodes the claim that a machine
+inference from an index is strong enough to end an event's life before the model
+ever sees it, and that claim is false.
+
+**Why draft exists.** Salary is undefined for the population that needs it most.
+Rookie-scale money is structurally below the $8M NFL tier-2 band no matter how
+highly an athlete was drafted — Malik Nabers (2024 #6), Michael Penix Jr. (#8),
+Christian Gonzalez (2023 #17, `contract.salary` $2.81M) all sat at the flat
+default. And **`tier_blocked` is a TRACKING×tier rule, not a tier rule**: 122 of
+152 scored DROPs across two dead cycles were `bar=tier_blocked`, and every one
+carried `ct_prior=30` (= TRACKING). `TRACKING.require_tier_1_or_2` hard-drops
+tier 3 with no threshold consulted, and the block is season-invariant, so Sept 1
+does not change it. BREAKING at tier 3 is NOT blocked. That reads as a tier
+problem in the logs and cost real time to diagnose.
+
+**Draft never confers tier 1.** Tier 1 swaps the BREAKING bar to `BREAKING_T1`'s
+45, the loosest in the config, so a false tier 1 is the expensive error. A #1
+overall pick is what a team HOPES; that belongs in `athlete-tiers.json`, by hand.
+`tier_1_max_overall` is expressible and ships absent, pinned by a test.
+
+**The window is `max_seasons_since_draft`, and it is nearly free BECAUSE salary
+gets first refusal.** Of the 32 NFL first-rounders drafted in 2019, 23 are still
+rostered and 16 of those are already covered by salary or curation — so cutting
+at 3 seasons discards mostly athletes the market has already answered for and
+retains only the ones no other provider can see, who are by construction the
+busts. The band keys on `overall`, not `round`: `overall` is immune to
+compensatory picks, forfeited picks and the 31-pick 2023 first round.
+
+**Two ESPN traps in the loader.** Draft records carry the athlete's COLLEGE-era
+name while pro rosters add generational suffixes, so 11 of 319 R1/R2 picks only
+match on the loose key ("Anthony Richardson" → "Anthony Richardson Sr.") — and 11
+roster loose-keys are ambiguous, so the uniqueness guard is load-bearing. And a
+class year that has not happened returns HTTP **200 with an empty `items` array**,
+not a 404, so "not held yet" and "read failed" look nothing alike: skip the year,
+never abort. Do NOT key on the draft record's own `id` (`107910`); the shared
+ESPN athlete id is only inside that record's `athlete.$ref`.
+
+Per-ref failures split two ways and the split matters: a **404 is a bad ROW**
+(skip, count), a **timeout/429/5xx is a bad PAGE** (abort, keep the incumbent).
+ESPN rate-limits by dropping a contiguous block of refs, and a rate limit read as
+"these picks have no athlete" would install a snapshot missing an arbitrary run
+and silently demote exactly the athletes this promotes.
+
+`refreshTierSnapshotsIfStale` is the one entry point and refreshes all three
+snapshots with in-flight coalescing. `invalidateTierSnapshots` deliberately does
+**not** invalidate the draft snapshot: roster sync changes salaries and clubs,
+not draft results, and wiring it in would spend ~180 HTTP calls every 6h on data
+that changes once a year. Pinned by a test.
+
+Re-verify any change here with `src/scripts/draft-tier-dryrun.ts`. The numbers
+that must be zero are refs lost to non-404 failures, curated tier-4 entries
+inside the window, promote-only violations, and forbidden gate flips.
+
 ### The report date is not the injury date
 
 ESPN's injuries endpoint is a **status table, not a news wire**. Each row's `date`

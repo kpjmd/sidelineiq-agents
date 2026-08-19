@@ -1,41 +1,114 @@
 {
   "version": 3,
   "thresholds": {
-    "default":       { "process": 60, "defer": 35, "max_tier": 3 },
-    "BREAKING_T1":   { "process": 45, "defer": 30 },
-    "TRACKING":      { "process": 65, "defer": 40, "require_tier_1_or_2": true },
-    "DEEP_DIVE":     { "process": 40, "defer": 25 },
-    "CONFLICT_FLAG": { "always_process": true }
+    "default": {
+      "process": 60,
+      "defer": 35,
+      "max_tier": 3
+    },
+    "BREAKING_T1": {
+      "process": 45,
+      "defer": 30
+    },
+    "TRACKING": {
+      "process": 65,
+      "defer": 40,
+      "require_tier_1_or_2": true
+    },
+    "DEEP_DIVE": {
+      "process": 40,
+      "defer": 25
+    },
+    "CONFLICT_FLAG": {
+      "always_process": true
+    }
   },
   "sport_seasons": {
     "NFL": [
-      { "window": "offseason",      "from": "03-01", "to": "08-31", "threshold_delta":  5 },
-      { "window": "regular_season", "from": "09-01", "to": "02-28", "threshold_delta":  0 }
+      {
+        "window": "offseason",
+        "from": "03-01",
+        "to": "08-31",
+        "threshold_delta": 5
+      },
+      {
+        "window": "regular_season",
+        "from": "09-01",
+        "to": "02-28",
+        "threshold_delta": 0
+      }
     ],
     "NBA": [
-      { "window": "playoffs",       "from": "04-15", "to": "06-30", "threshold_delta": -5 },
-      { "window": "regular_season", "from": "10-15", "to": "04-14", "threshold_delta":  0 },
-      { "window": "offseason",      "from": "07-01", "to": "10-14", "threshold_delta":  5 }
+      {
+        "window": "playoffs",
+        "from": "04-15",
+        "to": "06-30",
+        "threshold_delta": -5
+      },
+      {
+        "window": "regular_season",
+        "from": "10-15",
+        "to": "04-14",
+        "threshold_delta": 0
+      },
+      {
+        "window": "offseason",
+        "from": "07-01",
+        "to": "10-14",
+        "threshold_delta": 5
+      }
     ]
   },
   "default_threshold_delta": 0,
   "salary_tiers": {
     "currency": "USD",
     "bands": {
-      "NFL": { "tier_1_min": 25000000, "tier_2_min": 8000000 },
-      "NBA": { "tier_1_min": 45000000, "tier_2_min": 15000000 }
+      "NFL": {
+        "tier_1_min": 25000000,
+        "tier_2_min": 8000000
+      },
+      "NBA": {
+        "tier_1_min": 45000000,
+        "tier_2_min": 15000000
+      }
+    }
+  },
+  "draft_tiers": {
+    "bands": {
+      "NFL": {
+        "tier_2_max_overall": 32,
+        "max_seasons_since_draft": 3
+      }
     }
   },
   "derived_tiers": {
     "PREMIER_LEAGUE": {
       "kind": "club",
       "tier_2_clubs": [
-        { "espn_team_id": "359", "name": "Arsenal" },
-        { "espn_team_id": "363", "name": "Chelsea" },
-        { "espn_team_id": "364", "name": "Liverpool" },
-        { "espn_team_id": "382", "name": "Manchester City" },
-        { "espn_team_id": "360", "name": "Manchester United" },
-        { "espn_team_id": "367", "name": "Tottenham Hotspur" }
+        {
+          "espn_team_id": "359",
+          "name": "Arsenal"
+        },
+        {
+          "espn_team_id": "363",
+          "name": "Chelsea"
+        },
+        {
+          "espn_team_id": "364",
+          "name": "Liverpool"
+        },
+        {
+          "espn_team_id": "382",
+          "name": "Manchester City"
+        },
+        {
+          "espn_team_id": "360",
+          "name": "Manchester United"
+        },
+        {
+          "espn_team_id": "367",
+          "name": "Tottenham Hotspur"
+        }
       ]
     },
     "UFC": {
@@ -52,7 +125,9 @@
       }
     }
   },
-  "concussion": { "require_tier_1_or_2": true },
+  "concussion": {
+    "require_tier_1_or_2": true
+  },
   "defer": {
     "ttl_hours": 6,
     "promotion_cap": 3,

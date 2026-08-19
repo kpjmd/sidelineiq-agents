@@ -88,6 +88,41 @@ interface SalaryTierConfig {
 }
 
 /**
+ * Draft-position ceilings that promote an unlisted athlete out of the flat
+ * default.
+ *
+ * LOWER IS BETTER here — the inverse of SalaryBand, where higher is better — so
+ * tier_1_max_overall must be LESS than tier_2_max_overall. Getting that
+ * comparison backwards is the easy mistake, and validateDraftTiers checks for
+ * it by name.
+ *
+ * This exists because salary is undefined for the population that needs it
+ * most: an athlete on a rookie contract. Rookie-scale money is structurally
+ * below the NFL tier-2 band no matter how highly he was drafted — Malik Nabers
+ * (2024 #6) and Christian Gonzalez (2023 #17, $2.81M) both sat at the flat
+ * default, and TRACKING hard-drops tier 3, so their injury updates could never
+ * publish. Draft position is what the league itself said an athlete was worth
+ * before any market existed, and it is the only signal defined for a player
+ * with no contract history.
+ *
+ * Only tiers 1 and 2 are expressible; see tierFromDraft for why there is
+ * deliberately no tier_3_max_overall.
+ *
+ * `max_seasons_since_draft` is not a tuning knob — it is the whole staleness
+ * story. See tierFromDraft.
+ */
+interface DraftBand {
+  /** Shipped ABSENT on purpose. See tierFromDraft. */
+  tier_1_max_overall?: number;
+  tier_2_max_overall: number;
+  max_seasons_since_draft: number;
+}
+
+interface DraftTierConfig {
+  bands?: Partial<Record<SportKey, DraftBand>>;
+}
+
+/**
  * The non-salary prominence signals, one per sport that has no salary data.
  *
  * Salary is not a universal proxy for prominence — it is the proxy that happens
@@ -162,6 +197,9 @@ interface SignificanceConfig {
   // Optional: a config without it behaves exactly as before this feature
   // existed, which is what lets the code ship ahead of the bands.
   salary_tiers?: SalaryTierConfig;
+  /** Optional for the same reason salary_tiers is: a config without it behaves
+   *  exactly as it did before this feature existed. */
+  draft_tiers?: DraftTierConfig;
   // Optional for the same reason salary_tiers is: a config without it behaves
   // exactly as it did before derived tiers existed.
   derived_tiers?: Partial<Record<SportKey, DerivedTierConfig>>;
@@ -312,6 +350,7 @@ export async function loadSignificanceData(): Promise<void> {
       );
     }
     validateSalaryBands(cachedConfig);
+  validateDraftTiers(cachedConfig);
     validateDerivedTiers(cachedConfig);
   } else {
     const reason = configResult.reason instanceof Error ? configResult.reason.message : String(configResult.reason);
@@ -450,6 +489,185 @@ function validateSalaryBands(config: SignificanceConfig | null): void {
     .map(([s, b]) => `${s} t1>=$${(b.tier_1_min / 1e6).toFixed(1)}M t2>=$${(b.tier_2_min / 1e6).toFixed(1)}M`)
     .join(' | ');
   console.log(`[Significance] salary bands: ${summary || '(none)'}`);
+}
+
+/**
+ * The draft snapshot, name-keyed per sport, plus the class year it is anchored
+ * to. Installed wholesale by setDraftSnapshot; never mutated in place.
+ */
+export interface DraftPick {
+  year: number;
+  round: number;
+  /** Overall selection number — the ordinal the bands key on. */
+  overall: number;
+}
+
+interface DraftRow {
+  full_name: string;
+  sport: string;
+  draft: DraftPick;
+}
+
+let cachedDraft: DraftRow[] | null = null;
+let draftAnchorSeason: number | null = null;
+
+/**
+ * Install (or clear) the draft index.
+ *
+ * The anchor season is derived here as max(class year) rather than from the
+ * clock, so every scrap of calendar logic stays out of the lookup path and no
+ * date has to be threaded through lookupAthleteTier's dozen call sites. It is
+ * safe because the loader keeps only completed selections, and an unheld future
+ * draft returns zero picks — so an early-published shell cannot move the anchor
+ * and silently expire the oldest class.
+ */
+export function setDraftSnapshot(rows: DraftRow[] | null): void {
+  cachedDraft = rows;
+  const years = (rows ?? []).map((r) => r.draft?.year).filter((y): y is number => Number.isFinite(y));
+  draftAnchorSeason = years.length > 0 ? Math.max(...years) : null;
+}
+
+export function _setDraftSnapshotForTesting(rows: DraftRow[] | null): void {
+  setDraftSnapshot(rows);
+}
+
+/**
+ * Name-keyed draft lookup, sport-scoped, with the same two-stage matching and
+ * the same uniqueness guard as lookupSalaryRow.
+ *
+ * The guard is load-bearing rather than defensive here: draft records carry the
+ * athlete's COLLEGE-era name while pro rosters add generational suffixes, so a
+ * measured 11 of 319 R1/R2 picks only match on the loose key ("Anthony
+ * Richardson" -> "Anthony Richardson Sr.", "Nolan Smith" -> "Nolan Smith Jr.",
+ * "DJ Turner" -> "DJ Turner II"). A further 11 roster loose-keys are ambiguous,
+ * which is exactly the cross-athlete misattribution this refuses to guess at.
+ */
+function lookupDraftPick(name: string, sport: SportKey): DraftPick | null {
+  if (!cachedDraft) return null;
+  const normSport = sport.toLowerCase();
+  const normName = normalizeText(name);
+
+  const exact = cachedDraft.filter(
+    (r) => r.sport.toLowerCase() === normSport && normalizeText(r.full_name) === normName,
+  );
+  if (exact.length === 1) return exact[0].draft;
+  if (exact.length > 1) return null;
+
+  const looseKey = looseNameKey(name);
+  const loose = cachedDraft.filter(
+    (r) => r.sport.toLowerCase() === normSport && looseNameKey(r.full_name) === looseKey,
+  );
+  return loose.length === 1 ? loose[0].draft : null;
+}
+
+/**
+ * Map a draft slot to a tier. Promote-only: the `1 | 2 | null` return type IS
+ * the invariant, exactly as tierFromSalary and tierFromDerived. There is
+ * deliberately no way to express tier 3 — returning 3 and returning null would
+ * be behaviourally identical, and two spellings of the same thing is what
+ * invites a tier_3_max_overall later.
+ *
+ * A draft slot is a league's PREDICTION about an athlete before any market
+ * existed, so this is a DEFAULT and never an override. It systematically
+ * over-rates busts, which is what max_seasons_since_draft is for: measured over
+ * the 2019 class, 16 of the 23 surviving first-rounders are already covered by
+ * salary or curation, so a recency window discards mostly athletes the market
+ * has already answered for and retains only the ones no other provider can see
+ * — who are, by construction, the busts.
+ *
+ * It also says nothing about an undrafted or late-round star (Brock Purdy, R7;
+ * Patrick Mekari, UDFA). Those are what athlete-tiers.json is for, and it is
+ * consulted first.
+ */
+/** The validated draft bands, so the loader never fetches for a band that
+ *  validateDraftTiers rejected. Mirrors getLoadedDerivedConfig. */
+export function getLoadedDraftBands(): Partial<Record<SportKey, DraftBand>> {
+  return cachedConfig?.draft_tiers?.bands ?? {};
+}
+
+export function tierFromDraft(
+  pick: DraftPick | null | undefined,
+  sport: SportKey,
+): 1 | 2 | null {
+  if (!pick) return null;
+  const band = cachedConfig?.draft_tiers?.bands?.[sport];
+  if (!band) return null;
+  if (draftAnchorSeason === null) return null;
+
+  const seasonsSince = draftAnchorSeason - pick.year;
+  if (seasonsSince < 0 || seasonsSince > band.max_seasons_since_draft) return null;
+
+  if (band.tier_1_max_overall !== undefined && pick.overall <= band.tier_1_max_overall) return 1;
+  if (pick.overall <= band.tier_2_max_overall) return 2;
+  return null;
+}
+
+/**
+ * Same shape of guard as validateSalaryBands, with the comparison inverted:
+ * for draft position LOWER is better, so tier_1_max_overall must be LESS than
+ * tier_2_max_overall.
+ */
+function validateDraftTiers(config: SignificanceConfig | null): void {
+  const bands = config?.draft_tiers?.bands;
+  if (!config?.draft_tiers) return; // Absent is valid: no sport gets a band.
+  if (!bands || Object.keys(bands).length === 0) {
+    console.error(
+      '[Significance] significance-config.json has `draft_tiers` but no `bands` — ' +
+        'no athlete will ever be promoted by draft position. Remove the key or populate it.',
+    );
+    return;
+  }
+
+  for (const [sport, band] of Object.entries(bands) as [SportKey, DraftBand][]) {
+    const drop = (why: string): void => {
+      console.error(
+        `[Significance] draft band for ${sport} is invalid (${why}) — dropping it. ` +
+          `${sport} athletes will use the flat tier-3 default.`,
+      );
+      delete bands[sport];
+    };
+
+    // Same reasoning as the salary equivalent: a band naming tier 3 or 4 is
+    // someone trying to make draft position DEMOTE. tierFromDraft's return type
+    // makes it impossible in code; this makes it loud in config.
+    const named = Object.keys(band ?? {}).filter((k) => /^tier_[34]_max_overall$/.test(k));
+    if (named.length > 0) {
+      drop(`names ${named.join(', ')}; draft position can only promote, never demote`);
+      continue;
+    }
+
+    const t2 = band?.tier_2_max_overall;
+    const seasons = band?.max_seasons_since_draft;
+    if (!Number.isFinite(t2) || (t2 as number) <= 0) {
+      drop('tier_2_max_overall must be a positive number');
+      continue;
+    }
+    if (!Number.isFinite(seasons) || (seasons as number) < 0) {
+      drop('max_seasons_since_draft must be a non-negative number');
+      continue;
+    }
+    const t1 = band?.tier_1_max_overall;
+    if (t1 !== undefined) {
+      if (!Number.isFinite(t1) || t1 <= 0) {
+        drop('tier_1_max_overall must be a positive number when present');
+        continue;
+      }
+      if (t1 >= (t2 as number)) {
+        drop(
+          `tier_1_max_overall (${t1}) must be LESS than tier_2_max_overall (${t2}) — ` +
+            `lower overall picks are better`,
+        );
+      }
+    }
+  }
+
+  const summary = Object.entries(bands)
+    .map(([s, b]) => {
+      const t1 = b.tier_1_max_overall !== undefined ? `t1<=#${b.tier_1_max_overall} ` : '';
+      return `${s} ${t1}t2<=#${b.tier_2_max_overall} within ${b.max_seasons_since_draft} seasons`;
+    })
+    .join(' | ');
+  console.log(`[Significance] draft bands: ${summary || '(none)'}`);
 }
 
 /**
@@ -791,7 +1009,7 @@ function lookupSalaryRow(name: string, sport: SportKey): SalaryRow | null {
 export function lookupAthleteTier(
   name: string,
   sport: SportKey,
-  opts?: { allowSalary?: boolean; allowDerived?: boolean },
+  opts?: { allowSalary?: boolean; allowDerived?: boolean; allowDraft?: boolean },
 ): { tier: AthleteTier; source: AthleteTierSource } {
   if (!cachedTiers) return { tier: 3, source: 'default' };
 
@@ -851,6 +1069,17 @@ export function lookupAthleteTier(
   //
   // Promote-only, exactly as above: tierFromDerived cannot return 3 or 4, so
   // nothing that publishes today stops publishing because of this block.
+  // After salary, before club/card. The order relative to salary is NOT
+  // arbitrary and is pinned by a test: a contract is the market's verdict on an
+  // athlete TODAY, a draft slot is a league's PREDICTION about him years ago,
+  // and where both speak the newer signal wins. Promote-only, so nothing that
+  // publishes today can stop publishing because of this block.
+  if (opts?.allowDraft !== false) {
+    const pick = lookupDraftPick(name, sport);
+    const tier = tierFromDraft(pick, sport);
+    if (tier !== null) return { tier, source: 'draft' };
+  }
+
   if (opts?.allowDerived !== false) {
     const signal = lookupDerivedSignal(name, sport);
     const tier = tierFromDerived(signal, sport);
@@ -1186,6 +1415,7 @@ export function tierMarker(source: AthleteTierSource): string {
   if (source === 'default') return '?';
   if (source === 'salary') return '~';
   if (source === 'club' || source === 'card') return '+';
+  if (source === 'draft') return '^';
   return '';
 }
 
@@ -1276,6 +1506,7 @@ export function _setConfigForTesting(config: SignificanceConfig | null): void {
   // source) could install bands the real load path would have rejected, and
   // the thing being asserted would not be the thing that ships.
   validateSalaryBands(cachedConfig);
+  validateDraftTiers(cachedConfig);
   validateDerivedTiers(cachedConfig);
 }
 

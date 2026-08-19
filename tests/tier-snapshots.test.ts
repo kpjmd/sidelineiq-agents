@@ -17,12 +17,20 @@ vi.mock('../src/agents/injury-intelligence/derived-tier-snapshot.js', () => ({
   refreshDerivedTierSnapshotIfStale: vi.fn(),
   invalidateDerivedTierSnapshot: vi.fn(),
 }));
+vi.mock('../src/agents/injury-intelligence/draft-snapshot.js', () => ({
+  refreshDraftSnapshotIfStale: vi.fn(),
+  invalidateDraftSnapshot: vi.fn(),
+}));
 
 import { refreshSalarySnapshotIfStale, invalidateSalarySnapshot } from '../src/agents/injury-intelligence/salary-snapshot.js';
 import {
   refreshDerivedTierSnapshotIfStale,
   invalidateDerivedTierSnapshot,
 } from '../src/agents/injury-intelligence/derived-tier-snapshot.js';
+import {
+  refreshDraftSnapshotIfStale,
+  invalidateDraftSnapshot,
+} from '../src/agents/injury-intelligence/draft-snapshot.js';
 import {
   refreshTierSnapshotsIfStale,
   invalidateTierSnapshots,
@@ -111,5 +119,30 @@ describe('invalidateTierSnapshots', () => {
     invalidateTierSnapshots();
     expect(vi.mocked(invalidateSalarySnapshot)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(invalidateDerivedTierSnapshot)).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe('the draft snapshot joins the fan-out but not the invalidation', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('refreshes all THREE providers', async () => {
+    await refreshTierSnapshotsIfStale();
+    expect(vi.mocked(refreshSalarySnapshotIfStale)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(refreshDerivedTierSnapshotIfStale)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(refreshDraftSnapshotIfStale)).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT invalidate the draft snapshot on a roster sync', async () => {
+    // The asymmetry is deliberate and this test is what stops someone
+    // "completing" the function during a later cleanup. Roster sync changes
+    // salaries and club assignments; it does not change draft results, which
+    // are immutable once a draft completes. Wiring it in would spend ~180 HTTP
+    // calls every 6h against a host that rate-limits, re-reading data that
+    // changes once a year.
+    invalidateTierSnapshots();
+    expect(vi.mocked(invalidateSalarySnapshot)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(invalidateDerivedTierSnapshot)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(invalidateDraftSnapshot)).not.toHaveBeenCalled();
   });
 });
