@@ -459,6 +459,32 @@ Prefer the source's own fielded data: `RawInjuryEvent.injury_details`
 `buildDescription` assembled FROM those fields. `side: "Not Specified"` means
 the source declined to say, so the text still gets its turn.
 
+### Two dedups, and the crude one must not outrank the good one
+
+Publishing runs the entity-aware dedup in the poller (`deduplicator.ts`, keyed on
+player + body part + laterality inside a 21-day window) and then, inside
+`publishInjuryPost`, a FALLBACK `isDuplicate` — a flat 24h `(athlete, sport)`
+match for when there is no thread context at all.
+
+The fallback runs FIRST, so two rules matter:
+
+- **It only counts posts that reached an audience.** `web_list_posts` returns
+  every status, and without a `PUBLISHED` filter an unapproved post silenced
+  every later report about that athlete for 24h. With almost everything routing
+  to MD review, the queue was suppressing its own follow-ups.
+  `checkFollowUpCadence` always had that filter; `isDuplicate` did not, and a
+  test had pinned the inconsistency as if it were deliberate.
+- **It stands aside for a known follow-up.** When `parent_post_id` is set the
+  poller has already matched an entity and decided this is a legitimate
+  follow-up; `checkFollowUpCadence` governs those, with the 5-day per-thread
+  window that a new team-disclosed timeline bypasses. The exemption is narrow —
+  only TRACKING and CONFLICT_FLAG, the types that throttle actually covers — so
+  nothing becomes ungoverned.
+
+Jayden Higgins is the worked example: cleared entity dedup as
+`entity_match_pass_through`, reached the thread manager, resolved his dates, then
+died at `[Pipeline] Duplicate detected`.
+
 ## Did It Reach an Audience?
 
 A `PUBLISHED` row is NOT evidence that anything was cast or tweeted. The web

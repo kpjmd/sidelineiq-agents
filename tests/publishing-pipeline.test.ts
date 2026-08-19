@@ -111,6 +111,9 @@ describe('publishInjuryPost', () => {
           {
             athlete_name: 'Patrick Mahomes',
             sport: 'NFL',
+            // Real rows always carry a status (schema default 'PUBLISHED');
+            // only a post that reached an audience is evidence we covered this.
+            status: 'PUBLISHED',
             created_at: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
           },
         ];
@@ -198,6 +201,9 @@ describe('publishInjuryPost — dedup envelope handling (F5 regression)', () => 
   const recentPost = () => ({
     athlete_name: 'Patrick Mahomes',
     sport: 'NFL',
+    // Real rows always carry a status (schema default 'PUBLISHED');
+    // only a post that reached an audience is evidence we covered this.
+    status: 'PUBLISHED',
     created_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
   });
 
@@ -235,6 +241,9 @@ describe('publishInjuryPost — dedup envelope handling (F5 regression)', () => 
             text: JSON.stringify([{
               athlete_name: 'Patrick Mahomes',
               sport: 'NFL',
+              // Real rows always carry a status (schema default 'PUBLISHED');
+              // only a post that reached an audience is evidence we covered this.
+              status: 'PUBLISHED',
               created_at: new Date(Date.now() - 30 * 60 * 60 * 1000).toISOString(),
             }]),
           }],

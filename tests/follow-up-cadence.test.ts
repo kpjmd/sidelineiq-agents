@@ -62,14 +62,13 @@ function followUp(overrides: Partial<InjuryPostContent> = {}): InjuryPostContent
 /**
  * A prior post as web_list_posts would return it — every status included.
  *
- * `created_at` is deliberately 2 days old, not 1. publishInjuryPost runs a
- * blanket 24h `isDuplicate` check on (athlete, sport) BEFORE the cadence check
- * and with no status filter, so any fixture inside 24h short-circuits to
- * `skipped`/`duplicate` and never reaches the code these tests exist to pin.
- * A 1-day fixture sits exactly on that boundary and passes only by the
- * milliseconds between building the fixture and the comparison. Every test
- * that expects a throttle therefore also asserts the REASON, so a duplicate
- * skip can never masquerade as a cadence skip.
+ * `created_at` is 2 days old, not 1, and that used to be load-bearing: the
+ * blanket 24h `isDuplicate` check ran BEFORE the cadence check with no status
+ * filter, so any fixture inside 24h short-circuited to `skipped`/`duplicate`
+ * and never reached the code these tests exist to pin. isDuplicate now defers
+ * to the cadence throttle for a known follow-up, so the workaround is no
+ * longer needed — but every test that expects a throttle still asserts the
+ * REASON, so a duplicate skip can never masquerade as a cadence skip.
  */
 function priorPost(overrides: Record<string, unknown> = {}) {
   return {
@@ -153,17 +152,23 @@ describe('follow-up cadence — defect 1: unpublished posts must not anchor a co
     expect(result.reason).toContain('follow_up_cooldown');
   });
 
-  // The status filter only governs the CADENCE throttle. publishInjuryPost's
-  // separate 24h duplicate check has no status filter, so inside 24h a
-  // PENDING_REVIEW post still suppresses coverage — as a duplicate, not as a
-  // cooldown. Pinned here so the distinction is deliberate rather than a
-  // surprise the next reader has to rediscover.
-  it('is still suppressed as a DUPLICATE (not a cooldown) inside 24h', async () => {
+  // This used to pin the OPPOSITE, and the comment it carried is worth
+  // recording: "the status filter only governs the CADENCE throttle...
+  // inside 24h a PENDING_REVIEW post still suppresses coverage — as a
+  // duplicate, not as a cooldown. Pinned here so the distinction is
+  // deliberate rather than a surprise."
+  //
+  // The distinction was not deliberate, it was the bug, and documenting it
+  // made it survive longer. Two adjacent functions disagreed about whether an
+  // unapproved post counts as coverage, and the blunter one ran first — so
+  // with almost everything routing to MD review, the queue silenced its own
+  // follow-ups for 24h at a time. isDuplicate now applies the same PUBLISHED
+  // filter the cadence throttle always had.
+  it('is NOT suppressed as a duplicate inside 24h either', async () => {
     withPriorPosts([priorPost({ status: 'PENDING_REVIEW', created_at: daysAgo(0.5) })]);
     const result = await publishInjuryPost(followUp({ team_timeline_weeks: 3 }));
 
-    expect(result.status).toBe('skipped');
-    expect(result.reason).toBe('duplicate');
+    expect(result.status).toBe('published');
   });
 });
 
