@@ -425,6 +425,54 @@ The forced reason no longer REPLACES what `needsMDReview` would have said; both
 are recorded (`athlete_name_drift; severity is SEVERE`). The short-circuit meant
 a reviewer could not see a forced post was also SEVERE.
 
+### Publishing and re-routing are different questions
+
+Three checks in publishing-pipeline.ts read the same `web_list_posts` rows and
+answer different things. Do not unify them.
+
+- `isDuplicate` and `checkFollowUpCadence` answer **"should this follow-up
+  publish?"** and both filter to `PUBLISHED`, because an unapproved post reached
+  nobody and is not evidence we covered a story.
+- `findEquivalentPendingReview` answers **"should this event re-route to
+  review?"** and reads `PENDING_REVIEW` ONLY. A pending post is not evidence of
+  coverage, but it IS evidence we already asked the MD this exact question.
+
+The second exists because the first two, once correct, left a pending post with
+no memory anywhere. ESPN re-serves the same status row every `POLL_INTERVAL_MS`,
+the classifier keeps answering `is_new`, entity dedup passes it through as a
+legitimate follow-up, and the pipeline filed another identical review item every
+six hours: Tyler Biadasz ×3 and Alvin Kamara ×2 byte-identical `TRACKING` rows on
+2026-08-20, same `md_review_reason` each time.
+
+It runs INSIDE the `review.needed` branch, never before it. A post that would
+publish must never be skipped for having a pending sibling — that is the publish
+question, already answered above.
+
+Anything that differs files a fresh item: `content_type` (a CONFLICT_FLAG belongs
+BESIDE the BREAKING it contradicts, not behind it — Danny Pinter filed both 25s
+apart for one patellar tendon tear), thread, severity escalation, or a materially
+new team-disclosed timeline. `injury_type`/`headline`/`clinical_summary` are
+deliberately NOT compared — they are free model prose that varies on every
+generation, and comparing any of them would suppress nothing.
+
+**`disclosedWeeks` vs `weeksValue`.** The pending check reads
+`team_timeline_weeks` through `disclosedWeeks`, which collapses a non-positive
+count to "not disclosed"; the cadence throttle keeps the strict `weeksValue`
+reading. The model emits a stray `0` where the schema says to omit the field —
+the three Biadasz rows alternate null, 0, null for a tear nobody put a number on
+— and read strictly that flap is two material changes, so the fix would have been
+inert on its own flagship case. Both functions err toward "let it through", but
+that means opposite things: there it publishes an update, which is safe; here it
+files another review item, which is the failure.
+
+Observable: `review_supp=` in the poller summary line, counted separately from
+`skipped` on purpose. The log line is `[Pipeline] Review already pending`.
+
+**Rejection has no memory yet.** The MD's Reject button DELETES the post row, so
+a rejected story re-files on the next cycle. Fixing that needs the mcp/frontend
+repos to keep rejected rows (`status='REJECTED'`) — deliberately out of scope for
+the pending-only change.
+
 ### An entity can outlive the post that justified it
 
 Entities are minted BEFORE any post exists (`resolveThreadAndDates`, pre-OTM),
