@@ -71,6 +71,45 @@ interface ExistingPost {
   team_timeline_weeks?: number;
   status?: string;
   parent_post_id?: string | null;
+  /** Present on every real row; declared here so findEquivalentPendingReview can
+   *  let an escalation (MODERATE → SEVERE) reach the queue as a fresh item. */
+  injury_severity?: string;
+}
+
+/**
+ * Coerce an untyped MCP column to a number-or-null for comparison.
+ *
+ * The prior post's value arrives as untyped MCP data — a numeric column
+ * arriving as "2" would make `'2' !== 2` true for every comparison and turn
+ * whichever check uses it into a no-op. Shared by the cadence throttle and the
+ * pending-review check so the two cannot drift.
+ */
+function weeksValue(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * The same value read as "did a team actually disclose a timeline", collapsing
+ * a non-positive week count to "no".
+ *
+ * The tool schema asks for `team_timeline_weeks` only "if a team-reported
+ * timeline is present", so the honest answer to "no timeline" is to omit the
+ * field. The model does not always oblige: the three duplicate Tyler Biadasz
+ * review rows filed on 2026-08-20 alternate null, 0, null for one ACL tear
+ * nobody put a number on, and a 0-week return from an ACL tear is not a
+ * disclosure in any case. Read strictly, that flap reads as two material
+ * changes and every one of those rows files again.
+ *
+ * checkFollowUpCadence keeps the strict weeksValue reading on purpose. Both
+ * functions err toward "let it through", but that means opposite things: there
+ * it publishes an update, which is safe, and here it files another review item,
+ * which is the failure being fixed. Same column, two questions.
+ */
+function disclosedWeeks(v: unknown): number | null {
+  const n = weeksValue(v);
+  return n === null || n <= 0 ? null : n;
 }
 
 /**
@@ -159,15 +198,10 @@ function checkFollowUpCadence(
 
   // Material-change override: any change in the team-disclosed timeline
   // (including a first-time disclosure) always publishes regardless of cooldown.
-  // Coerced because the prior post's value is untyped MCP data — a numeric
-  // column arriving as "2" would make `'2' !== 2` true for every comparison and
-  // turn the whole throttle into a no-op.
-  const weeks = (v: unknown): number | null => {
-    if (v === null || v === undefined || v === '') return null;
-    const n = Number(v);
-    return Number.isFinite(n) ? n : null;
-  };
-  if (weeks(content.team_timeline_weeks) !== weeks(lastFollowUp.team_timeline_weeks)) {
+  // See weeksValue for why the comparison is coerced.
+  if (
+    weeksValue(content.team_timeline_weeks) !== weeksValue(lastFollowUp.team_timeline_weeks)
+  ) {
     return { throttled: false };
   }
 
@@ -186,6 +220,80 @@ function checkFollowUpCadence(
     };
   }
   return { throttled: false };
+}
+
+/**
+ * The review item already sitting unresolved in the MD queue that asks the same
+ * question this post would ask — or null.
+ *
+ * "Should this follow-up publish?" and "should this event re-route to review?"
+ * are different questions, and until 2026-08-21 nothing asked the second one.
+ * PR #37 correctly stopped an unapproved post from counting as evidence we
+ * COVERED a story — isDuplicate and checkFollowUpCadence both filter to
+ * PUBLISHED. The cost was that a PENDING_REVIEW post then had no memory
+ * anywhere: ESPN re-serves the same status row every POLL_INTERVAL_MS, the
+ * classifier keeps answering is_new, entity dedup passes it through as a
+ * legitimate follow-up, and the pipeline filed another identical review item
+ * every cycle. Observed in the live queue: Tyler Biadasz ×3 and Alvin Kamara ×2
+ * byte-identical TRACKING rows, one per cycle, same md_review_reason each time.
+ *
+ * A pending post is not evidence we covered the story. It IS evidence we
+ * already asked the MD this exact question, and asking again while they have
+ * not answered adds nothing a reviewer can act on.
+ *
+ * Deliberately narrow — every one of these differences files a fresh item:
+ *  • a different content_type. A CONFLICT_FLAG exists to say the sources
+ *    disagree, and a reviewer should see that next to the BREAKING it
+ *    contradicts rather than behind it. (Danny Pinter filed a BREAKING and a
+ *    CONFLICT_FLAG 25s apart for one patellar tendon tear; both belong in the
+ *    queue.)
+ *  • a different thread, when thread identity exists.
+ *  • a materially new team-disclosed timeline — the same override the cadence
+ *    throttle honours, read through disclosedWeeks rather than weeksValue.
+ *    See disclosedWeeks for why the two differ.
+ *  • an escalation in severity. MODERATE → SEVERE is exactly what a reviewer
+ *    needs to see, and severity independently forces review anyway.
+ *
+ * No time window: while the row is pending, the queue still holds the question.
+ * Approval turns it PUBLISHED and the cadence throttle takes over; rejection
+ * currently DELETES the row, so a rejected story re-files next cycle — known,
+ * and fixable only in the mcp/frontend repos by keeping rejected rows.
+ */
+function findEquivalentPendingReview(
+  content: InjuryPostContent,
+  existingPosts: ExistingPost[],
+): ExistingPost | null {
+  const threadId = content.parent_post_id;
+
+  return (
+    existingPosts.find((post) => {
+      if (post.status !== 'PENDING_REVIEW') return false;
+      if (post.athlete_name !== content.athlete_name || post.sport !== content.sport) {
+        return false;
+      }
+      if (post.content_type !== content.content_type) return false;
+      // Deliberately NOT compared: injury_type, headline, clinical_summary.
+      // All are free model prose and vary on every generation — the three live
+      // Biadasz rows say "ACL tear, left knee (with additional injuries)",
+      // "ACL tear with additional left knee injuries (multi-structure)" and
+      // "ACL tear (left knee) with additional left knee injury — Grade 3
+      // LIG/LE". Comparing any of them would never match and the check would
+      // suppress nothing.
+      // Same thread only, when this post knows its thread. A BREAKING with no
+      // parent matches at athlete level, which is all the identity it has.
+      if (threadId && !(post.id === threadId || post.parent_post_id === threadId)) {
+        return false;
+      }
+      if (disclosedWeeks(post.team_timeline_weeks) !== disclosedWeeks(content.team_timeline_weeks)) {
+        return false;
+      }
+      // A row with no severity at all is malformed — every real row carries
+      // one — and a malformed row must not silence a review item. Same reason
+      // isDuplicate refuses to let a status-less row count as coverage.
+      if (post.injury_severity !== content.injury_severity) return false;
+      return true;
+    }) ?? null
+  );
 }
 
 async function publishToFarcaster(content: InjuryPostContent): Promise<PlatformResult> {
@@ -569,6 +677,12 @@ export async function publishInjuryPost(
   const timestamp = new Date().toISOString();
   const context = `${content.athlete_name} (${content.sport}/${content.team})`;
 
+  // Every existing post for this athlete, as fetched in Step 1. Hoisted because
+  // the MD-review check in Step 2 asks a different question of the same rows and
+  // must not spend a second call to do it. Stays [] when the lookup fails, which
+  // fails OPEN in both directions: a report publishes, and a review item files.
+  let existingPosts: ExistingPost[] = [];
+
   // Step 1: Deduplication + follow-up cadence check
   try {
     if (isServerAvailable('web')) {
@@ -584,13 +698,13 @@ export async function publishInjuryPost(
       // bare array — parseListPostsResponse unwraps both shapes. A plain
       // Array.isArray check here silently yielded [] in production, disabling
       // this fallback dedup entirely.
-      const posts = parseListPostsResponse(result) as ExistingPost[];
-      if (isDuplicate(content, posts)) {
+      existingPosts = parseListPostsResponse(result) as ExistingPost[];
+      if (isDuplicate(content, existingPosts)) {
         console.log(`[Pipeline] Duplicate detected for ${context}, skipping`);
         return { status: 'skipped', reason: 'duplicate', platform_results: [] };
       }
 
-      const cadence = checkFollowUpCadence(content, posts);
+      const cadence = checkFollowUpCadence(content, existingPosts);
       if (cadence.throttled) {
         console.log(`[Pipeline] ${cadence.reason} for ${context}, skipping`);
         return { status: 'skipped', reason: cadence.reason, platform_results: [] };
@@ -612,6 +726,25 @@ export async function publishInjuryPost(
     ? { needed: true, reason: reasons.join('; ') }
     : intrinsic;
   if (review.needed) {
+    // Only asked on the review path. A post that would publish normally must
+    // never be skipped for having a stale pending sibling — that is the publish
+    // question, and isDuplicate/checkFollowUpCadence already answered it.
+    const pending = findEquivalentPendingReview(content, existingPosts);
+    if (pending) {
+      const ageH = pending.created_at
+        ? Math.round((Date.now() - new Date(pending.created_at).getTime()) / 3600_000)
+        : null;
+      console.log(
+        `[Pipeline] Review already pending for ${context} (post ${pending.id}` +
+          `${ageH === null ? '' : `, filed ${ageH}h ago`}) — not re-filing: ${review.reason}`,
+      );
+      return {
+        status: 'skipped',
+        reason: 'already_pending_review',
+        platform_results: [],
+      };
+    }
+
     console.log(`[Pipeline] Routing to MD review: ${context} — ${review.reason}`);
 
     const webResult = await publishToWeb(content, 'PENDING_REVIEW');
