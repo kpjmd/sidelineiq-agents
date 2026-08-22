@@ -1,4 +1,5 @@
 import { callTool, isServerAvailable } from '../utils/mcp-client-manager.js';
+import { readSocialState } from '../utils/social-state.js';
 import type {
   SportKey,
   ClassificationResult,
@@ -41,13 +42,6 @@ function stateKey(sport: SportKey): string {
   return `defer_queue_v1:${sport}`;
 }
 
-function parseMCPText(raw: unknown): string | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const wrapped = raw as { content?: Array<{ type: string; text?: string }>; isError?: boolean };
-  if (wrapped.isError) return null;
-  return wrapped.content?.[0]?.text ?? null;
-}
-
 /**
  * An empty return from loadQueue is ambiguous: the queue really is empty, or
  * the state store is unreachable and every DEFER will look brand new forever
@@ -66,13 +60,30 @@ async function loadQueue(sport: SportKey): Promise<QueueLoad> {
   }
   try {
     const raw = await callTool('web', 'web_get_social_state', { key: stateKey(sport) });
-    const text = parseMCPText(raw);
-    if (!text) return { entries: [], available: true };
-    const state = JSON.parse(text) as DeferQueueState;
-    return {
-      entries: Array.isArray(state.entries) ? state.entries : [],
-      available: true,
-    };
+    // web_get_social_state returns a {key, value} ENVELOPE, not the stored
+    // string. Reading `.entries` off the envelope — which is what this did until
+    // 2026-08-22 — always found undefined and degraded to an empty queue.
+    const read = readSocialState(raw);
+    if (read.status === 'unreadable') {
+      console.warn(
+        `[DeferQueue] ${sport} — state unreadable (${read.reason}); ` +
+          'corroboration and TTL expiry are inactive this cycle and nothing will be written.',
+      );
+      return { entries: [], available: false };
+    }
+    if (read.status === 'absent') return { entries: [], available: true };
+
+    const state = JSON.parse(read.value) as DeferQueueState;
+    if (!Array.isArray(state.entries)) {
+      // A stored blob we cannot read must not read as "queue empty" — that is
+      // how the envelope bug stayed invisible for weeks. Say unavailable so the
+      // summary shows defer_q=-1 and the save path stands down.
+      console.warn(
+        `[DeferQueue] ${sport} — stored state has no entries array; refusing to treat as empty.`,
+      );
+      return { entries: [], available: false };
+    }
+    return { entries: state.entries, available: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`[DeferQueue] ${sport} — failed to load queue: ${message}`);
@@ -151,7 +162,13 @@ export async function handleDeferDecision(
 ): Promise<'promoted' | 'deferred'> {
   if (!classified.significance) return 'deferred';
 
-  const { entries } = await loadQueue(sport);
+  const { entries, available } = await loadQueue(sport);
+  // Never write a queue we could not read. saveQueue persists `entries` in
+  // full, so appending to a wrongly-empty list overwrites everything already
+  // stored — which is exactly what the envelope bug did on every single
+  // deferral, leaving the live NFL queue holding one entry at a time.
+  if (!available) return 'deferred';
+
   const now = Date.now();
   const existingIdx = entries.findIndex((e) => e.fingerprint === fingerprint);
 

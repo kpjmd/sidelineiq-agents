@@ -82,9 +82,20 @@ function makeClassified(overrides: Partial<ClassificationResult> = {}): Classifi
   };
 }
 
+/**
+ * A web_get_social_state response, in the shape the LIVE server actually
+ * returns: a {key, value} ENVELOPE as the MCP text, with value:null when the
+ * key was never written. Recorded in tests/fixtures/social-state-responses.json.
+ *
+ * This helper used to hand the BARE state string back as the MCP text. Every
+ * test in this file passed against a loadQueue that never unwrapped the
+ * envelope, because the fixture shared the code's blind spot — the third time
+ * that exact failure has bitten this repo.
+ */
 function mcpStateResponse(value: string | null) {
-  if (value === null) return { content: [{ type: 'text', text: '' }] };
-  return { content: [{ type: 'text', text: value }] };
+  return {
+    content: [{ type: 'text', text: JSON.stringify({ key: 'defer_queue_v1:NBA', value }) }],
+  };
 }
 
 function serializeQueue(entries: object[]) {

@@ -555,6 +555,43 @@ nor a `twitter_id`. Three ways to read it:
   `SOCIAL HASH UNPARSEABLE` (it IS live, only the DB link is lost), and
   `Failed to write social hashes` (writeback rejected).
 
+### web_get_social_state returns an envelope, not the value
+
+The MCP text is `{"key": "...", "value": "<the stored string>"}`, with
+`value: null` when the key was never written. The stored string is **one
+JSON.parse deeper than it looks**.
+
+`defer-queue.ts` parsed that text and then read `.entries` off the ENVELOPE,
+where they never are, so `loadQueue` returned an empty queue on every load from
+the day it shipped. Three consequences, all silent:
+- corroboration never fired — every DEFER looked brand new, so `promoted=0` was
+  structural, not a finding about the data;
+- TTL expiry never fired, so `expired=0` likewise;
+- `saveQueue` writes `entries` IN FULL, so appending to a wrongly-empty list
+  **overwrote everything already stored**. Six live NFL cycles deferred 121
+  events; the stored queue held exactly one entry.
+
+`defer_q=0` reported that as "queue empty" rather than "queue broken" — the
+exact confusion the `available` flag exists to prevent. So the read now fails to
+`unreadable` (→ `available:false` → `defer_q=-1`) on anything it does not
+recognize, and `handleDeferDecision` **refuses to write a queue it could not
+read**. An empty list and an unreadable store must never be the same value.
+
+Use `readSocialState` / `readSocialStateValue` in `src/utils/social-state.ts`.
+Both callers hand-rolled this and only `mention-monitor-loop.ts` got it right;
+that copy is gone. Do not write a third.
+
+**DEFER was equivalent to DROP for the whole time this was live** — worth
+remembering when reading any pre-2026-08-22 claim about defer-queue behaviour,
+including "revisit the corroboration redesign after two weeks of defer_q data".
+There was no data.
+
+It survived because `mcpStateResponse` in `tests/defer-queue.test.ts` handed the
+BARE state back as the MCP text instead of the envelope, so nine tests passed
+against the bug. Fixtures are now recorded live in
+`tests/fixtures/social-state-responses.json`. Third instance of that failure in
+this repo; see the RTP-column and `status`-field cases above.
+
 ### Never read posts with an unpaged `web_list_posts`
 
 `web_list_posts` defaults to `limit: 20` (max 50) over `created_at DESC`. Every
