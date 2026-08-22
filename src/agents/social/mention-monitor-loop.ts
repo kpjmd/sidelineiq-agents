@@ -1,4 +1,5 @@
 import { callTool, isServerAvailable } from '../../utils/mcp-client-manager.js';
+import { readSocialStateValue } from '../../utils/social-state.js';
 import { processMention } from './reply-agent.js';
 import type { SocialMention } from '../../types.js';
 
@@ -35,24 +36,11 @@ function getOtmFarcasterFid(): number {
 
 // ── State helpers (cursor persistence via web MCP) ───────────────────
 
-function parseSocialStateValue(raw: unknown): string | null {
-  try {
-    const wrapped = raw as { content?: Array<{ text?: string }>; isError?: boolean };
-    if (wrapped?.isError === true) return null;
-    const text = wrapped?.content?.[0]?.text;
-    if (!text) return null;
-    const parsed = JSON.parse(text) as { value?: string | null };
-    return parsed.value ?? null;
-  } catch {
-    return null;
-  }
-}
-
 async function getSocialState(key: string): Promise<string | null> {
   if (!isServerAvailable('web')) return null;
   try {
     const raw = await callTool('web', 'web_get_social_state', { key });
-    return parseSocialStateValue(raw);
+    return readSocialStateValue(raw);
   } catch {
     return null;
   }

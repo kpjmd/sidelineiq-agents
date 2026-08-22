@@ -1,0 +1,19 @@
+{
+  "_comment": "Recorded from the live web MCP server on 2026-08-22. web_get_social_state returns a {key, value} ENVELOPE as its text; value is the stored string, or null when the key is absent. Never hand-author these.",
+  "populated": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"key\":\"defer_queue_v1:NFL\",\"value\":\"{\\\"version\\\":1,\\\"entries\\\":[{\\\"fingerprint\\\":\\\"jake bobo:bobo-jake-placed-seahawks\\\",\\\"deferred_at\\\":\\\"2026-08-22T19:19:48.621Z\\\",\\\"expires_at\\\":\\\"2026-08-23T01:19:48.621Z\\\",\\\"sport\\\":\\\"NFL\\\",\\\"athlete_name\\\":\\\"Jake Bobo\\\",\\\"classification\\\":{\\\"content_type\\\":\\\"BREAKING\\\",\\\"athlete_tier\\\":3,\\\"athlete_tier_source\\\":\\\"default\\\",\\\"subscores\\\":{\\\"athlete_prominence\\\":40,\\\"information_specificity\\\":35,\\\"event_recency_novelty\\\":92,\\\"content_type_prior\\\":75},\\\"sport\\\":\\\"NFL\\\"},\\\"source_count\\\":1,\\\"promotion_count\\\":0}]}\"}"
+      }
+    ]
+  },
+  "absent": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"key\":\"defer_queue_v1:UFC\",\"value\":null}"
+      }
+    ]
+  }
+}
