@@ -450,15 +450,23 @@ a reviewer could not see a forced post was also SEVERE.
 
 ### Publishing and re-routing are different questions
 
-Three checks in publishing-pipeline.ts read the same `web_list_posts` rows and
-answer different things. Do not unify them.
+Five checks in publishing-pipeline.ts read the same `web_list_posts` rows and
+answer different things. Do not unify them. The last three share
+`isSameReviewQuestion`, which reads neither status nor time precisely so that
+each can own its own.
 
 - `isDuplicate` and `checkFollowUpCadence` answer **"should this follow-up
   publish?"** and both filter to `PUBLISHED`, because an unapproved post reached
   nobody and is not evidence we covered a story.
 - `findEquivalentPendingReview` answers **"should this event re-route to
-  review?"** and reads `PENDING_REVIEW` ONLY. A pending post is not evidence of
-  coverage, but it IS evidence we already asked the MD this exact question.
+  review?"** and reads `PENDING_REVIEW` ONLY, with no time window: while the row
+  is pending the queue still holds the question, however old it is. A pending
+  post is not evidence of coverage, but it IS evidence we already asked the MD
+  this exact question.
+- `findRecentRejection` answers **"has the MD already said no to this?"** and
+  reads `REJECTED` inside 21 days. Same branch, one step further on.
+- `findSupersededPending` answers **"did this publish just make a queued item
+  redundant?"** and additionally REQUIRES thread identity.
 
 The second exists because the first two, once correct, left a pending post with
 no memory anywhere. ESPN re-serves the same status row every `POLL_INTERVAL_MS`,
@@ -491,23 +499,78 @@ files another review item, which is the failure.
 Observable: `review_supp=` in the poller summary line, counted separately from
 `skipped` on purpose. The log line is `[Pipeline] Review already pending`.
 
-**Rejection has no memory yet.** The MD's Reject button DELETES the post row, so
-a rejected story re-files on the next cycle. Fixing that needs the mcp/frontend
-repos to keep rejected rows (`status='REJECTED'`) — deliberately out of scope for
-the pending-only change.
+**A rejection is remembered for 21 days.** The Reject button used to DELETE the
+post row — destroying the one thing `findEquivalentPendingReview` anchors on, so
+rejecting was the single action that guaranteed the story came back next cycle.
+mcp migration 021 keeps the row as `REJECTED` and `findRecentRejection` reads it.
+
+21 days, matching `web_find_matching_entity`'s `recency_days`: a rejection stops
+mattering once the entity that anchored it ages out, because after that the next
+report opens a new thread and is a genuinely new question. Anchored on
+`retired_at` — NOT `created_at` (filing time, which often leaves no window at
+all) and NOT `updated_at` (the social-hash writeback bumps it, so the window
+would silently stretch). **Fails OPEN on an unreadable `retired_at`**, with a
+greppable log line: a malformed row must not silence a review item, the same rule
+severity already gets. Observable: `reject_supp=`.
+
+**A pending item can be overtaken by events.** `findEquivalentPendingReview` runs
+inside the `review.needed` branch, so when the next cycle's post PUBLISHES
+instead it never enters that branch and the pending sibling is left approvable.
+Kamara 2026-08-21: TRACKING `c59cba69` pending at 12:26, TRACKING `caf3fee4`
+published at 12:41, same thread, same 4 weeks — approving the first would have
+posted him twice. `findSupersededPending` retires it (step 3d in
+`publishInjuryPost`, after the social calls, never fatal). Observable:
+`superseded=`.
+
+It REQUIRES thread identity, unlike the rejection check: retiring a queue item is
+a write against the MD's work and athlete-level identity is too weak to authorise
+it. The two err in opposite directions on purpose — there a false match delays a
+question, here it silently removes one.
+
+**Supersede has no second chance.** If it fails, the next cycle's equivalent post
+dies at `checkFollowUpCadence` and never re-enters the path, leaving a
+permanently approvable stale item. `[Pipeline] SUPERSEDE FAILED` is the only
+signal. A recovery sweep in `approval-sync.ts` is the proper fix and is not
+built.
+
+**Three functions, one predicate.** `isSameReviewQuestion` reads neither status
+nor time; each caller owns its own filter and window. Do not fold the window into
+it — that would make one function answer two questions.
+
+**`REJECTED` and `SUPERSEDED` join every unfiltered query.** Use
+`isRetiredPostStatus` / `RETIRED_POST_STATUSES` (`src/utils/web-posts.ts`). The
+equality allowlists were already safe; `listAthletePosts` in deduplicator.ts was
+the dangerous one — a REJECTED post is the STRONGEST evidence we have NOT covered
+a story, and without the exclusion the first rejection suppressed every later
+report about that athlete for 24h. That exclusion is narrow ON PURPOSE and does
+not tighten to a `PUBLISHED` allowlist; that is a separate change.
 
 ### An entity can outlive the post that justified it
 
 Entities are minted BEFORE any post exists (`resolveThreadAndDates`, pre-OTM),
 and both FKs back to `injury_posts` are `ON DELETE SET NULL`. The MD's Reject
-button deletes the post — so rejecting one used to leave the thread ACTIVE,
+button used to delete the post — so rejecting one left the thread ACTIVE,
 post-less, and still inside the 21-day `web_find_matching_entity` window, where
 it absorbed every later report about that athlete as a duplicate. Greenard's
 false "back / surgery" thread collected 7 post-less CORRECTION rows that way.
 
 `web_thread_close` now takes `outcome: 'VOID'` (mcp migration 020) and the
 frontend reject route voids the thread when the rejected post is its only link
-to published content. VOID writes **no** `accuracy_record` — scoring a
+to published content.
+
+**Reject no longer deletes, and `rejectPost` performs the FK nulling by hand.**
+That cleanup was a side effect of `ON DELETE SET NULL` and nothing else does it.
+Skip it and `injury_entities.canonical_post_id` stays pointed at a rejected post
+— `updateThreadDates` backfills canonical only when NULL, so the thread can never
+re-anchor — and `shouldVoidThreadOnReject` reads a previously-rejected post's
+`injury_updates` row as "other coverage exists" and stops voiding, re-opening the
+exact bug above. Doing it explicitly makes the whole subsystem see byte-identical
+inputs; `frontend/tests/reject-void.test.ts` passing unmodified is the proof.
+**Supersede re-POINTS `canonical_post_id` instead of nulling it** — the
+superseding post is on the same thread by construction.
+
+Consequence for callers: **void the thread BEFORE calling reject.** After the
+nulling there is no way to reach the entity from the post id. VOID writes **no** `accuracy_record` — scoring a
 projection that was never valid pollutes the accuracy number the platform is
 judged on — and it is excluded from matching, from the accuracy view, and from
 every `listThreads` call the dashboard makes.
