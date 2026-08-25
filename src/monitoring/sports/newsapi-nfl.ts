@@ -2,7 +2,7 @@ import type { RawInjuryEvent, SportKey } from '../../types.js';
 import type { SportDataSource, SourceFetchReport } from './multi-source.js';
 import {
   INJURY_KEYWORD_RE,
-  buildBlocklist,
+  buildNameFilter,
   extractAthleteName as extractAthleteNameShared,
   extractTeam as extractTeamShared,
   parseDate,
@@ -48,12 +48,30 @@ export const NFL_TEAM_NAMES = [
 
 // Words that look like a first name but aren't — NFL team names plus the
 // league label, layered on the sport-agnostic COMMON_BLOCKLIST_WORDS.
-const NFL_BLOCKLIST = buildBlocklist([...NFL_TEAM_NAMES, 'NFL']);
+/**
+ * The city/place half of each NFL team's name, from
+ * .../football/nfl/teams on 2026-08-24 (the same endpoint the roster sync
+ * reads). These feed `teamTokens` only — never the blocklist — because
+ * 'Dallas' and 'Denver' are also real first names. See buildNameFilter.
+ */
+export const NFL_TEAM_LOCATIONS = [
+  'Arizona', 'Atlanta', 'Baltimore', 'Buffalo', 'Carolina', 'Chicago', 'Cincinnati',
+  'Cleveland', 'Dallas', 'Denver', 'Detroit', 'Green Bay', 'Houston', 'Indianapolis',
+  'Jacksonville', 'Kansas City', 'Las Vegas', 'Los Angeles', 'Miami', 'Minnesota',
+  'New England', 'New Orleans', 'New York', 'Philadelphia', 'Pittsburgh',
+  'San Francisco', 'Seattle', 'Tampa Bay', 'Tennessee', 'Washington',
+];
+
+export const NFL_NAME_FILTER = buildNameFilter({
+  teamNames: NFL_TEAM_NAMES,
+  locations: NFL_TEAM_LOCATIONS,
+  extraBlocklist: ['NFL'],
+});
 
 // ── Helpers ────────────────────────────────────────────────────────
 
 function extractAthleteName(title: string, description: string): string | null {
-  return extractAthleteNameShared(title, description, NFL_BLOCKLIST);
+  return extractAthleteNameShared(title, description, NFL_NAME_FILTER);
 }
 
 function extractTeam(text: string): string {

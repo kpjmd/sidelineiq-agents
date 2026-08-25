@@ -1,0 +1,206 @@
+{
+  "_recorded_from": "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/news?limit=50 — 2026-08-24",
+  "_note": "Verbatim headline/description pairs as returned by ESPN. This is the corpus the PL inertness assertion runs over; nothing is hand-authored.",
+  "articles": [
+    {
+      "headline": "Why Marcus Neill wants to flip the script on being called 'Lucas' son'",
+      "description": "Marcus Neill, son of Socceroos legend Lucas Neill, is beginning to make a name for his own at Sunderland."
+    },
+    {
+      "headline": "Jamie Carragher: Liverpool 2025 summer could be 'worst transfer window' in Premier League history",
+      "description": "Jamie Carragher has said that Liverpool's 2025 summer transfer window could end up being \"arguably the worst\" in Premier League history."
+    },
+    {
+      "headline": "Chelsea escape Fulham with all three points",
+      "description": "Chelsea start the Xabi Alonso era with a thrilling 3-2 win over Fulham at Craven Cottage."
+    },
+    {
+      "headline": "Burley: Arsenal are the Premier League's only finished article",
+      "description": "Burley: Arsenal are the Premier League's only finished article"
+    },
+    {
+      "headline": "Xabi Alonso wins Chelsea debut as revamped front three dazzles",
+      "description": ""
+    },
+    {
+      "headline": "Burley: Palmer at his best could mask Chelsea's issues",
+      "description": "Burley: Palmer at his best could mask Chelsea's issues"
+    },
+    {
+      "headline": "Álvaro Arbeloa: Fulham showed the right energy in defeat to Chelsea",
+      "description": "Fulham manager Álvaro Arbeloa took heart from his side's performance in the 3-2 defeat to Chelsea and said it typified the character he wants to see from his players this season."
+    },
+    {
+      "headline": "Nottingham Forest eye move for Chelsea's Liam Delap - sources",
+      "description": "Nottingham Forest are keen on bringing in striker Liam Delap from Chelsea, sources have told ESPN."
+    },
+    {
+      "headline": "Chelsea's Premier League opener under Xabi Alonso hints at fun season to come",
+      "description": "Chelsea's 2026-27 Premier League season looks as if it'll be fun if Monday's roller-coaster win at Fulham is any indication."
+    },
+    {
+      "headline": "Premier League recap: Chelsea beat Fulham in five-goal thriller",
+      "description": "Chelsea scored in the opening minute and didn't look back in a fun, end-to-end 3-2 win at Fulham to open their 2026-27 Premier League campaign."
+    },
+    {
+      "headline": "Manchester City agree €40M deal for Allan Elias - sources",
+      "description": "Manchester City have agreed a deal with Palmeiras for winger Allan Elias, sources have told ESPN."
+    },
+    {
+      "headline": "Transfer rumors, news: Al Hilal eye move for Arsenal's Martinelli",
+      "description": "Al Hilal are reportedly looking to sign Arsenal's Gabriel Martinelli. Transfer Talk has the latest."
+    },
+    {
+      "headline": "Enzo Fernández named on Chelsea bench for Fulham clash",
+      "description": "Enzo Fernández has been named on the bench for Chelsea's Premier League opener against Fulham amid uncertainty around his future at the club."
+    },
+    {
+      "headline": "Éderson on failed Man United move: 'I honestly don't know what happened'",
+      "description": "Midfielder Éderson insists he does not know what happened with his failed move to Manchester United."
+    },
+    {
+      "headline": "Marcotti: Carrick has work to do at Manchester United",
+      "description": "Marcotti: Carrick has work to do at Manchester United"
+    },
+    {
+      "headline": "Marcotti: Cherki has to start for Manchester City",
+      "description": "Marcotti: Cherki has to start for Manchester City"
+    },
+    {
+      "headline": "Liverpool face long road back to top, Mourinho's Real Madrid win ugly",
+      "description": "The new European season is here, and with it, the triumphant return of Gab Marcotti's Monday Musings. This week, Liverpool and Man United still look half-baked, and Mourinho gets a vintage kind of win with Real Madrid."
+    },
+    {
+      "headline": "Florian Wirtz 'needs to sort himself out' at Liverpool - Gary Neville",
+      "description": "Liverpool playmaker Florian Wirtz has been told he \"needs to sort himself out\" after an underwhelming maiden campaign."
+    },
+    {
+      "headline": "Tim Sherwood blasts Roberto De Zerbi after Spurs loss: 'Buck stops with the manager'",
+      "description": "Former Tottenham manager Tim Sherwood said the \"buck stops\" with Roberto De Zerbi and his players after he accused Spurs of lacking \"desire and passion\" in their defeat against Brentford."
+    },
+    {
+      "headline": "Man United monitor Alejandro Balde at Barcelona - sources",
+      "description": "Manchester United are monitoring Alejandro Balde's situation at Barcelona ahead of a potential move before the transfer deadline, sources have told ESPN."
+    },
+    {
+      "headline": "Laurens expects 'outstanding' Minteh to make late Liverpool move",
+      "description": "Laurens expects 'outstanding' Minteh to make late Liverpool move"
+    },
+    {
+      "headline": "Arsenal ready if Julián Álvarez transfer door opens - sources",
+      "description": "Arsenal are ready to make a move for Julián Álvarez in the final week of the transfer window if they receive encouragement, sources told ESPN."
+    },
+    {
+      "headline": "Does Iraola need to change Liverpool's formation?",
+      "description": "Does Iraola need to change Liverpool's formation?"
+    },
+    {
+      "headline": "Laurens: Newcastle executed 'perfect plan' vs. Liverpool",
+      "description": "Laurens: Newcastle executed 'perfect plan' vs. Liverpool"
+    },
+    {
+      "headline": "Virgil van Dijk 'fully trusts' Liverpool in transfer market",
+      "description": "Virgil van Dijk has said he \"fully trusts\" Liverpool to make the right decisions in the transfer market before the window shuts next week."
+    },
+    {
+      "headline": "Morgan Rogers: Xabi Alonso 'could probably still play in the Premier League now'",
+      "description": "New Chelsea signing Morgan Rogers said that Xabi Alonso \"could probably still play in the Premier League\" due to his ability to pass a ball in training."
+    },
+    {
+      "headline": "Burley & Nicol question 'scared' Van Dijk",
+      "description": "Burley & Nicol question 'scared' Van Dijk"
+    },
+    {
+      "headline": "Arsenal want another Premier League title, but it won't come easy",
+      "description": "Arsenal's Premier League title win was a triumph for Mikel Arteta & Co., but their desire to defend their crown will be a much tougher challenge. Just ask former title winners who fell short of a repeat."
+    },
+    {
+      "headline": "Brighton fan, 72, dies after falling ill after Aston Villa match",
+      "description": "A Brighton fan has died after falling ill as he was leaving the stadium following their 4-0 win over Aston Villa, the club have confirmed."
+    },
+    {
+      "headline": "Brighton have red hot start to season with 4-0 win over Villa",
+      "description": "Brighton's Maxim De Cuyper and Jack Hinshelwood doing the damage for Brighton as they opened up 4-0 lead after just 30 minutes to blow Aston Villa away."
+    },
+    {
+      "headline": "Iraola: Isak expected a tough atmosphere at St James' Park",
+      "description": "Iraola: Isak expected a tough atmosphere at St James' Park"
+    },
+    {
+      "headline": "Maresca explains Guehi midfield role after Bournemouth win",
+      "description": "Maresca explains Guehi midfield role after Bournemouth win"
+    },
+    {
+      "headline": "Liverpool's Andoni Iraola: Newcastle draw a 'good step' for Alexander Isak",
+      "description": "Liverpool head coach Andoni Iraola has described Alexander Isak's performance against Newcastle United as a \"good step,\" despite the forward failing to get on the scoresheet in Sunday's 2-2 draw at St. James' Park."
+    },
+    {
+      "headline": "Newcastle boss Jaissle: 'Careful' to avoid being fined after 'really soft' penalty vs. Liverpool",
+      "description": "Newcastle United head coach Matthias Jaissle said he had to be careful \"not to get fined\" after the \"really soft\" late penalty awarded to Liverpool in Sunday's 2-2 draw at St James' Park."
+    },
+    {
+      "headline": "Maresca: Man City 'need different solutions' after playing Guéhi in midfield vs. Bournemouth",
+      "description": "Enzo Maresca has said Manchester City \"need different solutions\" after playing Marc Guéhi in midfield against Bournemouth on Sunday."
+    },
+    {
+      "headline": "New season, same Liverpool: More work ahead to be Premier League contender again",
+      "description": "Liverpool changed coaches after last season's poor showing, but the Reds' Premier League opener looked like more of the same."
+    },
+    {
+      "headline": "Ogden: Liverpool right to protect Isak from last-minute penalty",
+      "description": "Ogden: Liverpool right to protect Isak from last-minute penalty"
+    },
+    {
+      "headline": "Ogden questions whether Van Dijk should still be at Liverpool",
+      "description": "Ogden questions whether Van Dijk should still be at Liverpool"
+    },
+    {
+      "headline": "Hutchison: Liverpool's last-gasp draw vs. Newcastle an 'absolute robbery'",
+      "description": "Hutchison: Liverpool's last-gasp draw vs. Newcastle an 'absolute robbery'"
+    },
+    {
+      "headline": "Premier League VAR review: Did Liverpool deserve penalty in draw?",
+      "description": "VAR causes an upset most weeks, but how are those decisions made and are they correct? Our resident ref, Andy Davies, explains all."
+    },
+    {
+      "headline": "European soccer recap: Liverpool manage comeback draw vs. Newcastle",
+      "description": "As it happened: all the action this Sunday with Man City, Liverpool, Barcelona and more in action."
+    },
+    {
+      "headline": "Last-gasp Liverpool claim draw at Newcastle",
+      "description": "Dominik Szoboszlai converted a stoppage-time penalty to snatch a draw as Newcastle and Liverpool served up a Premier League thriller of which Kevin Keegan would have been proud."
+    },
+    {
+      "headline": "Liverpool's Dominik Szoboszlai scores late penalty to draw at Newcastle",
+      "description": "Dominik Szoboszlai scored a stoppage-time equaliser from the penalty spot to rescue a 2-2 draw for Liverpool at Newcastle United on Sunday."
+    },
+    {
+      "headline": "Nicol: Title challengers win games like Man City did vs. Bournemouth",
+      "description": "Nicol: Title challengers win games like Man City did vs. Bournemouth"
+    },
+    {
+      "headline": "Nicol: Anderson's good, but he's 'just not Rodri' for Man City",
+      "description": "Nicol: Anderson's good, but he's 'just not Rodri' for Man City"
+    },
+    {
+      "headline": "Chelsea's Xabi Alonso: 'World class' Cole Palmer is over his injury problems",
+      "description": "Chelsea manager Xabi Alonso said Cole Palmer is over the injury problems that wrecked his season and is determined to get back to enjoying playing football."
+    },
+    {
+      "headline": "Newcastle, Liverpool pay joint tribute to Kevin Keegan before Premier League clash",
+      "description": "Newcastle United and Liverpool paid tribute to Kevin Keegan ahead of their Premier League clash at St James' Park on Sunday, with both sides honouring the former player and manager following his death."
+    },
+    {
+      "headline": "Man City vs Bournemouth player ratings as Enzo Maresca's side secures a comeback win",
+      "description": "How Manchester City's players fared on a nervy afternoon at the Etihad Stadium."
+    },
+    {
+      "headline": "Brilliant Brighton batter dreadful Aston Villa",
+      "description": "Jack Hinshelwood struck twice in two first-half minutes as rampant Brighton ruthlessly exploited Aston Villa's summer exodus with a thumping 4-0 Premier League victory."
+    },
+    {
+      "headline": "Man City strike late to break Bournemouth's hearts",
+      "description": "Manchester City produced a dramatic late fightback to snatch a 2-1 victory over Bournemouth in Enzo Maresca's first Premier League match as their manager."
+    }
+  ]
+}

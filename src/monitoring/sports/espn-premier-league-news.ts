@@ -3,7 +3,7 @@ import type { SportDataSource, SourceFetchReport } from './multi-source.js';
 import {
   type ESPNAthleteCategory,
   INJURY_KEYWORD_RE,
-  buildBlocklist,
+  buildNameFilter,
   extractAthleteName,
   extractTeam,
   resolveTaggedAthlete,
@@ -43,7 +43,7 @@ const PL_NEWS_URL = 'https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/
  *
  * MUST BE REFRESHED EACH SEASON — promotion and relegation replace three clubs
  * every summer, and a stale list is wrong in both directions: a promoted club
- * is unrecognised as a team AND its tokens are missing from PL_BLOCKLIST, so
+ * is unrecognised as a team AND its tokens are missing from PL_NAME_FILTER, so
  * NAME_RE reads "Ipswich Town" as a person. This is the 2026-27 set, taken from
  * .../soccer/eng.1/teams on 2026-08-15 (out: Burnley, West Ham, Wolves; in:
  * Coventry City, Hull City, Ipswich Town). The live source of truth is that
@@ -68,22 +68,27 @@ export const PL_TEAM_NAMES = [
  * elsewhere), and a token that is no longer a PL club is no more a person's
  * first name than it was before.
  */
-const PL_BLOCKLIST = buildBlocklist([
-  // Premier League clubs, tokenized — 2026-27 set plus recently relegated
-  'Man', 'Manchester', 'United', 'City', 'West', 'Ham', 'Aston', 'Villa',
-  'Crystal', 'Palace', 'Nottingham', 'Forest', 'Brighton', 'Hove', 'Albion',
-  'Wolves', 'Wolverhampton', 'Newcastle', 'Tottenham', 'Hotspur', 'Spurs',
-  'Arsenal', 'Chelsea', 'Liverpool', 'Everton', 'Fulham', 'Brentford',
-  'Bournemouth', 'Burnley', 'Leeds', 'Sunderland',
-  'Coventry', 'Hull', 'Ipswich', 'Town',
-  // European clubs common in PL transfer/preseason coverage
-  'Real', 'Madrid', 'Atletico', 'Barcelona', 'Inter', 'Internazionale', 'Milan',
-  'Bayern', 'Munich', 'Borussia', 'Dortmund', 'Paris', 'Getafe', 'Juventus',
-  'Napoli', 'Roma', 'Sevilla', 'Valencia', 'Porto', 'Benfica', 'Ajax',
-  // Competition and coverage vocabulary
-  'Premier', 'Champions', 'Europa', 'Transfer', 'Preseason', 'Deadline',
-  'World', 'Cup', 'Community', 'Shield', 'Boxing', 'Matchday',
-]);
+export const PL_NAME_FILTER = buildNameFilter({
+  teamNames: PL_TEAM_NAMES,
+  // No `locations`: PL club names have no separable city half, and every token
+  // that would go there is already a hard first-name block below.
+  extraBlocklist: [
+    // Premier League clubs, tokenized — 2026-27 set plus recently relegated
+    'Man', 'Manchester', 'United', 'City', 'West', 'Ham', 'Aston', 'Villa',
+    'Crystal', 'Palace', 'Nottingham', 'Forest', 'Brighton', 'Hove', 'Albion',
+    'Wolves', 'Wolverhampton', 'Newcastle', 'Tottenham', 'Hotspur', 'Spurs',
+    'Arsenal', 'Chelsea', 'Liverpool', 'Everton', 'Fulham', 'Brentford',
+    'Bournemouth', 'Burnley', 'Leeds', 'Sunderland',
+    'Coventry', 'Hull', 'Ipswich', 'Town',
+    // European clubs common in PL transfer/preseason coverage
+    'Real', 'Madrid', 'Atletico', 'Barcelona', 'Inter', 'Internazionale', 'Milan',
+    'Bayern', 'Munich', 'Borussia', 'Dortmund', 'Paris', 'Getafe', 'Juventus',
+    'Napoli', 'Roma', 'Sevilla', 'Valencia', 'Porto', 'Benfica', 'Ajax',
+    // Competition and coverage vocabulary
+    'Premier', 'Champions', 'Europa', 'Transfer', 'Preseason', 'Deadline',
+    'World', 'Cup', 'Community', 'Shield', 'Boxing', 'Matchday',
+  ],
+});
 
 interface ESPNNewsFeed {
   articles?: ESPNNewsArticle[];
@@ -188,7 +193,7 @@ function resolveAthlete(
 ): string | null {
   return (
     resolveTaggedAthlete(article.categories, headline) ??
-    extractAthleteName(headline, description, PL_BLOCKLIST)
+    extractAthleteName(headline, description, PL_NAME_FILTER)
   );
 }
 

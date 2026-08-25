@@ -193,7 +193,30 @@ authoritative — with one exception that matters: a row for a **healthy**
 athlete (`status: "Active"`, `details: null`) exists to carry a comment
 about a TEAMMATE. Allgeier's row is where Jeremiyah Love's high ankle
 sprain was reported. News sources are weaker still: `extractAthleteName`
-takes the first capitalized bigram in the headline.
+takes the first capitalized bigram that survives its filters.
+
+Those filters are why it is only *weaker*, not useless, and all three are
+load-bearing. `blocklist` blocks a token that can never be a FIRST name — team
+nicknames and headline vocabulary. `teamTokens` holds every token of every team
+name INCLUDING the city half, and is consulted only when BOTH halves of the
+bigram are in it, because the pair is then a club: "Portland Trail", "Cleveland
+Browns", "Green Bay". Testing the pair rather than the first token is what keeps
+Dallas Goedert and Orlando Robinson extractable — a flat city blocklist would
+drop them, and `NFL_TEAM_LOCATIONS`/`NBA_TEAM_LOCATIONS` therefore feed
+`teamTokens` ONLY and must never be added to `blocklist`. Third,
+an all-caps 2-3 letter surname is a position code, not a person ("Seattle WR
+Jake Bobo").
+
+The city half was missing until 2026-08-24 and the team lists were
+nickname-only, so an insider tweet that opens with the team — the house style of
+every one of them — yielded the city as the athlete. Shams' "Portland Trail
+Blazers guard Shaedon Sharpe sustained a torn meniscus" resolved to **"Portland
+Trail"**, which resolves to no player, so no entity formed and the event filed a
+second MD review item beside the ESPN one. Measured live: 3 of 18 extracted
+names across the five insider timelines were not a person, all three the city
+gap. PREMIER_LEAGUE had already solved this by hand-tokenizing its club list and
+is unaffected. Re-verify with `src/scripts/athlete-extraction-dryrun.ts`; the
+number that must be zero is changes that replaced a person-shaped name.
 
 So classifier-vs-source name drift is not evidence the classifier is
 wrong. `attemptAthleteReanchor` (athlete-reanchor.ts) re-points the event
