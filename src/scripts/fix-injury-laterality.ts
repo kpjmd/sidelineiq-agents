@@ -43,6 +43,7 @@ import 'dotenv/config';
 import { writeFile } from 'node:fs/promises';
 import { initializeMCPClients, callTool, disconnectAll } from '../utils/mcp-client-manager.js';
 import type { SportKey } from '../types.js';
+import { isRetiredPostStatus } from '../utils/web-posts.js';
 
 interface InjuryPost {
   id: string;
@@ -96,7 +97,8 @@ async function fetchPostsForAthlete(athleteName: string, sport: SportKey): Promi
     await callTool('web', 'web_list_posts', { athlete_name: athleteName, sport, limit: 200 }),
   );
   if (filtered?.posts && filtered.posts.length > 0) {
-    return filtered.posts;
+    // Corrections written to a retired row are corrections nobody will read.
+    return filtered.posts.filter((p) => !isRetiredPostStatus((p as { status?: string }).status));
   }
 
   console.log('[fix-laterality] server-side athlete_name/sport filter returned 0 — falling back to a full scan');
@@ -109,6 +111,7 @@ async function fetchPostsForAthlete(athleteName: string, sport: SportKey): Promi
     if (!page || page.posts.length === 0) break;
     scanned += page.posts.length;
     for (const p of page.posts) {
+      if (isRetiredPostStatus((p as { status?: string }).status)) continue;
       if (p.athlete_name?.toLowerCase().includes(lastName)) {
         matched.push(p);
       }

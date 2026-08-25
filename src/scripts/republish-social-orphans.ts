@@ -300,6 +300,12 @@ function unwrap<T>(raw: unknown): T | null {
  * the account already said this? A NEWER post for the same athlete carrying a
  * hash means yes — re-casting the older one duplicates coverage and lands the
  * timeline out of order.
+ *
+ * Deliberately NOT status-filtered, and safe without one: the check requires a
+ * farcaster_hash or twitter_id, and a REJECTED or SUPERSEDED row can never have
+ * either. rejectPost and supersedePosts both guard on status='PENDING_REVIEW',
+ * so a retired row never published. If that guard is ever loosened, this
+ * function needs an explicit exclusion.
  */
 async function findNewerLivePost(row: OrphanRow): Promise<string | null> {
   const raw = await callTool('web', 'web_list_posts', {

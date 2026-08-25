@@ -17,6 +17,32 @@ import { callTool } from './mcp-client-manager.js';
  */
 
 /** Server-side filters accepted by web_list_posts. */
+
+/**
+ * The post statuses that mean "this row never reached an audience and is not a
+ * live queue item": an MD rejected it, or a later post published in its place.
+ * Added by mcp migration 021.
+ *
+ * Grouped because every reader treats them identically — exclude them. The
+ * readers that answer "did we cover this?" (isDuplicate, checkFollowUpCadence,
+ * getSocialReachReport) or "is this awaiting review?"
+ * (findEquivalentPendingReview) are equality allowlists and already ignore
+ * anything they do not name. The readers with NO status predicate at all —
+ * listAthletePosts in deduplicator.ts, the deep-dive frequency scan, several
+ * scripts — must exclude this set explicitly, or a rejected post starts
+ * suppressing coverage it was never evidence of.
+ *
+ * REJECTED additionally implies the post never published, so it never carries a
+ * farcaster_hash or twitter_id: rejectPost only ever transitions
+ * PENDING_REVIEW → REJECTED. republish-social-orphans relies on that.
+ */
+export const RETIRED_POST_STATUSES: ReadonlySet<string> = new Set(['REJECTED', 'SUPERSEDED']);
+
+/** True for a REJECTED or SUPERSEDED row. A status-less row is NOT retired. */
+export function isRetiredPostStatus(status: string | null | undefined): boolean {
+  return status !== null && status !== undefined && RETIRED_POST_STATUSES.has(status);
+}
+
 export interface ListPostsFilters {
   sport?: string;
   athlete_name?: string;

@@ -31,6 +31,7 @@ import {
   type ResolvedPlayerInfo,
 } from '../agents/injury-intelligence/fact-validator.js';
 import type { RawInjuryEvent, SportKey } from '../types.js';
+import { isRetiredPostStatus } from '../utils/web-posts.js';
 
 interface InjuryPost {
   id: string;
@@ -74,6 +75,9 @@ function unwrap<T>(res: unknown): T | null {
 
 const PAGE_SIZE = 50;
 
+/** Rows skipped for being REJECTED/SUPERSEDED, reported at the end. */
+let retiredSkipped = 0;
+
 async function fetchPage(offset: number): Promise<ListPostsResp | null> {
   const res = await callTool('web', 'web_list_posts', { limit: PAGE_SIZE, offset });
   return unwrap<ListPostsResp>(res);
@@ -116,6 +120,13 @@ async function sweep(dryRun: boolean): Promise<void> {
     if (posts.length === 0) break;
 
     for (const post of posts) {
+      // This script WRITES: it calls web_flag_for_md_review. Flagging a
+      // rejected post would push it straight back into the queue the MD just
+      // cleared it from.
+      if (isRetiredPostStatus((post as { status?: string }).status)) {
+        retiredSkipped++;
+        continue;
+      }
       totalSeen++;
       const context = `${post.athlete_name} (${post.sport})`;
 
@@ -277,6 +288,7 @@ async function sweep(dryRun: boolean): Promise<void> {
   console.log(
     `[sweep] done (dry_run=${dryRun}) — total=${totalSeen} corrected=${corrected} flagged=${flagged} pass=${passed} already_corrected=${alreadyCorrected} errors=${errors}`,
   );
+  console.log(`[sweep] retired rows skipped (REJECTED/SUPERSEDED): ${retiredSkipped}`);
   console.log('[sweep] full report written to ./legacy-sweep-report.csv');
 }
 

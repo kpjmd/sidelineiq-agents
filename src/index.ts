@@ -25,6 +25,7 @@ import type {
   PromotionScoreInput,
 } from './types.js';
 import { refreshTierSnapshotsIfStale } from './agents/injury-intelligence/tier-snapshots.js';
+import { isRetiredPostStatus } from './utils/web-posts.js';
 
 const app = express();
 const PORT = process.env.PORT || 3100;
@@ -274,6 +275,7 @@ function unwrapMCP<T>(res: unknown): T | null {
 }
 
 interface PromotePost {
+  status: string;
   athlete_name: string;
   sport: string;
   conflict_reason: string | null;
@@ -319,6 +321,17 @@ app.post('/admin/promote/:post_id', async (req, res) => {
     const post = unwrapMCP<PromotePost>(await callTool('web', 'web_get_post', { post_id }));
     if (!post) {
       res.status(404).json({ success: false, error: `Post ${post_id} not found` });
+      return;
+    }
+    // web_get_post is a plain SELECT * with no status predicate. Before mcp
+    // migration 021 a rejected post did not exist, so this route could not
+    // reach one; now it can, and promoting a story the MD binned onto the
+    // Injury Desk is exactly the outcome keeping the row was meant to prevent.
+    if (isRetiredPostStatus(post.status)) {
+      res.status(409).json({
+        success: false,
+        error: `Post ${post_id} is ${post.status} and cannot be promoted`,
+      });
       return;
     }
 

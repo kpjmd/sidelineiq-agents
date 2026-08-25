@@ -1,5 +1,5 @@
 import { isServerAvailable } from '../utils/mcp-client-manager.js';
-import { listAllPosts } from '../utils/web-posts.js';
+import { isRetiredPostStatus, listAllPosts } from '../utils/web-posts.js';
 import { processDeepDive } from '../agents/injury-intelligence/agent.js';
 import { publishInjuryPost } from '../utils/publishing-pipeline.js';
 import type { SportKey } from '../types.js';
@@ -50,6 +50,7 @@ function getMinCount(): number {
 }
 
 interface RecentPost {
+  status?: string;
   injury_type?: string;
   sport?: string;
   athlete_name?: string;
@@ -84,7 +85,11 @@ async function findTopInjuryType(): Promise<InjuryAggregate | null> {
   // Both consumers below are windowed; scan to the wider of the two. Unpaged,
   // this saw only the newest 20 rows, so a busy week of BREAKING posts could
   // push every DEEP_DIVE out of view and defeat the cooldown check entirely.
-  // No status filter: frequency analysis counts pending posts too.
+  // No status filter: frequency analysis counts pending posts too — an
+  // unapproved post is still a report that came in. Retired rows are the
+  // exception and are dropped below: a rejected story is one we decided not to
+  // tell, and counting it toward "this injury type is hot" would manufacture a
+  // DEEP_DIVE out of content the MD binned.
   let posts: RecentPost[];
   try {
     ({ posts } = await listAllPosts<RecentPost>(
@@ -101,12 +106,16 @@ async function findTopInjuryType(): Promise<InjuryAggregate | null> {
   // and recent DEEP_DIVE posts (for cooldown check)
   const recentEvents = posts.filter((p) => {
     if (!p.created_at || !p.injury_type) return false;
+    if (isRetiredPostStatus(p.status)) return false;
     if (p.content_type === 'DEEP_DIVE') return false;
     return now - new Date(p.created_at).getTime() < LOOKBACK_MS;
   });
 
   const recentDeepDives = posts.filter((p) => {
     if (!p.created_at || !p.injury_type) return false;
+    // A rejected DEEP_DIVE never ran, so it must not hold the 7-day cooldown
+    // against the replacement.
+    if (isRetiredPostStatus(p.status)) return false;
     if (p.content_type !== 'DEEP_DIVE') return false;
     return now - new Date(p.created_at).getTime() < INJURY_TYPE_COOLDOWN_MS;
   });
