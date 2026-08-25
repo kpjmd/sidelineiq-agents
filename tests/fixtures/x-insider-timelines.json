@@ -1,0 +1,265 @@
+{
+  "_recorded_from": "X API v2 GET /2/users/:id/posts via the X MCP (x-insider-base.ts's own source), 2026-08-24",
+  "_note": "Verbatim tweet objects as returned by the API. Only tweets whose text matches INJURY_KEYWORD_RE are kept — those are the ones x-insider-base.ts parses. Nothing here is hand-authored or edited.",
+  "insiders": [
+    {
+      "userId": "16403943",
+      "handle": "RapSheet",
+      "sport": "NFL",
+      "fetched": 37,
+      "tweets": [
+        {
+          "author_id": "16403943",
+          "created_at": "2026-08-24T12:49:23.000Z",
+          "edit_history_tweet_ids": [
+            "2091870486946861324"
+          ],
+          "id": "2091870486946861324",
+          "text": "Headlines: \n— A sprained ankle for Ashton Jeanty https://t.co/7sWvOjoPXH\n— Watson comments won’t affect QB battle https://t.co/9ZIhrtv0YL\n— Bud Clark breaks ankle https://t.co/byihIvSiT8\n— #Browns add on edge https://t.co/1Tvdnql0Rz",
+          "url": "https://x.com/RapSheet/status/2091870486946861324"
+        },
+        {
+          "author_id": "16403943",
+          "created_at": "2026-08-24T03:33:48.000Z",
+          "edit_history_tweet_ids": [
+            "2091730669449720158"
+          ],
+          "id": "2091730669449720158",
+          "text": "#Seahawks second-round pick Bud Clark, who was primed for a key role in the secondary, broke his ankle tonight, coach Mike Macdonald told reporters. He’s out several months. https://t.co/p8Z35CzdRa",
+          "url": "https://x.com/RapSheet/status/2091730669449720158"
+        },
+        {
+          "author_id": "16403943",
+          "created_at": "2026-08-24T02:56:37.000Z",
+          "edit_history_tweet_ids": [
+            "2091721310044917897"
+          ],
+          "id": "2091721310044917897",
+          "text": "#Raiders RB Ashton Jeanty, who had to be helped off the practice field today, is believed to have sprained his ankle, sources tell @AdamSchefter and me. \n\nLas Vegas still are unsure how long he will be out, but it is not considered a long-term injury and the organization is https://t.co/NchDFQDSdw",
+          "url": "https://x.com/RapSheet/status/2091721310044917897"
+        },
+        {
+          "author_id": "16403943",
+          "created_at": "2026-08-23T16:51:55.000Z",
+          "edit_history_tweet_ids": [
+            "2091569132701417763"
+          ],
+          "id": "2091569132701417763",
+          "referenced_tweets": [
+            {
+              "id": "2090095205508608442",
+              "type": "quoted"
+            }
+          ],
+          "text": "The #Chargers have now placed C Tyler Biadasz on injured reserve, ending his season. He exhausted all options. They also signed WR Gary Jennings. https://t.co/kWiB8xtRt1",
+          "url": "https://x.com/RapSheet/status/2091569132701417763"
+        },
+        {
+          "author_id": "16403943",
+          "created_at": "2026-08-21T17:58:10.000Z",
+          "edit_history_tweet_ids": [
+            "2090861030054277214"
+          ],
+          "id": "2090861030054277214",
+          "referenced_tweets": [
+            {
+              "id": "2090859618029236686",
+              "type": "quoted"
+            }
+          ],
+          "text": "A major injury for Seattle WR Jake Bobo … https://t.co/3lJncJj5D4",
+          "url": "https://x.com/RapSheet/status/2090861030054277214"
+        }
+      ]
+    },
+    {
+      "userId": "178580925",
+      "handle": "ShamsCharania",
+      "sport": "NBA",
+      "fetched": 40,
+      "tweets": [
+        {
+          "author_id": "178580925",
+          "created_at": "2026-08-24T20:15:23.000Z",
+          "edit_history_tweet_ids": [
+            "2091982726593146994"
+          ],
+          "id": "2091982726593146994",
+          "text": "Portland Trail Blazers guard Shaedon Sharpe sustained a torn meniscus in his knee and is expected to miss six months, sources tell ESPN. https://t.co/Gvhf84bNrc",
+          "url": "https://x.com/ShamsCharania/status/2091982726593146994"
+        },
+        {
+          "author_id": "178580925",
+          "created_at": "2026-08-13T23:56:28.000Z",
+          "edit_history_tweet_ids": [
+            "2088052094330630185"
+          ],
+          "id": "2088052094330630185",
+          "referenced_tweets": [
+            {
+              "id": "2088051165858554161",
+              "type": "quoted"
+            }
+          ],
+          "text": "Beal explored options in free agency upon declining his $5.6M player option, giving the Clippers more salary space to pursue deals as well, before the sides landed on his return in LA after the three-time NBA All-Star rehabbed from hip surgery that cost him most of last season. https://t.co/BoMIMpc9kg",
+          "url": "https://x.com/ShamsCharania/status/2088052094330630185"
+        }
+      ]
+    },
+    {
+      "userId": "36089053",
+      "handle": "TomPelissero",
+      "sport": "NFL",
+      "fetched": 40,
+      "tweets": []
+    },
+    {
+      "userId": "50323173",
+      "handle": "wojespn",
+      "sport": "NBA",
+      "fetched": 39,
+      "tweets": []
+    },
+    {
+      "userId": "51263592",
+      "handle": "AdamSchefter",
+      "sport": "NFL",
+      "fetched": 38,
+      "tweets": [
+        {
+          "author_id": "51263592",
+          "created_at": "2026-08-24T20:28:05.000Z",
+          "edit_history_tweet_ids": [
+            "2091985919679103053"
+          ],
+          "id": "2091985919679103053",
+          "text": "Cardinals also Waived/Injured running back Trey Benson.",
+          "url": "https://x.com/AdamSchefter/status/2091985919679103053"
+        },
+        {
+          "author_id": "51263592",
+          "created_at": "2026-08-24T16:42:40.000Z",
+          "edit_history_tweet_ids": [
+            "2091929194926051682"
+          ],
+          "id": "2091929194926051682",
+          "text": "Head coach Mike McCarthy said the Pittsburgh Steelers are at an “impasse” with Joey Porter Jr. as the cornerback remains sidelined on the physically unable to perform list.\n\nStory via @bepryor:\n\nhttps://t.co/tmufBUbqER",
+          "url": "https://x.com/AdamSchefter/status/2091929194926051682"
+        },
+        {
+          "author_id": "51263592",
+          "created_at": "2026-08-24T12:31:47.000Z",
+          "edit_history_tweet_ids": [
+            "2091866054544765434"
+          ],
+          "id": "2091866054544765434",
+          "text": "More about Raiders running back Ashton Jeanty suffering  what is believed to be a sprained ankle during Sunday’s practice:\n\nhttps://t.co/ffhA1SeBAJ",
+          "url": "https://x.com/AdamSchefter/status/2091866054544765434"
+        },
+        {
+          "author_id": "51263592",
+          "created_at": "2026-08-24T09:20:17.000Z",
+          "edit_history_tweet_ids": [
+            "2091817865754136581"
+          ],
+          "id": "2091817865754136581",
+          "text": "Seahawks S Bud Clark broke his ankle during Sunday night’s game vs. the Titans and he now is expected to be sidelined “multiple months”, per HC Mike Macdonald. https://t.co/AFLVL5vhQb",
+          "url": "https://x.com/AdamSchefter/status/2091817865754136581"
+        },
+        {
+          "author_id": "51263592",
+          "created_at": "2026-08-24T02:57:34.000Z",
+          "edit_history_tweet_ids": [
+            "2091721316428546503",
+            "2091721551221530920"
+          ],
+          "id": "2091721551221530920",
+          "text": "Raiders RB Ashton Jeanty, who had to be helped off the practice field today, is believed to have sprained his ankle, sources tell @rapsheet and me. The Raiders still are unsure how long he will be out, but it is not considered a long-term injury and the organization is breathing https://t.co/toRYADmjo1",
+          "url": "https://x.com/AdamSchefter/status/2091721551221530920"
+        },
+        {
+          "author_id": "51263592",
+          "created_at": "2026-08-24T02:18:18.000Z",
+          "edit_history_tweet_ids": [
+            "2091711669030269395"
+          ],
+          "id": "2091711669030269395",
+          "referenced_tweets": [
+            {
+              "id": "2091709929472102644",
+              "type": "quoted"
+            }
+          ],
+          "text": "Former Falcons LB Deion Jones reunites with 49ers DC Raheem Morris, and Saints get RB depth with Alvin Kamara dealing with a knee injury. https://t.co/nBtYRsPbAz",
+          "url": "https://x.com/AdamSchefter/status/2091711669030269395"
+        },
+        {
+          "author_id": "51263592",
+          "created_at": "2026-08-23T22:09:22.000Z",
+          "edit_history_tweet_ids": [
+            "2091649021915873704"
+          ],
+          "id": "2091649021915873704",
+          "text": "More about Raiders RB Ashton Jeanty leaving practice today with an apparent knee injury, via @ryanmcfadden_:\n\nhttps://t.co/E1I332kOOs",
+          "url": "https://x.com/AdamSchefter/status/2091649021915873704"
+        },
+        {
+          "author_id": "51263592",
+          "created_at": "2026-08-23T17:28:31.000Z",
+          "edit_history_tweet_ids": [
+            "2091578345787982207"
+          ],
+          "id": "2091578345787982207",
+          "text": "The San Francisco 49ers activated tight end George Kittle from the physically unable to perform list Sunday, the most significant step yet in his return from a torn right Achilles.\n\nStory via @nwagoner:\n\nhttps://t.co/B73rwQvumI",
+          "url": "https://x.com/AdamSchefter/status/2091578345787982207"
+        },
+        {
+          "author_id": "51263592",
+          "created_at": "2026-08-23T17:00:09.000Z",
+          "edit_history_tweet_ids": [
+            "2091571203282526696"
+          ],
+          "id": "2091571203282526696",
+          "text": "More about the Cleveland Browns placing starting defensive end Alex Wright on season-ending injured reserve with a ruptured Achilles, and signing veteran defensive end Derek Barnett:\n\nhttps://t.co/hbwroE1Oki",
+          "url": "https://x.com/AdamSchefter/status/2091571203282526696"
+        },
+        {
+          "author_id": "51263592",
+          "created_at": "2026-08-23T16:54:47.000Z",
+          "edit_history_tweet_ids": [
+            "2091569855279341594"
+          ],
+          "id": "2091569855279341594",
+          "text": "Chargers officially placed C Tyler Biadasz on season-ending injured reserve.",
+          "url": "https://x.com/AdamSchefter/status/2091569855279341594"
+        },
+        {
+          "author_id": "51263592",
+          "created_at": "2026-08-23T16:32:09.000Z",
+          "edit_history_tweet_ids": [
+            "2091564158084960511"
+          ],
+          "id": "2091564158084960511",
+          "referenced_tweets": [
+            {
+              "id": "2091563464422535381",
+              "type": "quoted"
+            }
+          ],
+          "text": "The Browns already had been looking for pass rush help before the Alex Wright injury, bringing in Jadeveon Clowney and Za’Darius Smith, but both signed elsewhere.\n\nNow, with the need even more pressing, they land former Eagles and Texans DE Derek Barnett. https://t.co/6MkmgzSTmG",
+          "url": "https://x.com/AdamSchefter/status/2091564158084960511"
+        },
+        {
+          "author_id": "51263592",
+          "created_at": "2026-08-23T16:29:23.000Z",
+          "edit_history_tweet_ids": [
+            "2091563464422535381"
+          ],
+          "id": "2091563464422535381",
+          "text": "ESPN sources: The Browns are placing starting DE Alex Wright on season-ending injured reserve with a ruptured Achilles, and they now will sign former first-round pick DE Derek Barnett.\n\nWright was carted off the practice field Thursday after getting hurt during a one-on-one drill https://t.co/RDBRDFeAj9",
+          "url": "https://x.com/AdamSchefter/status/2091563464422535381"
+        }
+      ]
+    }
+  ]
+}

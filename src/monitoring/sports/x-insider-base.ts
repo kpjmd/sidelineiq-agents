@@ -8,6 +8,7 @@ import {
   extractTeam,
   getMaxEventAgeMs,
 } from './text-extraction.js';
+import type { NameFilter } from './text-extraction.js';
 
 // Verified against the live X MCP server's tools/list (2026-07-16):
 // get_users_posts — a user's own authored posts, not get_users_timeline
@@ -64,7 +65,7 @@ export abstract class XInsiderSource implements SportDataSource {
   protected abstract readonly sport: SportKey;
   protected abstract readonly insiders: XInsider[];
   protected abstract readonly teamNames: string[];
-  protected abstract readonly blocklist: Set<string>;
+  protected abstract readonly nameFilter: NameFilter;
   private cycleCount = 0;
 
   private report: SourceFetchReport = { status: 'skipped' };
@@ -175,7 +176,7 @@ export abstract class XInsiderSource implements SportDataSource {
       // echoes a mismatched author_id, drop the tweet rather than trust it.
       if (tweet.author_id && tweet.author_id !== insider.userId) continue;
 
-      const athlete = extractAthleteName(text, '', this.blocklist);
+      const athlete = extractAthleteName(text, '', this.nameFilter);
       if (!athlete) continue;
 
       const reportedAt = tweet.created_at ? new Date(tweet.created_at) : null;

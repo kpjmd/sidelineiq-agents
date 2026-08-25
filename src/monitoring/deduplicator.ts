@@ -1,5 +1,8 @@
 import { callTool, isServerAvailable } from '../utils/mcp-client-manager.js';
-import { parseListPostsResponse as parseListPostsPageRows } from '../utils/web-posts.js';
+import {
+  isRetiredPostStatus,
+  parseListPostsResponse as parseListPostsPageRows,
+} from '../utils/web-posts.js';
 import { maybeProposeReturnWatch } from './return-watch.js';
 import { getMaxEventAgeMs } from './sports/text-extraction.js';
 import type { RawInjuryEvent } from '../types.js';
@@ -77,7 +80,21 @@ function findSameArticlePost(
   );
 }
 
-/** Posts for this athlete + sport, not in the future. */
+/**
+ * Posts for this athlete + sport, not in the future, excluding retired rows.
+ *
+ * The status exclusion is narrow ON PURPOSE. This feeds fallbackDedup and
+ * findSameArticlePost, both of which answer "have we already covered this?",
+ * and a REJECTED post is the strongest possible evidence that we have NOT — an
+ * MD looked at it and said no. Without the exclusion the first rejection would
+ * suppress every later report about that athlete for 24 hours.
+ *
+ * It does NOT tighten to a PUBLISHED allowlist, which is the obvious next step
+ * and a different change: PENDING_REVIEW rows count as coverage here while
+ * isDuplicate in the pipeline deliberately excludes them, and reconciling that
+ * needs its own verification. Pinning today's behaviour with a test would only
+ * make the inconsistency harder to remove later.
+ */
 async function listAthletePosts(event: RawInjuryEvent): Promise<ExistingPost[]> {
   const raw = await callTool('web', 'web_list_posts', {
     athlete_name: event.athlete_name,
@@ -89,6 +106,7 @@ async function listAthletePosts(event: RawInjuryEvent): Promise<ExistingPost[]> 
   const now = Date.now();
   return parseListPostsResponse(raw).filter((post) => {
     if (!post.created_at) return false;
+    if (isRetiredPostStatus(post.status)) return false;
     if (post.athlete_name && post.athlete_name !== event.athlete_name) return false;
     if (post.sport && post.sport !== event.sport) return false;
     return now - new Date(post.created_at).getTime() >= 0;
@@ -107,6 +125,9 @@ interface ExistingPost {
   sport?: string;
   created_at?: string;
   headline?: string;
+  /** PUBLISHED / PENDING_REVIEW / REJECTED / SUPERSEDED. Read only to drop the
+   *  retired rows — see listAthletePosts for why the exclusion stops there. */
+  status?: string;
   /** The article this post came from. Persisted on injury_posts and returned
    *  by web_list_posts; article-specific for the news sources, but the shared
    *  feed endpoint for the structured ones. See fallbackDedup. */

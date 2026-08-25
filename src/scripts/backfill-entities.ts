@@ -24,6 +24,7 @@ import { writeFile } from 'node:fs/promises';
 import { initializeMCPClients, callTool, disconnectAll } from '../utils/mcp-client-manager.js';
 import { extractInjuryMetadata } from '../agents/injury-intelligence/fact-validator.js';
 import type { SportKey } from '../types.js';
+import { isRetiredPostStatus } from '../utils/web-posts.js';
 
 interface InjuryPost {
   id: string;
@@ -88,6 +89,9 @@ function unwrap<T>(res: unknown): T | null {
 
 const PAGE_SIZE = 50; // web_list_posts max
 
+/** Rows skipped for being REJECTED/SUPERSEDED, reported at the end. */
+let retiredSkipped = 0;
+
 async function fetchPage(offset: number): Promise<ListPostsResp | null> {
   const res = await callTool('web', 'web_list_posts', { limit: PAGE_SIZE, offset });
   return unwrap<ListPostsResp>(res);
@@ -122,6 +126,19 @@ async function backfill(dryRun: boolean): Promise<void> {
     }
     const posts = page.posts;
     if (posts.length === 0) break;
+
+    // A rejected or superseded post is one we decided NOT to tell. Minting an
+    // entity for it would put a post-less ACTIVE thread inside the 21-day match
+    // window, which is the Greenard failure mode mcp migration 020 closed.
+    const live = posts.filter((p) => !isRetiredPostStatus((p as { status?: string }).status));
+    retiredSkipped += posts.length - live.length;
+    posts.length = 0;
+    posts.push(...live);
+    if (posts.length === 0) {
+      if (!page.has_more || page.next_offset === null) break;
+      offset = page.next_offset;
+      continue;
+    }
 
     // Newest-first comes back from web_list_posts ORDER BY created_at DESC.
     // We want oldest-first so parent posts get processed before their TRACKING
@@ -270,7 +287,7 @@ async function backfill(dryRun: boolean): Promise<void> {
   }
 
   console.log(
-    `[backfill] done (dry_run=${dryRun}) — total=${totalSeen} already_linked=${alreadyLinked} parent_reused=${parentChainReused} matched=${matchedExisting} created=${createdNew} skipped=${skipped.length} errors=${errors}`,
+    `[backfill] done (dry_run=${dryRun}) — total=${totalSeen} already_linked=${alreadyLinked} parent_reused=${parentChainReused} matched=${matchedExisting} created=${createdNew} skipped=${skipped.length} retired_skipped=${retiredSkipped} errors=${errors}`,
   );
   if (skipped.length > 0) {
     console.log(`[backfill] skipped rows written to ./backfill-skipped.csv`);

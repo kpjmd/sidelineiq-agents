@@ -314,6 +314,13 @@ interface PollSummary {
    *  Kept out of `skipped` on purpose — this is the observable that says the
    *  MD-queue duplication fix is doing something. */
   review_suppressed: number;
+  /** Review routings suppressed because the MD already rejected this exact
+   *  question inside the 21-day window. Counted apart from review_suppressed
+   *  because they answer different things: one says the MD has not looked yet,
+   *  the other says they looked and said no. */
+  rejection_suppressed: number;
+  /** Pending review items retired because this publish covered them. */
+  superseded: number;
   skipped: number;
   capped: number;
   /** Fetches that failed outright, as opposed to returning nothing. */
@@ -900,6 +907,8 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
     published: 0,
     pending_review: 0,
     review_suppressed: 0,
+    rejection_suppressed: 0,
+    superseded: 0,
     skipped: 0,
     capped: 0,
     source_errors: 0,
@@ -1480,7 +1489,9 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
       if (result.status === 'published') summary.published++;
       else if (result.status === 'pending_review') summary.pending_review++;
       else if (result.reason === 'already_pending_review') summary.review_suppressed++;
+      else if (result.reason === 'rejected_recently') summary.rejection_suppressed++;
       else summary.skipped++;
+      summary.superseded += result.superseded_post_ids?.length ?? 0;
 
       // Each outcome spends its OWN lane. A review-queue row is real output and
       // is still budgeted, but it is not audience-facing and must not consume a
@@ -1525,7 +1536,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
   }
 
   console.log(
-    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} date_carry_review=${summary.date_carryover_review} date_carry_annot=${summary.date_carryover_annotated} dropped_concussion=${summary.dropped_concussion} name_drift=${summary.athlete_name_drift} reanchored=${summary.athlete_reanchored} drift_spelling=${summary.athlete_drift_spelling} surname_ref=${summary.athlete_surname_ref} ct_drift=${summary.content_type_drift} dropped_fact=${summary.dropped_fact_validation} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} expired=${summary.expired_from_defer} defer_q=${summary.defer_queue_size} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} review_supp=${summary.review_suppressed} skipped=${summary.skipped} capped=${summary.capped} source_err=${summary.source_errors} classifier_err=${summary.classifier_errors} errors=${summary.errors}`
+    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} date_carry_review=${summary.date_carryover_review} date_carry_annot=${summary.date_carryover_annotated} dropped_concussion=${summary.dropped_concussion} name_drift=${summary.athlete_name_drift} reanchored=${summary.athlete_reanchored} drift_spelling=${summary.athlete_drift_spelling} surname_ref=${summary.athlete_surname_ref} ct_drift=${summary.content_type_drift} dropped_fact=${summary.dropped_fact_validation} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} expired=${summary.expired_from_defer} defer_q=${summary.defer_queue_size} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} review_supp=${summary.review_suppressed} reject_supp=${summary.rejection_suppressed} superseded=${summary.superseded} skipped=${summary.skipped} capped=${summary.capped} source_err=${summary.source_errors} classifier_err=${summary.classifier_errors} errors=${summary.errors}`
   );
   return summary;
 }

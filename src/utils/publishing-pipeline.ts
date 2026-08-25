@@ -61,7 +61,7 @@ function needsMDReview(content: InjuryPostContent): { needed: boolean; reason?: 
   return { needed: false };
 }
 
-interface ExistingPost {
+export interface ExistingPost {
   id?: string;
   athlete_name?: string;
   sport?: string;
@@ -71,9 +71,11 @@ interface ExistingPost {
   team_timeline_weeks?: number;
   status?: string;
   parent_post_id?: string | null;
-  /** Present on every real row; declared here so findEquivalentPendingReview can
+  /** Present on every real row; declared here so isSameReviewQuestion can
    *  let an escalation (MODERATE → SEVERE) reach the queue as a fresh item. */
   injury_severity?: string;
+  /** Set on REJECTED and SUPERSEDED rows only (mcp migration 021). */
+  retired_at?: string | null;
 }
 
 /**
@@ -223,6 +225,58 @@ function checkFollowUpCadence(
 }
 
 /**
+ * Do these two rows ask the MD the same question?
+ *
+ * Identity, content type, thread, disclosed timeline, severity — and nothing
+ * else. Reads neither `status` nor time: three callers need this predicate and
+ * each answers a DIFFERENT question with it, so each owns its own status filter
+ * and its own window. Folding either in here would make one function answer two
+ * questions, which is the shape CLAUDE.md's "Publishing and re-routing are
+ * different questions" exists to forbid.
+ *
+ * Deliberately narrow — every one of these differences is a fresh question:
+ *  • a different content_type. A CONFLICT_FLAG exists to say the sources
+ *    disagree, and a reviewer should see that next to the BREAKING it
+ *    contradicts rather than behind it. (Danny Pinter filed a BREAKING and a
+ *    CONFLICT_FLAG 25s apart for one patellar tendon tear; both belong in the
+ *    queue.)
+ *  • a different thread, when thread identity exists.
+ *  • a materially new team-disclosed timeline — the same override the cadence
+ *    throttle honours, read through disclosedWeeks rather than weeksValue.
+ *    See disclosedWeeks for why the two differ.
+ *  • an escalation in severity. MODERATE → SEVERE is exactly what a reviewer
+ *    needs to see, and severity independently forces review anyway.
+ */
+export function isSameReviewQuestion(content: InjuryPostContent, post: ExistingPost): boolean {
+  const threadId = content.parent_post_id;
+
+  if (post.athlete_name !== content.athlete_name || post.sport !== content.sport) {
+    return false;
+  }
+  if (post.content_type !== content.content_type) return false;
+  // Deliberately NOT compared: injury_type, headline, clinical_summary.
+  // All are free model prose and vary on every generation — the three live
+  // Biadasz rows say "ACL tear, left knee (with additional injuries)",
+  // "ACL tear with additional left knee injuries (multi-structure)" and
+  // "ACL tear (left knee) with additional left knee injury — Grade 3
+  // LIG/LE". Comparing any of them would never match and the check would
+  // suppress nothing.
+  // Same thread only, when this post knows its thread. A BREAKING with no
+  // parent matches at athlete level, which is all the identity it has.
+  if (threadId && !(post.id === threadId || post.parent_post_id === threadId)) {
+    return false;
+  }
+  if (disclosedWeeks(post.team_timeline_weeks) !== disclosedWeeks(content.team_timeline_weeks)) {
+    return false;
+  }
+  // A row with no severity at all is malformed — every real row carries
+  // one — and a malformed row must not silence a review item. Same reason
+  // isDuplicate refuses to let a status-less row count as coverage.
+  if (post.injury_severity !== content.injury_severity) return false;
+  return true;
+}
+
+/**
  * The review item already sitting unresolved in the MD queue that asks the same
  * question this post would ask — or null.
  *
@@ -241,59 +295,161 @@ function checkFollowUpCadence(
  * already asked the MD this exact question, and asking again while they have
  * not answered adds nothing a reviewer can act on.
  *
- * Deliberately narrow — every one of these differences files a fresh item:
- *  • a different content_type. A CONFLICT_FLAG exists to say the sources
- *    disagree, and a reviewer should see that next to the BREAKING it
- *    contradicts rather than behind it. (Danny Pinter filed a BREAKING and a
- *    CONFLICT_FLAG 25s apart for one patellar tendon tear; both belong in the
- *    queue.)
- *  • a different thread, when thread identity exists.
- *  • a materially new team-disclosed timeline — the same override the cadence
- *    throttle honours, read through disclosedWeeks rather than weeksValue.
- *    See disclosedWeeks for why the two differ.
- *  • an escalation in severity. MODERATE → SEVERE is exactly what a reviewer
- *    needs to see, and severity independently forces review anyway.
- *
- * No time window: while the row is pending, the queue still holds the question.
- * Approval turns it PUBLISHED and the cadence throttle takes over; rejection
- * currently DELETES the row, so a rejected story re-files next cycle — known,
- * and fixable only in the mcp/frontend repos by keeping rejected rows.
+ * No time window, and that is the difference from findRecentRejection: while
+ * the row is PENDING the queue still holds the question, however old it is.
+ * Approval turns it PUBLISHED and the cadence throttle takes over.
  */
 function findEquivalentPendingReview(
   content: InjuryPostContent,
   existingPosts: ExistingPost[],
 ): ExistingPost | null {
-  const threadId = content.parent_post_id;
+  return (
+    existingPosts.find(
+      (post) => post.status === 'PENDING_REVIEW' && isSameReviewQuestion(content, post),
+    ) ?? null
+  );
+}
 
+/**
+ * How long a rejection is remembered.
+ *
+ * 21 days, matching web_find_matching_entity's recency_days: a rejection stops
+ * mattering when the entity that anchored it ages out of the window, because
+ * after that the next report opens a new thread and is a genuinely new
+ * question rather than the same one re-asked.
+ */
+export const REJECTION_MEMORY_MS = 21 * 24 * 60 * 60 * 1000;
+
+/**
+ * A rejection the MD made recently that already answered this exact question —
+ * or null.
+ *
+ * The Reject button used to hard-DELETE the post row, so the queue's only
+ * memory (findEquivalentPendingReview, which anchors on PENDING_REVIEW) was
+ * destroyed by the one action that most needed to be remembered: the story
+ * re-filed on the next 6h poll, and every poll after that. mcp migration 021
+ * keeps the row as REJECTED instead, and this is what reads it.
+ *
+ * A sibling of findEquivalentPendingReview rather than a branch inside it. They
+ * share isSameReviewQuestion and nothing else: that one has no time window
+ * because a pending row holds the question open indefinitely, and this one must
+ * have one because a rejection is a judgement about a moment. One function with
+ * a status-conditional window would be two questions wearing one name.
+ *
+ * FAILS OPEN on an unreadable retired_at. A REJECTED row with no parseable
+ * timestamp is malformed, and a malformed row must not silence a review item —
+ * the same rule isSameReviewQuestion applies to a missing severity. The log
+ * line makes that case greppable rather than invisible.
+ */
+export function findRecentRejection(
+  content: InjuryPostContent,
+  existingPosts: ExistingPost[],
+  now: number = Date.now(),
+): ExistingPost | null {
   return (
     existingPosts.find((post) => {
-      if (post.status !== 'PENDING_REVIEW') return false;
-      if (post.athlete_name !== content.athlete_name || post.sport !== content.sport) {
+      if (post.status !== 'REJECTED') return false;
+      if (!isSameReviewQuestion(content, post)) return false;
+      const retiredAt = post.retired_at ? new Date(post.retired_at).getTime() : NaN;
+      if (!Number.isFinite(retiredAt)) {
+        console.warn(
+          `[Pipeline] REJECTED row ${post.id} has no readable retired_at — not suppressing`,
+        );
         return false;
       }
-      if (post.content_type !== content.content_type) return false;
-      // Deliberately NOT compared: injury_type, headline, clinical_summary.
-      // All are free model prose and vary on every generation — the three live
-      // Biadasz rows say "ACL tear, left knee (with additional injuries)",
-      // "ACL tear with additional left knee injuries (multi-structure)" and
-      // "ACL tear (left knee) with additional left knee injury — Grade 3
-      // LIG/LE". Comparing any of them would never match and the check would
-      // suppress nothing.
-      // Same thread only, when this post knows its thread. A BREAKING with no
-      // parent matches at athlete level, which is all the identity it has.
-      if (threadId && !(post.id === threadId || post.parent_post_id === threadId)) {
-        return false;
-      }
-      if (disclosedWeeks(post.team_timeline_weeks) !== disclosedWeeks(content.team_timeline_weeks)) {
-        return false;
-      }
-      // A row with no severity at all is malformed — every real row carries
-      // one — and a malformed row must not silence a review item. Same reason
-      // isDuplicate refuses to let a status-less row count as coverage.
-      if (post.injury_severity !== content.injury_severity) return false;
-      return true;
+      return now - retiredAt < REJECTION_MEMORY_MS;
     }) ?? null
   );
+}
+
+/**
+ * Pending review items this publish has just overtaken.
+ *
+ * A third question again, and the one nothing asked before. #38 stopped the
+ * pipeline re-FILING a review item while an equivalent one was pending, but it
+ * runs inside the `review.needed` branch — so when the next cycle's post
+ * PUBLISHES instead, it never enters that branch and the pending sibling is
+ * left sitting there, approvable.
+ *
+ * Alvin Kamara, 2026-08-21: TRACKING c59cba69 filed to PENDING_REVIEW at 12:26
+ * on thread b8d94a3f with a 4-week timeline; TRACKING caf3fee4 PUBLISHED at
+ * 12:41 on the same thread with the same timeline. Approving the pending one
+ * would have posted him to Farcaster and X a second time. It was rejected by
+ * hand instead.
+ *
+ * REQUIRES thread identity, unlike findRecentRejection. Retiring a queue item
+ * is a write against the MD's work, and athlete-level identity — all a
+ * parentless BREAKING has — is too weak to authorise it. The two functions err
+ * in opposite directions on purpose: there, a false match delays a question,
+ * which is cheap; here, a false match silently removes one.
+ */
+export function findSupersededPending(
+  content: InjuryPostContent,
+  existingPosts: ExistingPost[],
+  publishedPostId: string | undefined,
+): ExistingPost[] {
+  if (!content.parent_post_id) return [];
+  return existingPosts.filter(
+    (post) =>
+      post.status === 'PENDING_REVIEW' &&
+      post.id !== undefined &&
+      post.id !== publishedPostId &&
+      isSameReviewQuestion(content, post),
+  );
+}
+
+/**
+ * Retire the pending items this publish covered. Never fatal.
+ *
+ * Runs AFTER the social calls: queue hygiene must not delay or endanger the
+ * cast and the tweet. The post is already live by the time this runs, so
+ * nothing it does can un-publish anything, and a failure must not turn a
+ * successful publish into a reported failure.
+ *
+ * The cost of that choice, stated plainly because it is not recoverable: there
+ * is no second chance. The next cycle's equivalent post dies at
+ * checkFollowUpCadence and so never reaches this code, which leaves a
+ * permanently approvable stale item. The log line is the only signal, and it
+ * matches the SOCIAL PUBLISH FAILED grep pattern for that reason. A recovery
+ * sweep in approval-sync.ts is the proper fix and is not built here.
+ */
+async function supersedePendingSiblings(
+  content: InjuryPostContent,
+  existingPosts: ExistingPost[],
+  publishedPostId: string | undefined,
+  context: string,
+): Promise<string[]> {
+  const stale = findSupersededPending(content, existingPosts, publishedPostId);
+  if (stale.length === 0 || !publishedPostId) return [];
+
+  const ids = stale.map((p) => p.id!).filter(Boolean);
+  try {
+    const res = await callTool('web', 'web_supersede_injury_post', {
+      post_ids: ids,
+      superseded_by: publishedPostId,
+      reason: `Superseded by ${publishedPostId}, published on the same thread`,
+    });
+    // Tool-level failures resolve as a VALUE carrying isError, not a throw —
+    // the try/catch below would never see one.
+    if (isMCPError(res)) {
+      console.error(
+        `[Pipeline] SUPERSEDE FAILED for ${context}: ${extractMCPErrorMessage(res)} ` +
+          `(${ids.length} pending item(s) left approvable: ${ids.join(', ')})`,
+      );
+      return [];
+    }
+    console.log(
+      `[Pipeline] Superseded ${ids.length} pending review item(s) for ${context}: ${ids.join(', ')}`,
+    );
+    return ids;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[Pipeline] SUPERSEDE FAILED for ${context}: ${message} ` +
+        `(${ids.length} pending item(s) left approvable: ${ids.join(', ')})`,
+    );
+    return [];
+  }
 }
 
 async function publishToFarcaster(content: InjuryPostContent): Promise<PlatformResult> {
@@ -745,6 +901,26 @@ export async function publishInjuryPost(
       };
     }
 
+    // Same branch, and the same reasoning one step further on: the MD has
+    // already answered this question, and re-asking is what rejection used to
+    // guarantee. Runs after the pending check because a pending sibling is the
+    // cheaper and more current answer of the two.
+    const rejected = findRecentRejection(content, existingPosts);
+    if (rejected) {
+      const ageD = rejected.retired_at
+        ? Math.round((Date.now() - new Date(rejected.retired_at).getTime()) / 86_400_000)
+        : null;
+      console.log(
+        `[Pipeline] Rejected${ageD === null ? '' : ` ${ageD}d ago`} for ${context} ` +
+          `(post ${rejected.id}) — not re-filing: ${review.reason}`,
+      );
+      return {
+        status: 'skipped',
+        reason: 'rejected_recently',
+        platform_results: [],
+      };
+    }
+
     console.log(`[Pipeline] Routing to MD review: ${context} — ${review.reason}`);
 
     const webResult = await publishToWeb(content, 'PENDING_REVIEW');
@@ -807,6 +983,14 @@ export async function publishInjuryPost(
     console.log(`[Pipeline] IndexNow skipped for ${context}: no slug in web response`);
   }
 
+  // Step 3d — retire any pending review item this publish just answered.
+  const supersededIds = await supersedePendingSiblings(
+    content,
+    existingPosts,
+    webPostId ?? undefined,
+    context,
+  );
+
   const platformResults = [webResult, farcasterResult, twitterResult];
   const successCount = platformResults.filter((r) => r.success).length;
   console.log(
@@ -817,5 +1001,6 @@ export async function publishInjuryPost(
     status: 'published',
     ...(webPostId && { post_id: webPostId }),
     platform_results: platformResults,
+    ...(supersededIds.length > 0 && { superseded_post_ids: supersededIds }),
   };
 }

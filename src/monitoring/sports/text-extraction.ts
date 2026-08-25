@@ -34,25 +34,89 @@ export const COMMON_BLOCKLIST_WORDS = [
   'College', 'Football', 'Sports', 'Game', 'Reveals', 'Here',
 ];
 
-/** Combines COMMON_BLOCKLIST_WORDS with sport-specific extras (team names, league label). */
-export function buildBlocklist(extra: string[]): Set<string> {
-  return new Set([...COMMON_BLOCKLIST_WORDS, ...extra]);
+/**
+ * What extractAthleteName needs in order to tell a person from a club.
+ *
+ * Two sets, because they answer different questions and a token can be in one
+ * without being in the other. `blocklist` is "this can never be a FIRST name"
+ * and is absolute. `teamTokens` is only "this word appears somewhere in a
+ * team's name", which on its own proves nothing — "Dallas", "Buffalo" and
+ * "Jordan" are team tokens and also real first names — so it is consulted only
+ * for the pair rule in extractAthleteName.
+ */
+export interface NameFilter {
+  blocklist: Set<string>;
+  teamTokens: Set<string>;
 }
+
+/**
+ * Build both sets for one sport.
+ *
+ * The three inputs are NOT interchangeable, and the split is the whole point:
+ *
+ * - `teamNames` — nicknames ('Browns', 'Trail Blazers'). Blocked as first names
+ *   AND tokenized into `teamTokens`. Multi-word entries go into `blocklist`
+ *   verbatim, exactly as before, where they are inert: a two-word string can
+ *   never match a single captured token. Tokenizing them is what fixed
+ *   "Portland Trail".
+ * - `locations` — the city/place half of a team's name ('Portland', 'Cleveland',
+ *   'Green', 'Bay'). Tokenized into `teamTokens` ONLY, and deliberately **never**
+ *   blocklisted: 'Dallas' and 'Orlando' are places and also real athletes' first
+ *   names, so blocking them outright would drop Dallas Goedert and Orlando
+ *   Robinson. They earn a skip only in combination — see the pair rule below.
+ * - `extraBlocklist` — the sport's own first-name blocks: the league label, and
+ *   for PREMIER_LEAGUE a hand-tokenized club list that PL_TEAM_NAMES cannot
+ *   supply (relegated clubs, plus the European sides that fill transfer
+ *   coverage).
+ */
+export function buildNameFilter(spec: {
+  teamNames: readonly string[];
+  locations?: readonly string[];
+  extraBlocklist?: readonly string[];
+}): NameFilter {
+  const { teamNames, locations = [], extraBlocklist = [] } = spec;
+  const tokenize = (names: readonly string[]) =>
+    names.flatMap((n) => n.split(/\s+/)).filter(Boolean);
+  return {
+    blocklist: new Set([...COMMON_BLOCKLIST_WORDS, ...teamNames, ...extraBlocklist]),
+    teamTokens: new Set([
+      ...tokenize(teamNames),
+      ...tokenize(locations),
+      ...tokenize(extraBlocklist),
+    ]),
+  };
+}
+
+/**
+ * A position or role abbreviation standing where a surname would: "Seattle WR
+ * Jake Bobo", "#Raiders RB Ashton Jeanty". NAME_RE's second group accepts any
+ * capitalized run, so these parse as surnames. No real surname is two or three
+ * capitals with no lowercase — the stylized names that come close ("DK
+ * Metcalf") are FIRST names, and NAME_RE's first group already rejects those.
+ */
+const ABBREVIATION_RE = /^[A-Z]{2,3}$/;
 
 export function extractAthleteName(
   title: string,
   description: string,
-  blocklist: Set<string>
+  filter: NameFilter,
 ): string | null {
   for (const text of [title, description]) {
     if (!text) continue;
     const matches = [...text.matchAll(NAME_RE)];
     for (const match of matches) {
       const first = match[1];
-      if (blocklist.has(first)) continue;
+      if (filter.blocklist.has(first)) continue;
       // Strip trailing possessive 's (e.g. "Kelly's" → "Kelly")
       const last = match[2].replace(/'s$/, '');
       if (last.length < 2) continue;
+      // Both halves are team-name tokens, so the PAIR is a club and not a
+      // person: "Portland Trail", "Cleveland Browns", "Green Bay". Testing the
+      // pair rather than `first` alone is what keeps a real athlete whose first
+      // name is a city ("Dallas Goedert") extractable — a flat city blocklist
+      // would drop him.
+      if (filter.teamTokens.has(first) && filter.teamTokens.has(last)) continue;
+      if (ABBREVIATION_RE.test(last)) continue;
       return `${first} ${last}`;
     }
   }

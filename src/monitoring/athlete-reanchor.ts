@@ -108,8 +108,9 @@ export function isHealthyFeedStatus(status: string | undefined): boolean {
 /**
  * May this event's tag be overruled at all?
  *
- * - Article sources tag by regex over prose (first capitalized bigram wins,
- *   see extractAthleteName), so the tag is a guess to begin with.
+ * - Article sources tag by regex over prose (the first capitalized bigram that
+ *   survives the club/position filters wins, see extractAthleteName), so the
+ *   tag is a guess to begin with.
  * - Feed sources tag authoritatively — EXCEPT on a row for a healthy athlete,
  *   which by construction is carrying somebody else's news.
  *

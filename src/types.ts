@@ -48,6 +48,12 @@ export interface PublishResult {
   reason?: string;
   post_id?: string;
   platform_results: PlatformResult[];
+  /**
+   * Pending review items this publish retired, because it covered the same
+   * question they were queued to ask. Absent on every path but a successful
+   * publish. See findSupersededPending in publishing-pipeline.ts.
+   */
+  superseded_post_ids?: string[];
 }
 
 export interface ServerStatusMap {
