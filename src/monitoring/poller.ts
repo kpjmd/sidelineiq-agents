@@ -5,6 +5,7 @@ import type {
   InjuryPostContent,
   AthleteTier,
   ContentType,
+  ClassificationResult,
 } from '../types.js';
 import { SPORT_SOURCES } from './sports/index.js';
 import { formatSourceReports } from './sports/multi-source.js';
@@ -28,7 +29,6 @@ import {
   lookupAthleteTier,
   isConcussionTierBlocked,
   isSameAthleteName,
-  computeFingerprint,
   computeSignificance,
   getDeferConfig,
   tierMarker,
@@ -39,7 +39,7 @@ import {
   getReanchorMode,
   isSurnameReference,
 } from './athlete-reanchor.js';
-import { evictExpired, handleDeferDecision } from './defer-queue.js';
+import { evictExpired, handleDeferDecision, type DeferOutcome } from './defer-queue.js';
 import { maybeProposeReturnWatch } from './return-watch.js';
 import { callTool, callToolWithRetry, isServerAvailable } from '../utils/mcp-client-manager.js';
 import { isTeamSport, registersAthletesOnSight } from './roster-sync.js';
@@ -183,6 +183,68 @@ export type ContentTypeDriftAction =
   | { action: 'md_review'; reason: string };
 
 /**
+ * Writes a promotion's re-scored assessment back onto the classified event.
+ *
+ * The discount that bought the promotion has to travel with it. Everything
+ * after the gate reads the significance off `classified` — the drift re-check,
+ * the validation audit row, the gate log line — and the old code discarded the
+ * re-score, so a promoted event carried a DEFER decision and its pre-promotion
+ * bar through the entire rest of the pipeline.
+ *
+ * Exported and pure so the write-back is testable without standing up a poll
+ * cycle, the same reason checkContentTypeDrift below is.
+ */
+export function applyDeferOutcome(
+  classified: ClassificationResult,
+  outcome: Extract<DeferOutcome, { result: 'promoted' }>,
+): SignificanceAssessment {
+  classified.significance = outcome.significance;
+  return outcome.significance;
+}
+
+/**
+ * Says when the defer TTL cannot outlive the poll interval.
+ *
+ * This is the invariant that was silently false in production: ttl_hours 6
+ * against POLL_INTERVAL_MS 6h meant every deferred entry was evicted at the
+ * start of the very next cycle, before any second source could arrive. The
+ * queue filled, expired and reported `defer_q=0` forever, and nothing in the
+ * logs said the two settings contradicted each other. Same shape as
+ * UNREACHABLE_THRESHOLD in significance.ts, for the same reason.
+ */
+export function checkDeferTtlReachable(
+  ttlHours: number,
+  pollIntervalMs: number,
+): string | null {
+  const ttlMs = ttlHours * 3_600_000;
+  if (ttlMs <= pollIntervalMs) {
+    return (
+      `DEFER_TTL_UNREACHABLE ttl_hours=${ttlHours} (${ttlMs}ms) <= POLL_INTERVAL_MS=${pollIntervalMs} — ` +
+      'no deferred event survives to a second cycle, so nothing can ever corroborate one. ' +
+      'DEFER is DROP. Raise defer.ttl_hours in significance-config.json.'
+    );
+  }
+  if (ttlMs < pollIntervalMs * 2) {
+    return (
+      `DEFER_TTL_SINGLE_WINDOW ttl_hours=${ttlHours} gives a deferred event only one ` +
+      `corroboration opportunity at POLL_INTERVAL_MS=${pollIntervalMs}.`
+    );
+  }
+  return null;
+}
+
+let deferTtlWarned = false;
+
+/** Emits checkDeferTtlReachable's finding at most once per process. The config
+ *  only exists after loadSignificanceData, so this cannot live in startPolling. */
+function warnOnceIfDeferTtlUnreachable(ttlHours: number): void {
+  if (deferTtlWarned) return;
+  deferTtlWarned = true;
+  const warning = checkDeferTtlReachable(ttlHours, getPollIntervalMs());
+  if (warning) console.warn(`[SignificanceGate] ${warning}`);
+}
+
+/**
  * Re-applies the significance gate under the post's FINAL content type.
  * Pure so it can be unit-tested without standing up the whole poll loop.
  */
@@ -205,6 +267,15 @@ export function checkContentTypeDrift(
     finalType,
     sport,
     date,
+    // Corroboration is a fact about the REPORT — how many publishers said it —
+    // and re-typing the post does not unsay any of them. Dropping it here would
+    // have the drift check judge a promoted event against a bar the gate never
+    // applied, which is the two-readers-of-one-fact divergence this repo keeps
+    // rediscovering.
+    {
+      corroborationDiscount: sig.corroboration_discount,
+      corroboratingSources: sig.corroborating_sources,
+    },
   );
 
   if (rescored.triage_decision === 'PROCESS') return { action: 'proceed', rescored };
@@ -304,6 +375,8 @@ interface PollSummary {
   soft_failed_fact_validation: number;
   deferred: number;
   promoted_from_defer: number;
+  /** Promotions DEFER_CORROBORATION_MODE=shadow decided but did not act on. */
+  would_promote_from_defer: number;
   expired_from_defer: number;
   /** Live defer-queue entries after eviction; -1 when the state store is down. */
   defer_queue_size: number;
@@ -901,6 +974,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
     soft_failed_fact_validation: 0,
     deferred: 0,
     promoted_from_defer: 0,
+    would_promote_from_defer: 0,
     expired_from_defer: 0,
     defer_queue_size: 0,
     duplicates: 0,
@@ -973,6 +1047,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
   console.log(`[Poller] ${sport} — ${events.length} raw events to process`);
 
   const deferConfig = getDeferConfig();
+  warnOnceIfDeferTtlUnreachable(deferConfig.ttl_hours);
 
   // Volume budget for this cycle. The day count is global (all sports share the
   // rolling 24h window); the cycle counts are per-sport.
@@ -1198,7 +1273,9 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
       }
 
       // ── Significance gate ────────────────────────────────────────────────
-      const sig = classified.significance!;
+      // `let`, not `const`: a promotion out of the defer queue replaces this
+      // with the discounted assessment, and the drift re-check below reads it.
+      let sig = classified.significance!;
       logGateDecision(sport, classified.athlete_name, sig);
 
       if (gateEnabled) {
@@ -1208,20 +1285,26 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
         }
 
         if (sig.triage_decision === 'DEFER') {
-          const fingerprint = computeFingerprint(event);
-          let deferResult: 'promoted' | 'deferred' = 'deferred';
+          let deferResult: DeferOutcome = { result: 'deferred' };
           try {
-            deferResult = await handleDeferDecision(sport, fingerprint, classified, deferConfig);
+            deferResult = await handleDeferDecision(sport, event, classified, deferConfig);
           } catch (deferErr) {
             const message = deferErr instanceof Error ? deferErr.message : String(deferErr);
             console.warn(`[SignificanceGate] ${sport} — defer queue op failed for ${context}: ${message}`);
             // On failure, treat as deferred (conservative — event skips this cycle)
           }
 
-          if (deferResult === 'promoted') {
+          if (deferResult.result === 'promoted') {
             summary.promoted_from_defer++;
+            // Everything downstream reads the significance off `classified`, so
+            // the promotion's discounted assessment has to replace the DEFER one
+            // here — and `sig` is re-bound with it, since the drift check below
+            // captured the old object.
+            sig = applyDeferOutcome(classified, deferResult);
+            logGateDecision(sport, classified.athlete_name, sig);
             // Fall through to dedup + agent processing below
           } else {
+            if (deferResult.would_promote) summary.would_promote_from_defer++;
             summary.deferred++;
             continue;
           }
@@ -1536,7 +1619,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
   }
 
   console.log(
-    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} date_carry_review=${summary.date_carryover_review} date_carry_annot=${summary.date_carryover_annotated} dropped_concussion=${summary.dropped_concussion} name_drift=${summary.athlete_name_drift} reanchored=${summary.athlete_reanchored} drift_spelling=${summary.athlete_drift_spelling} surname_ref=${summary.athlete_surname_ref} ct_drift=${summary.content_type_drift} dropped_fact=${summary.dropped_fact_validation} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} expired=${summary.expired_from_defer} defer_q=${summary.defer_queue_size} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} review_supp=${summary.review_suppressed} reject_supp=${summary.rejection_suppressed} superseded=${summary.superseded} skipped=${summary.skipped} capped=${summary.capped} source_err=${summary.source_errors} classifier_err=${summary.classifier_errors} errors=${summary.errors}`
+    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} date_carry_review=${summary.date_carryover_review} date_carry_annot=${summary.date_carryover_annotated} dropped_concussion=${summary.dropped_concussion} name_drift=${summary.athlete_name_drift} reanchored=${summary.athlete_reanchored} drift_spelling=${summary.athlete_drift_spelling} surname_ref=${summary.athlete_surname_ref} ct_drift=${summary.content_type_drift} dropped_fact=${summary.dropped_fact_validation} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} would_promote=${summary.would_promote_from_defer} expired=${summary.expired_from_defer} defer_q=${summary.defer_queue_size} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} review_supp=${summary.review_suppressed} reject_supp=${summary.rejection_suppressed} superseded=${summary.superseded} skipped=${summary.skipped} capped=${summary.capped} source_err=${summary.source_errors} classifier_err=${summary.classifier_errors} errors=${summary.errors}`
   );
   return summary;
 }

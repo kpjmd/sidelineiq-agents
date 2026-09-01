@@ -6,14 +6,18 @@ import {
   resolveSeasonDelta,
   lookupAthleteTier,
   computeFingerprint,
+  computeAthleteKey,
+  computeCorroborationDiscount,
   computeSignificance,
+  getDeferConfig,
+  DEFAULT_DEFER_CONFIG,
   computePromotionScore,
   PROMOTION_PROPOSE_THRESHOLD,
   _setTiersForTesting,
   _setSalarySnapshotForTesting,
   _setConfigForTesting,
 } from '../src/agents/injury-intelligence/significance.js';
-import type { SignificanceSubscores } from '../src/types.js';
+import type { AthleteTier, ContentType, SignificanceSubscores } from '../src/types.js';
 
 // ── Shared test config ────────────────────────────────────────────────────────
 
@@ -39,10 +43,10 @@ const TEST_CONFIG = {
   },
   default_threshold_delta: 0,
   defer: {
-    ttl_hours: 6,
+    ttl_hours: 48,
     promotion_cap: 3,
-    corroboration_bonus_per_source: 5,
-    corroboration_bonus_max: 20,
+    corroboration_discount_per_source: 10,
+    corroboration_discount_max: 20,
   },
 };
 
@@ -213,7 +217,7 @@ describe('decideTriage — TRACKING', () => {
   // every low-tier TRACKING event.
   it('tier-blocked outranks the no-threshold case', () => {
     const blocked = effectiveThresholds('TRACKING', 3);
-    expect(blocked).toEqual({ process: null, defer: null, tier_blocked: true });
+    expect(blocked).toEqual({ process: null, defer: null, tier_blocked: true, corroboration_discount: 0 });
     expect(decideTriage(100, 'TRACKING', 3)).toBe('DROP');
 
     const alwaysProcess = effectiveThresholds('CONFLICT_FLAG', 3);
@@ -291,6 +295,7 @@ describe('decideTriage — BREAKING Tier 1', () => {
       process: null,
       defer: null,
       tier_blocked: true,
+      corroboration_discount: 0,
     });
     expect(decideTriage(100, 'BREAKING', 4)).toBe('DROP');
     // Tier 3 still scores normally against the raised bar.
@@ -596,5 +601,236 @@ describe('computePromotionScore', () => {
     });
     expect(score).toBeLessThan(PROMOTION_PROPOSE_THRESHOLD);
     expect(proposed).toBe(false);
+  });
+});
+
+// ── Corroboration discount ───────────────────────────────────────────────────
+
+describe('computeCorroborationDiscount', () => {
+  const cfg = { ...DEFAULT_DEFER_CONFIG };
+
+  it('gives nothing for the first family and one step per family after', () => {
+    expect(computeCorroborationDiscount(1, cfg)).toBe(0);
+    expect(computeCorroborationDiscount(2, cfg)).toBe(10);
+    expect(computeCorroborationDiscount(3, cfg)).toBe(20);
+  });
+
+  it('caps, and never goes negative whatever it is handed', () => {
+    // Promote-only is the invariant. A negative discount would raise a
+    // publishing bar on evidence that should lower it.
+    expect(computeCorroborationDiscount(9, cfg)).toBe(20);
+    expect(computeCorroborationDiscount(0, cfg)).toBe(0);
+    expect(computeCorroborationDiscount(-3, cfg)).toBe(0);
+  });
+});
+
+describe('effectiveThresholds — the discount lowers PROCESS only', () => {
+  beforeEach(() => {
+    _setConfigForTesting(TEST_CONFIG as Parameters<typeof _setConfigForTesting>[0]);
+  });
+
+  it('takes the discount off the PROCESS bar and reports what it applied', () => {
+    const t = effectiveThresholds('BREAKING', 2, 0, 10);
+    expect(t.process).toBe(45); // 55 − 10
+    expect(t.defer).toBe(35);   // untouched
+    expect(t.corroboration_discount).toBe(10);
+  });
+
+  it('stops at the DEFER floor rather than below it', () => {
+    // An event that has not cleared the floor on its own merits is not
+    // something two sources agreeing should publish. This is also what makes
+    // an oversized discount_max harmless on the 15-point bands.
+    const t = effectiveThresholds('BREAKING', 1, 0, 20); // BREAKING_T1 45/30
+    expect(t.process).toBe(30);
+    expect(t.corroboration_discount).toBe(15);
+  });
+
+  it('never applies to a tier-blocked cell', () => {
+    const t = effectiveThresholds('TRACKING', 3, 0, 20);
+    expect(t.tier_blocked).toBe(true);
+    expect(t.process).toBeNull();
+    expect(t.corroboration_discount).toBe(0);
+  });
+
+  it('composes with the season delta rather than replacing it', () => {
+    // Both live in this one function on purpose: two readers applying them
+    // separately would disagree about the same event's bar.
+    const seasoned = effectiveThresholds('BREAKING', 2, 5, 0).process;
+    const both = effectiveThresholds('BREAKING', 2, 5, 10).process;
+    expect(seasoned).toBe(60);
+    expect(both).toBe(50);
+  });
+});
+
+describe('the discount is monotone — it can only ever help', () => {
+  const RANK = { DROP: 0, DEFER: 1, PROCESS: 2 } as const;
+  const CTS: ContentType[] = ['BREAKING', 'TRACKING', 'DEEP_DIVE', 'CONFLICT_FLAG'];
+  const TIERS: AthleteTier[] = [1, 2, 3, 4];
+
+  beforeEach(() => {
+    _setConfigForTesting(TEST_CONFIG as Parameters<typeof _setConfigForTesting>[0]);
+  });
+
+  it('never turns a PROCESS into anything else, at any score, tier or season', () => {
+    for (const ct of CTS) {
+      for (const tier of TIERS) {
+        for (const delta of [-5, 0, 5]) {
+          for (let score = 0; score <= 100; score++) {
+            for (const discount of [0, 5, 10, 20]) {
+              const base = decideTriage(score, ct, tier, delta, 0);
+              const with_ = decideTriage(score, ct, tier, delta, discount);
+              expect(RANK[with_]).toBeGreaterThanOrEqual(RANK[base]);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it('is exactly the old behaviour at discount 0', () => {
+    for (const ct of CTS) {
+      for (const tier of TIERS) {
+        for (const delta of [-5, 0, 5]) {
+          expect(effectiveThresholds(ct, tier, delta, 0)).toEqual({
+            ...effectiveThresholds(ct, tier, delta),
+            corroboration_discount: 0,
+          });
+        }
+      }
+    }
+  });
+
+  it('keeps PROCESS at or above DEFER', () => {
+    for (const ct of CTS) {
+      for (const tier of TIERS) {
+        for (const discount of [0, 10, 20, 50]) {
+          const t = effectiveThresholds(ct, tier, 0, discount);
+          if (t.process !== null && t.defer !== null) {
+            expect(t.process).toBeGreaterThanOrEqual(t.defer);
+          }
+        }
+      }
+    }
+  });
+});
+
+describe('computeSignificance carries the corroboration evidence', () => {
+  beforeEach(() => {
+    _setConfigForTesting(TEST_CONFIG as Parameters<typeof _setConfigForTesting>[0]);
+  });
+
+  const subs = { information_specificity: 48, event_recency_novelty: 15 };
+  // NFL regular season in TEST_CONFIG: threshold_delta 0, so the numbers below
+  // are the configured bars and not a seasonal variant of them.
+  const SEPT = new Date('2026-09-15T00:00:00Z');
+
+  it('promotes a DEFER to PROCESS on two families, and says which', () => {
+    const plain = computeSignificance(2, 'lookup', subs, 'BREAKING', 'NFL', SEPT);
+    expect(plain.triage_decision).toBe('DEFER');
+    expect(plain.corroboration_discount).toBeUndefined();
+
+    const corroborated = computeSignificance(2, 'lookup', subs, 'BREAKING', 'NFL', SEPT, {
+      corroborationDiscount: 10,
+      corroboratingSources: ['espn', 'x:rapsheet'],
+    });
+    expect(corroborated.triage_decision).toBe('PROCESS');
+    expect(corroborated.composite_score).toBe(plain.composite_score); // the SCORE never moves
+    expect(corroborated.process_threshold).toBe(45);
+    expect(corroborated.corroborating_sources).toEqual(['espn', 'x:rapsheet']);
+    expect(corroborated.rationale).toContain('corr=-10(espn,x:rapsheet)');
+  });
+
+  it('records nothing when no discount was actually applied', () => {
+    const t = computeSignificance(3, 'default', subs, 'TRACKING', 'NFL', SEPT, {
+      corroborationDiscount: 20,
+      corroboratingSources: ['espn', 'x:rapsheet'],
+    });
+    expect(t.tier_blocked).toBe(true);
+    expect(t.corroboration_discount).toBeUndefined();
+  });
+});
+
+describe('computeAthleteKey', () => {
+  it('is the sport plus a normalized name', () => {
+    expect(computeAthleteKey('NFL', "Ja'Marr Chase")).toBe('NFL|ja marr chase');
+    expect(computeAthleteKey('NFL', 'Michael Pittman Jr.')).toBe('NFL|michael pittman jr');
+  });
+
+  it('unifies what computeFingerprint splits', () => {
+    // The whole point. ESPN's table and a tweet describe one injury in words
+    // that share nothing, so a fingerprint could only match a source to itself.
+    const espn = { injury_description: 'Ankle - Leg, Not Specified' };
+    const tweet = { injury_description: 'placed on injured reserve Friday' };
+    const ev = (d: string) => ({
+      athlete_name: 'Isiah Pacheco',
+      sport: 'NFL' as const,
+      team: 'Chiefs',
+      injury_description: d,
+      source_url: 'https://x.test',
+      reported_at: new Date(),
+    });
+
+    expect(computeFingerprint(ev(espn.injury_description)))
+      .not.toBe(computeFingerprint(ev(tweet.injury_description)));
+    expect(computeAthleteKey('NFL', 'Isiah Pacheco'))
+      .toBe(computeAthleteKey('NFL', 'Isiah Pacheco'));
+  });
+});
+
+describe('validateDeferConfig', () => {
+  // Degrade field-by-field, loudly. The shipped block was internally
+  // contradictory for months and nothing read the two values together.
+  function install(defer: Record<string, unknown>) {
+    _setConfigForTesting({ ...TEST_CONFIG, defer } as Parameters<typeof _setConfigForTesting>[0]);
+  }
+
+  it('replaces a non-positive ttl with the default', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    install({ ...DEFAULT_DEFER_CONFIG, ttl_hours: 0 });
+    expect(getDeferConfig().ttl_hours).toBe(DEFAULT_DEFER_CONFIG.ttl_hours);
+    expect(err).toHaveBeenCalled();
+    err.mockRestore();
+  });
+
+  it('refuses a negative discount — corroboration may only lower a bar', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    install({ ...DEFAULT_DEFER_CONFIG, corroboration_discount_per_source: -5 });
+    expect(getDeferConfig().corroboration_discount_per_source).toBe(10);
+    err.mockRestore();
+  });
+
+  it('raises a cap that sits below one step', () => {
+    // The dead-config shape that made corroboration_bonus_max unreachable: a
+    // ceiling no single corroboration could ever touch.
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    install({ ...DEFAULT_DEFER_CONFIG, corroboration_discount_per_source: 10, corroboration_discount_max: 4 });
+    expect(getDeferConfig().corroboration_discount_max).toBe(10);
+    err.mockRestore();
+  });
+
+  it('rejects a promotion cap below one', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    install({ ...DEFAULT_DEFER_CONFIG, promotion_cap: 0 });
+    expect(getDeferConfig().promotion_cap).toBe(3);
+    err.mockRestore();
+  });
+
+  it('substitutes the whole block when it is missing', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    _setConfigForTesting({ ...TEST_CONFIG, defer: undefined } as unknown as Parameters<typeof _setConfigForTesting>[0]);
+    expect(getDeferConfig()).toEqual(DEFAULT_DEFER_CONFIG);
+    err.mockRestore();
+  });
+
+  it('warns that the legacy bonus keys are ignored', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    install({ ...DEFAULT_DEFER_CONFIG, corroboration_bonus_per_source: 5, corroboration_bonus_max: 20 });
+    expect(warn.mock.calls.some(([m]) => String(m).includes('corroboration_bonus_'))).toBe(true);
+    warn.mockRestore();
+  });
+
+  it('leaves a valid block byte-identical', () => {
+    install({ ...DEFAULT_DEFER_CONFIG });
+    expect(getDeferConfig()).toEqual(DEFAULT_DEFER_CONFIG);
   });
 });

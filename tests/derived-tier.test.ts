@@ -76,7 +76,7 @@ const CONFIG = {
     },
   },
   concussion: { require_tier_1_or_2: true },
-  defer: { ttl_hours: 6, promotion_cap: 3, corroboration_bonus_per_source: 5, corroboration_bonus_max: 20 },
+  defer: { ttl_hours: 48, promotion_cap: 3, corroboration_discount_per_source: 10, corroboration_discount_max: 20 },
 };
 
 const club = (name: string, espn_team_id: string, team_name?: string): DerivedRow => ({

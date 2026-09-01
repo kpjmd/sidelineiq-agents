@@ -89,6 +89,9 @@ skills/
   and to keep polling costs down. The code default is 15 minutes; do not treat
   that as the real cadence, and remember it when reading anything time-based
   (a "next cycle" retry is six hours away, not fifteen minutes).
+- Anything with a TTL measured against the poll cycle must OUTLIVE it —
+  `defer.ttl_hours` was equal to it and silently made the whole defer queue a
+  no-op. See "Corroboration means a second PUBLISHER".
 - All injury posts go through publishing-pipeline.js —
   never publish ad hoc
 - All errors logged with sport, athlete, and timestamp context
@@ -592,6 +595,90 @@ Prefer the source's own fielded data: `RawInjuryEvent.injury_details`
 (ESPN's `{type, location, detail, side}`) beats re-scraping the prose that
 `buildDescription` assembled FROM those fields. `side: "Not Specified"` means
 the source declined to say, so the text still gets its turn.
+
+### Corroboration means a second PUBLISHER, not a second sighting
+
+The defer queue holds a borderline event (score inside the DEFER band) until
+something confirms it. It had never once done that, for three independent
+structural reasons, and the counters said `promoted=0` without saying why.
+
+- **`ttl_hours: 6` equalled `POLL_INTERVAL_MS`.** `scheduleNext` chains the next
+  cycle AFTER the current one finishes, and `evictExpired` runs at cycle start,
+  so every entry was evicted at the beginning of the very next cycle. 324 EXPIRE
+  lines, every one `deferred_for_h=6.0–6.2`; all 39 live entries sat at
+  `source_count 1`. **DEFER was DROP with extra steps.** `ttl_hours` is now 48 —
+  it MUST exceed the poll interval, and 48 is what gives an entry one NewsAPI
+  window (that source runs 1 cycle in 6). `checkDeferTtlReachable` (poller.ts)
+  warns `DEFER_TTL_UNREACHABLE` if this breaks again.
+- **The key could only match a source to itself.** `computeFingerprint` mixes the
+  athlete with the first four description words. ESPN's table says "Ankle - Leg,
+  Not Specified" and a tweet says "placed on IR" — two publishers never share a
+  fingerprint, so `source_count` counted one feed re-serving its own row. The key
+  is now `computeAthleteKey` (`sport|normalized name`), on the CLASSIFIER's name:
+  for an ESPN row that is really about a teammate, that names the injured
+  athlete. Measured on the live log: **15 of 353 deferred events would have
+  promoted on self-repetition alone** under the old model.
+- **A same-day second source never reached the queue.** `deduplicateEvents`
+  collapses `sport|athlete|day` before the poller loop and dropped the loser.
+  The survivor now carries `corroborating_families`, in BOTH win directions (the
+  incumbent-wins case was entirely silent). Families are stored RESOLVED, not as
+  names: `newsapi-nfl` covers five outlets and only the loser's own `source_url`
+  says which.
+
+**`sourceFamily` (`src/monitoring/source-family.ts`) is one family per
+PUBLISHER.** Every `espn-*` fetcher collapses to `espn` — the structured feed and
+an ESPN story are one newsroom. Each X insider is its own family (`x:<handle>`);
+a tweet is reporting, not a table. NewsAPI keys on the outlet host. Anything
+unidentifiable is **null, and null never corroborates** — a source we cannot name
+must not be able to lower a publishing bar. It imports only types, because
+`multi-source.ts` calls it and fact-validator would drag the MCP client into the
+lowest-level fetch path.
+
+**Corroboration is a THRESHOLD DISCOUNT, not a score bonus.** The score is a
+property of the event; pickiness lives in the threshold (`computeSignificance`).
+The predecessor added points to `event_recency_novelty`, weight 0.20 — so its
+advertised `corroboration_bonus_max: 20` moved the composite by 4, and at the one
+corroboration the TTL allowed, by 2. Config that could not do what it said. The
+discount is `(families − 1) × 10`, capped at 20, applied inside
+`effectiveThresholds` alongside the season delta so one code path owns both, and
+**clamped at the DEFER floor** — which is also what keeps an oversized cap
+harmless on the 15-point BREAKING_T1 and DEEP_DIVE bands.
+
+**A promotion requires all three of:** an arrival that ADDED a family (otherwise
+an entry holding two families re-promotes on every ESPN re-serve up to
+`promotion_cap`), at least two families outright (the re-decision happens on a
+later date, and a season boundary moves every bar — Sept 1 moves NFL's by 5), and
+a passing re-score. The re-scored assessment is RETURNED and written back onto
+`classified.significance` by `applyDeferOutcome`; `sig` in the poll loop is `let`
+for exactly that reason, and `checkContentTypeDrift` is passed the same discount
+so the gate and the drift check never judge one event against two bars.
+
+Body part is stored on the entry but is NOT in the key: a tweet saying "placed on
+IR" names no part, and keying on it would make exactly the ESPN+tweet pair
+unmatchable. It is a null-tolerant guard — two known and different parts open a
+separate entry; a null is learned once and never overwritten.
+
+Entries written before this change carry no families. `normalizeEntry` fills them
+in on load, and an entry with `sources: []` is **SEEDED** by its next arrival,
+never corroborated by it: we do not know who filed it.
+
+One interaction to know about: keying on the classifier's name means that when
+the classifier misattributes several different reports to one athlete — the live
+log has "Calvin Austin" standing in for three separate source athletes — those
+reports share a defer entry. They are all `espn`, so they cannot corroborate each
+other, and the body-part guard splits them when the parts differ. The residual
+case (two misattributed reports from two families) would promote something
+nobody corroborated, and it is caught downstream: `athlete_name_drift` sets
+`forceMDReviewReason` BEFORE the gate runs, so such a post routes to a human
+rather than to social. Taking `ATHLETE_REANCHOR_MODE` off `shadow` shrinks this
+further.
+
+`DEFER_CORROBORATION_MODE=off|shadow|on` (default `on`) is the lever; `off` is
+honest about being what the queue already did. Re-verify with
+`src/scripts/defer-corroboration-dryrun.ts --log <railway log>`. The numbers that
+must be zero are promotions at one family, events from a registered source with
+no resolvable family, cross-family merges whose second publisher was lost, and
+any decision that changes at discount 0 or gets worse under one.
 
 ### Two dedups, and the crude one must not outrank the good one
 
