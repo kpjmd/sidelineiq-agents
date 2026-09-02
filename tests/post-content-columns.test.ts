@@ -141,6 +141,21 @@ describe('post-content fails closed on missing probabilities', () => {
     expect(content?.return_to_play.probability_week_8).toBe(0.02);
   });
 
+  it('restores injury_date, sliced back from the DB timestamp', () => {
+    // FAILS against pre-fix code, which never read the column. Every
+    // approval-republish formatted its RTP window as "start date unconfirmed"
+    // while the stored row knew the date — and a republished CONFLICT_FLAG
+    // could print no gap at all. Postgres DATE arrives as a full ISO stamp.
+    const row = { ...base('CONFLICT_FLAG', probabilities), injury_date: '2025-11-02T00:00:00.000Z' };
+    expect(reconstructPostContent(row).content?.injury_date).toBe('2025-11-02');
+  });
+
+  it('leaves injury_date undefined when the stored row has none', () => {
+    // Fail-closed boundary: the recorded fixture carries injury_date null.
+    expect(reconstructPostContent(base('CONFLICT_FLAG', probabilities)).content?.injury_date)
+      .toBeUndefined();
+  });
+
   it('reports the three failures distinguishably', () => {
     expect(describeReconstructFailure('missing_rtp_probabilities')).not.toBe(
       describeReconstructFailure('missing_rtp'),

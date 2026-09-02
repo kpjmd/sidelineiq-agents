@@ -1,5 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { DATE_ANCHORING_SHARED } from './date-anchoring.js';
+import { DATE_ANCHORING_SHARED, chooseDateAnchor } from './date-anchoring.js';
+import {
+  computeConflictGap,
+  isConflict,
+  type ConflictGap,
+} from '../../utils/conflict-gap.js';
 import { loadSkillContext } from '../../utils/skill-loader.js';
 import { validateRTPEstimate } from './rtp-estimator.js';
 import type {
@@ -102,7 +107,7 @@ export const AGENT_TOOL = {
       team_timeline_weeks: {
         type: 'number',
         description:
-          'If a team-reported timeline is present, the parsed midpoint in weeks (e.g., "2-4 weeks" → 3).',
+          'Weeks the team or source says REMAIN before return, counted forward from the "Reported at" date — NOT total time since the injury, and NOT time since surgery. This is a DIFFERENT CLOCK from min_weeks/max_weeks, which are total from injury_date; downstream code converts this to a total by adding elapsed time, so a number that already includes elapsed time is counted twice. Examples: "2-4 weeks" → 3. "back in six weeks" → 6. "targeting Week 5" reported in Week 1 → 4. "now 33 weeks post-op, expected back in about 6" → 6, never 33 and never 39. OMIT this field entirely for: game-status designations (Questionable, Probable, Doubtful, Out, or day-to-day with no week count) — those are availability labels, not timelines; and season-ending statements (out for the season, PUP, IR, reserve/PUP) — those are administrative floors, not estimates. If you would have to ADD elapsed time to produce the number, you are computing the wrong quantity: omit the field instead.',
       },
       injury_date: {
         type: 'string',
@@ -147,12 +152,13 @@ function buildSystemPrompt(core: string, rtpTables: string, sportReference: stri
 }
 
 /**
- * Parses a team-reported timeline string into a midpoint number of weeks.
+ * Parses a team-reported timeline string into a midpoint number of weeks
+ * REMAINING from the report date — the same clock as `team_timeline_weeks`.
  * Examples:
  *   "2-4 weeks"       → 3
  *   "week to week"    → 1
- *   "day-to-day"      → 0.3
- *   "out for season"  → 24
+ *   "day-to-day"      → 0 (sub-week; the DB column is an integer)
+ *   "out for season"  → null (a floor, not an estimate)
  *   "6 weeks"         → 6
  * Returns null if unparseable.
  */
@@ -160,7 +166,12 @@ export function parseTeamTimeline(timeline: string): number | null {
   if (!timeline) return null;
   const t = timeline.toLowerCase().trim();
 
-  if (/out\s+for\s+(the\s+)?season|season[- ]ending/.test(t)) return 24;
+  // Season-ending, PUP and IR are administrative FLOORS, not return estimates.
+  // Reading one as "24 weeks" made a fresh season-ending ACL look like the team
+  // was 15 weeks faster than the literature — a manufactured conflict against a
+  // statement that made no timeline claim at all. SKILL.md Rule 5 cannot be
+  // "faster or slower" than a floor.
+  if (/out\s+for\s+(the\s+)?season|season[- ]ending/.test(t)) return null;
   if (/day[- ]to[- ]day/.test(t)) return 0; // sub-week; round to 0 for DB integer column
   if (/week[- ]to[- ]week/.test(t)) return 1;
   if (/questionable|probable/.test(t)) return null; // game-status, not a timeline estimate
@@ -210,19 +221,56 @@ function detectTimelineCompression(
   return timelineDrop - elapsedWeeks > 2;
 }
 
+/** Where a conflict verdict is measured from. See chooseDateAnchor. */
+export interface ConflictAnchor {
+  /** The reconciled injury/surgery date. Null when unresolved. */
+  injury_date: string | null | undefined;
+  /** Injectable clock for tests; defaults to now. */
+  now?: Date;
+}
+
+export interface ConflictVerdict {
+  conflict: boolean;
+  reason?: string;
+  timeline_compression?: boolean;
+  /** The arithmetic behind the verdict, for logging, display and the ambiguity guard. */
+  gap: ConflictGap;
+}
+
 /**
  * Detects a CONFLICT_FLAG between team timeline and OTM estimate.
- * Triggers when the single-snapshot gap exceeds 2 weeks in either direction,
- * OR (when thread history is supplied) when the reported timeline is being
- * compressed below biological healing across successive reports. The optional
- * priorTimelines arg is purely additive — callers that omit it get the original
- * single-snapshot behavior.
+ *
+ * The two numbers are on different clocks — `teamTimelineWeeks` is REMAINING
+ * from the report, `rtp.min_weeks`/`max_weeks` are TOTAL from `injury_date` —
+ * so the comparison runs through computeConflictGap, which converts the team's
+ * disclosure to a total before comparing. See src/utils/conflict-gap.ts.
+ *
+ * Two behaviours changed when the anchor arrived, both deliberate:
+ *   - The bar is the WINDOW, not its midpoint. SKILL.md Rule 5 says "faster or
+ *     slower than literature minimum"; the midpoint rule flagged athletes
+ *     sitting comfortably inside the literature range but off-centre.
+ *   - Without an anchor there is no verdict. `no_anchor` returns no conflict
+ *     rather than a number computed from a guess.
+ *
+ * Compression detection is anchor-INDEPENDENT — it compares successive
+ * remaining-week disclosures against elapsed calendar time between the reports,
+ * which is already an apples-to-apples comparison — so it still fires when
+ * `injury_date` is unresolved.
  */
 export function detectConflict(
   teamTimelineWeeks: number | null,
   rtp: ReturnToPlayEstimate,
+  anchor: ConflictAnchor,
   priorTimelines?: Array<{ reported_weeks: number | null; at: string }>
-): { conflict: boolean; reason?: string; timeline_compression?: boolean } {
+): ConflictVerdict {
+  const gap = computeConflictGap({
+    team_timeline_weeks: teamTimelineWeeks,
+    min_weeks: rtp.min_weeks,
+    max_weeks: rtp.max_weeks,
+    injury_date: anchor.injury_date,
+    as_of: anchor.now ?? new Date(),
+  });
+
   const snapshot = ((): { conflict: boolean; reason?: string } => {
     if (teamTimelineWeeks === null) return { conflict: false };
 
@@ -231,14 +279,16 @@ export function detectConflict(
     // Suppress conflict when OTM's minimum estimate is 4+ weeks.
     if (teamTimelineWeeks === 0 && rtp.min_weeks >= 4) return { conflict: false };
 
-    const otmMid = (rtp.min_weeks + rtp.max_weeks) / 2;
-    const gap = Math.abs(teamTimelineWeeks - otmMid);
-    if (gap <= 2) return { conflict: false };
+    if (!isConflict(gap)) return { conflict: false };
 
+    const anchorPhrase =
+      gap.elapsed_weeks !== null
+        ? `~${teamTimelineWeeks}w remaining, ~${gap.team_total_weeks}w total from ${String(anchor.injury_date).slice(0, 10)}`
+        : `~${teamTimelineWeeks}w remaining`;
     const direction =
-      teamTimelineWeeks < otmMid
-        ? `team timeline (~${teamTimelineWeeks}w) is shorter than OTM estimate (${rtp.min_weeks}-${rtp.max_weeks}w)`
-        : `team timeline (~${teamTimelineWeeks}w) is longer than OTM estimate (${rtp.min_weeks}-${rtp.max_weeks}w)`;
+      gap.status === 'shorter'
+        ? `team timeline (${anchorPhrase}) is shorter than the OTM window (${rtp.min_weeks}-${rtp.max_weeks}w total from injury)`
+        : `team timeline (${anchorPhrase}) is longer than the OTM window (${rtp.min_weeks}-${rtp.max_weeks}w total from injury)`;
     return {
       conflict: true,
       reason: `Reporting conflict: ${direction}.`,
@@ -252,9 +302,62 @@ export function detectConflict(
       conflict: true,
       reason: snapshot.reason ? `${snapshot.reason} ${compReason}` : compReason,
       timeline_compression: true,
+      gap,
     };
   }
-  return snapshot;
+  return { ...snapshot, gap };
+}
+
+/**
+ * Is this `team_timeline_weeks` value ambiguous about which clock it is on?
+ *
+ * The model has emitted this field as at least three different quantities:
+ * remaining weeks (the intended meaning), TOTAL weeks post-surgery when it
+ * reasoned about the calendar itself ("Week 5 is ~39 weeks post-op" → 39), and
+ * a season length. Correcting the arithmetic on top of a field holding three
+ * quantities produces a confidently wrong number instead of an obviously wrong
+ * one, so a value that is ALSO plausible as a total, and whose reading changes
+ * the verdict, routes to a human instead.
+ *
+ * Inert on fresh injuries by construction: it requires two weeks elapsed, and
+ * under two weeks the two readings cannot differ meaningfully anyway.
+ */
+export function assessTimelineAnchorAmbiguity(
+  teamTimelineWeeks: number,
+  rtp: ReturnToPlayEstimate,
+  anchor: ConflictAnchor,
+): { ambiguous: boolean; remaining: ConflictGap; total: ConflictGap } {
+  const asOf = anchor.now ?? new Date();
+  const asOfIso = asOf.toISOString().slice(0, 10);
+  const remaining = computeConflictGap({
+    team_timeline_weeks: teamTimelineWeeks,
+    min_weeks: rtp.min_weeks,
+    max_weeks: rtp.max_weeks,
+    injury_date: anchor.injury_date,
+    as_of: asOf,
+  });
+  // The "already a total" reading: elapsed forced to zero, so the number is
+  // compared to the window as-is.
+  const total = computeConflictGap({
+    team_timeline_weeks: teamTimelineWeeks,
+    min_weeks: rtp.min_weeks,
+    max_weeks: rtp.max_weeks,
+    injury_date: asOfIso,
+    as_of: asOf,
+  });
+
+  const elapsed = remaining.elapsed_weeks;
+  const ambiguous =
+    remaining.status !== 'no_anchor' &&
+    remaining.status !== 'no_timeline' &&
+    elapsed !== null &&
+    elapsed >= 2 &&
+    // A total can never be less than the time already elapsed. One week of
+    // slack absorbs the floor/rounding boundary.
+    teamTimelineWeeks >= elapsed - 1 &&
+    isConflict(remaining) !== isConflict(total);
+
+  return { ambiguous, remaining, total };
 }
 
 export interface DeepDiveInput {
@@ -366,6 +469,8 @@ ${isNFLOffseason ? `NFL offseason context: It is currently the NFL offseason (Ap
 
 ${DATE_ANCHORING_SHARED}
 - min_weeks and max_weeks in return_to_play are TOTAL recovery time measured FROM the injury/surgery date — the value you set in "injury_date" — NOT remaining time from today. They are the literature range for this injury per SKILL.md Section 2.4 and rtp-probability-tables.md, and they do NOT shrink as the athlete rehabs. Example: an ACL reconstruction performed 9 months ago with a 9-12 month literature window is min_weeks 39, max_weeks 52 — not 0-12. Remaining time is derived downstream from injury_date plus these weeks; never pre-subtract elapsed time here.
+- team_timeline_weeks is on the OPPOSITE clock from min_weeks/max_weeks: it is the weeks the team says REMAIN, counted from "Reported at", never total time since the injury. Downstream code adds elapsed time to it, so a number that already includes elapsed time is counted twice and manufactures a conflict that does not exist. For an athlete 33 weeks post-op whose team expects him back in about 6 weeks, this field is 6 — not 33, not 39. Omit it entirely for game-status designations (Questionable/Probable/Doubtful/Out/day-to-day with no week count) and for season-ending, PUP or IR statements: those are availability labels and administrative floors, not timelines.
+- Do NOT state a week-gap number in conflict_reason. Give the clinical reasoning for why the timelines diverge; the arithmetic is computed and printed downstream from injury_date, and a number written here will contradict it.
 - clinical_summary MUST state the elapsed time since injury/surgery whenever injury_date is known (e.g., "now 10 months post-op, inside a 9-12 month window"), so a reader can see WHERE in the window the athlete sits. It must never present the report date or the current date as if it were the injury/surgery date.
 - If no rule above resolves a date, omit "injury_date". min_weeks and max_weeks remain the TOTAL range from injury regardless; state explicitly in clinical_summary that the start date is unconfirmed.
 
@@ -445,15 +550,40 @@ Follow SKILL.md exactly. Emit your final answer via the emit_injury_post tool.`;
     let teamTimelineWeeks =
       rawTimelineWeeks !== undefined ? Math.round(rawTimelineWeeks) : undefined;
 
+    // The gap is measured from the same anchor the post will be formatted
+    // with — chosen here rather than in the poller, which used to pick it only
+    // AFTER this function had already returned its verdict.
+    const conflictAnchor: ConflictAnchor = {
+      injury_date: chooseDateAnchor(thread, injuryDate),
+    };
+
     if (teamTimelineWeeks !== undefined) {
-      const { conflict, reason } = detectConflict(
+      const { conflict, reason, gap } = detectConflict(
         teamTimelineWeeks,
         validatedRTP,
+        conflictAnchor,
         thread?.prior_timelines
       );
       if (conflict) {
         contentType = 'CONFLICT_FLAG';
         conflictReason = conflictReason ?? reason;
+      } else if (contentType === 'CONFLICT_FLAG') {
+        // THE CODE DECIDES. The model may self-flag CONFLICT_FLAG with a number
+        // attached, and until the anchor existed nothing could contradict it:
+        // detection could only ever UPGRADE. That is how a George Kittle post
+        // reached the review queue asserting a conflict for an athlete whose
+        // team-implied return sits inside the literature window. When the
+        // anchored arithmetic does not confirm the flag, it is not one.
+        // checkContentTypeDrift re-gates the downgraded type downstream.
+        console.warn(
+          `[Agent] CONFLICT_FLAG not confirmed for ${context}: team ${teamTimelineWeeks}w ` +
+            `remaining vs OTM ${validatedRTP.min_weeks}-${validatedRTP.max_weeks}w ` +
+            `(status ${gap.status}, elapsed ${gap.elapsed_weeks ?? 'unknown'}w, ` +
+            `implied total ${gap.team_total_weeks ?? 'unknown'}w) — downgrading`,
+        );
+        contentType =
+          classified.content_type === 'CONFLICT_FLAG' ? 'TRACKING' : classified.content_type;
+        conflictReason = undefined;
       }
     }
 

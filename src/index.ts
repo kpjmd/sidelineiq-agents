@@ -13,9 +13,11 @@ import { startRosterSync, stopRosterSync, syncAllRosters } from './monitoring/ro
 import {
   computePromotionScore,
   prominenceForTier,
+  toPromotionGapWeeks,
   lookupAthleteTier,
   loadSignificanceData,
 } from './agents/injury-intelligence/significance.js';
+import { computeConflictGap } from './utils/conflict-gap.js';
 import { resolveSourceTier } from './agents/injury-intelligence/fact-validator.js';
 import type {
   InjuryPostContent,
@@ -280,7 +282,10 @@ interface PromotePost {
   sport: string;
   conflict_reason: string | null;
   team_timeline_weeks: number | null;
+  return_to_play_min_weeks: number | null;
   return_to_play_max_weeks: number | null;
+  /** The RTP window's anchor — team_timeline_weeks is meaningless without it. */
+  injury_date: string | null;
   source_url: string | null;
   created_at: string;
 }
@@ -348,10 +353,17 @@ app.post('/admin/promote/:post_id', async (req, res) => {
     }
 
     const { tier } = lookupAthleteTier(post.athlete_name, post.sport as SportKey);
-    const conflictGapWeeks =
-      post.team_timeline_weeks != null && post.return_to_play_max_weeks != null
-        ? post.return_to_play_max_weeks - post.team_timeline_weeks
-        : null;
+    // The gap is measured as of when the post was written, not as of now: the
+    // team's disclosure was weeks-remaining on that date.
+    const conflictGapWeeks = toPromotionGapWeeks(
+      computeConflictGap({
+        team_timeline_weeks: post.team_timeline_weeks,
+        min_weeks: post.return_to_play_min_weeks,
+        max_weeks: post.return_to_play_max_weeks,
+        injury_date: post.injury_date,
+        as_of: post.created_at,
+      }),
+    );
     const stalenessDays = Math.max(
       0,
       Math.round((Date.now() - new Date(entity.last_updated_at).getTime()) / 86_400_000),

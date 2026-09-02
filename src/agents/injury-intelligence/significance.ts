@@ -1,4 +1,5 @@
 import { readFile } from 'fs/promises';
+import type { ConflictGap } from '../../utils/conflict-gap.js';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import type {
@@ -1634,6 +1635,26 @@ export function tierMarker(source: AthleteTierSource): string {
 
 export function prominenceForTier(tier: AthleteTier): number {
   return TIER_TO_PROMINENCE[tier];
+}
+
+/**
+ * Convert an anchored ConflictGap into the promotion score's magnitude input.
+ *
+ * The score wants "how far the team is downplaying this", positive when OTM
+ * runs longer than the team admits. Callers used to hand it
+ * `max_weeks − team_timeline_weeks`, which is that divergence PLUS the elapsed
+ * time since injury — so any carryover conflict saturated the 12-week cap
+ * regardless of how small the real disagreement was.
+ *
+ * No verdict, no magnitude: an unanchored or undisclosed gap returns null and
+ * contributes nothing, rather than a number invented from a missing date.
+ */
+export function toPromotionGapWeeks(gap: ConflictGap): number | null {
+  if (gap.status === 'no_timeline' || gap.status === 'no_anchor') return null;
+  // gap_weeks is negative when the team is FASTER than the literature floor,
+  // which is the downplaying direction the score rewards. The zero case is
+  // normalized so an inside-window gap cannot serialize as -0.
+  return gap.gap_weeks === 0 ? 0 : -gap.gap_weeks;
 }
 
 export function computePromotionScore(input: PromotionScoreInput): PromotionScore {

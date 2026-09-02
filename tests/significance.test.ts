@@ -16,6 +16,7 @@ import {
   _setTiersForTesting,
   _setSalarySnapshotForTesting,
   _setConfigForTesting,
+  toPromotionGapWeeks,
 } from '../src/agents/injury-intelligence/significance.js';
 import type { AthleteTier, ContentType, SignificanceSubscores } from '../src/types.js';
 
@@ -832,5 +833,36 @@ describe('validateDeferConfig', () => {
   it('leaves a valid block byte-identical', () => {
     install({ ...DEFAULT_DEFER_CONFIG });
     expect(getDeferConfig()).toEqual(DEFAULT_DEFER_CONFIG);
+  });
+});
+
+/**
+ * Every test here FAILS against pre-fix code — the function did not exist, and
+ * both callers open-coded `max_weeks - team_timeline_weeks`, which is the real
+ * divergence PLUS elapsed time since injury. Any carryover conflict therefore
+ * saturated the 12-week magnitude cap regardless of how small the real
+ * disagreement was.
+ */
+describe('toPromotionGapWeeks', () => {
+  const gap = (status: string, gap_weeks: number) =>
+    ({ status, gap_weeks, elapsed_weeks: 8, team_total_weeks: 20 }) as never;
+
+  it('a team faster than the literature floor yields positive magnitude', () => {
+    // The downplaying direction the promotion score exists to reward.
+    expect(toPromotionGapWeeks(gap('shorter', -5))).toBe(5);
+  });
+
+  it('a team slower than the ceiling yields a negative, which the score clamps away', () => {
+    expect(toPromotionGapWeeks(gap('longer', 3))).toBe(-3);
+  });
+
+  it('inside the window contributes nothing', () => {
+    expect(toPromotionGapWeeks(gap('inside', 0))).toBe(0);
+  });
+
+  it.each(['no_anchor', 'no_timeline'])('%s yields null, never an invented number', (status) => {
+    // No verdict, no magnitude — rather than a number derived from a date we
+    // do not have.
+    expect(toPromotionGapWeeks(gap(status, 0))).toBeNull();
   });
 });

@@ -374,6 +374,10 @@ date. They do NOT shrink as the athlete rehabs: an ACL reconstruction is ~39-52
 whether surgery was last week or nine months ago. Remaining time is DERIVED for
 display by `formatRtpWindow` and never stored.
 
+A FIFTH place had to be brought into line later: the team-vs-OTM gap, which
+compared these TOTAL bounds against a REMAINING team timeline at six sites. See
+"team_timeline_weeks is REMAINING; the RTP window is TOTAL".
+
 This was ambiguous in three places at once and the model resolved it its own way:
 `agent.ts` told it REMAINING in two spots and TOTAL in a third, the tool schema
 said nothing at all (the PR #30 undescribed-field failure again), and
@@ -406,6 +410,63 @@ explicit `otm_projection` to override. It fails closed on a missing or non-numer
 week bound (note `Number(null)` is 0, which IS finite — check the type, not the
 coercion).
 
+### team_timeline_weeks is REMAINING; the RTP window is TOTAL
+
+`team_timeline_weeks` is what the team said is LEFT, counted from the report
+date. `min_weeks`/`max_weeks` are TOTAL from `injury_date`. They are different
+clocks, and **six sites subtracted one from the other**, so every gap carried an
+error exactly equal to the elapsed time since injury — zero on breaking news,
+which is why each site looked right the day it was written, and 49 weeks on Nick
+Bosa, whose queued CONFLICT_FLAG showed a "+38 week gap" for a return sitting
+comfortably inside its window. The tool schema described the RTP bounds in
+eighty words each and this field in one clause that named no anchor at all: the
+PR #30 undescribed-numeric-field failure, two lines below the comment warning
+about it.
+
+**`computeConflictGap` (`src/utils/conflict-gap.ts`) is the only place the
+comparison happens.** Team-implied TOTAL = elapsed + remaining, compared against
+`[min_weeks, max_weeks]`. Frontend `lib/conflict-gap.ts` is a byte-identical
+copy; `tests/fixtures/conflict-gap-cases.json` exists in both repos and pins
+them together, and `CONFLICT_GAP_HELPER_VERSION` must match the fixture in both.
+Change one, change both. Do not add a seventh formula.
+
+**The bar is the WINDOW, not its midpoint.** SKILL.md Rule 5 says "faster or
+slower than literature minimum"; the old detector compared to `(min+max)/2` with
+a 2-week bar, so an athlete inside the literature range but off-centre tripped
+it. Detection and the four display sites also disagreed — detection used the
+midpoint while every builder printed `|team − max_weeks|` — so Micah Parsons was
+flagged at 6.5 and rendered as "+0".
+
+**No anchor, no verdict.** Without `injury_date` the status is `no_anchor`:
+detection returns no conflict and every display says the gap is not computable.
+16 of the 66 live CONFLICT_FLAG rows had asserted a conflict with no injury date
+at all.
+
+**The code decides, not the model.** `detectConflict` could only ever UPGRADE to
+CONFLICT_FLAG; a model self-flag carrying a number stood unopposed, which is how
+George Kittle reached the queue. An unconfirmed self-flag is now downgraded and
+re-gated by `checkContentTypeDrift` — expect `ct_drift` to rise.
+
+**The anchor is `chooseDateAnchor` (`date-anchoring.ts`)**, extracted from the
+poller, where it ran AFTER `processInjuryEvent` had already scored the conflict
+against a different date. Poller and agent both call it; a test greps for
+re-inlined confidence ternaries.
+
+**The field has held three quantities**: real remaining weeks (Bosa: 1), a TOTAL
+post-surgery count the model computed itself (Kittle: 33 at 33 weeks elapsed;
+Parsons: "Week 5 is ~39 weeks post-op" → 39), and a season length (52).
+`team_timeline_anchor_ambiguous` forces review when a value is also plausible as
+a total AND the reading changes the verdict; it needs 2 weeks elapsed, so it is
+inert on fresh injuries, and it sits in `MD_REVIEW_ANNOTATE_ONLY_CODES`.
+`parseTeamTimeline` now returns **null** for season-ending (was 24): a floor is
+not an estimate, and Rule 5 cannot be "faster" than one.
+
+Re-verify with `src/scripts/conflict-gap-dryrun.ts`, which scores every
+CONFLICT_FLAG row old-vs-new with `as_of = created_at`. The numbers that must be
+zero are anchored fresh injuries (elapsed < 2w) whose verdict moves with the
+anchor, rows flipping no-conflict → conflict, and conflict verdicts with no
+anchor. Bosa flipping to no-conflict is the fix working.
+
 ### OrthoIQ Reference Rule
 Append OrthoIQ referral link ONLY on DEEP_DIVE content type,
 on the final post/cast only. Never on BREAKING or TRACKING.
@@ -437,7 +498,8 @@ The poller's `forceMDReviewReason` makes review unconditional — no confidence
 score and no threshold change can un-gate a post once it is set. Sites:
 `x_insider` (poller.ts, env-gated), `athlete_name_drift`, `fact_soft_fail:*`
 (the 8 soft codes), `laterality_thread_mismatch`, `content_type_drift`,
-`post_team_mismatch`, `post_team_unverifiable`, `injury_date_unresolved`. Between Aug 16-18 2026 **every**
+`post_team_mismatch`, `post_team_unverifiable`, `injury_date_unresolved`,
+`team_timeline_anchor_ambiguous`. Between Aug 16-18 2026 **every**
 routed post went through this path, never through the confidence gate.
 
 Two levers, both fail-closed by default (`injury_date_unresolved` is governed by

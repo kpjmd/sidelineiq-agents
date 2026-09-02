@@ -13,8 +13,10 @@ import { classifyEvent } from '../agents/injury-intelligence/classifier.js';
 import {
   processInjuryEvent,
   parseTeamTimeline,
+  assessTimelineAnchorAmbiguity,
   type InjuryThreadContext,
 } from '../agents/injury-intelligence/agent.js';
+import { chooseDateAnchor } from '../agents/injury-intelligence/date-anchoring.js';
 import { resolveInjuryDate } from '../agents/injury-intelligence/date-resolution.js';
 import type { DateConfidence } from '../agents/injury-intelligence/date-resolution.js';
 import {
@@ -358,6 +360,8 @@ interface PollSummary {
   pre_filtered: number;
   dropped_significance: number;
   date_carryover_review: number;
+  timeline_anchor_review: number;
+  timeline_anchor_annotated: number;
   date_carryover_annotated: number;
   /** Concussion-only events dropped by the tier rule, before any model call. */
   dropped_concussion: number;
@@ -630,6 +634,53 @@ export function shouldForceDateReview(
   if (!fires) return { fires: false, force: false, annotate: false };
   const annotateOnly = parseAnnotateOnlyCodes(env).has(DATE_REVIEW_CODE);
   return { fires: true, force: !annotateOnly, annotate: annotateOnly };
+}
+
+/** The code recorded when the team timeline's own clock is in doubt. */
+export const TIMELINE_ANCHOR_CODE = 'team_timeline_anchor_ambiguous';
+
+/**
+ * Force MD review when `team_timeline_weeks` is as plausible a TOTAL as it is a
+ * REMAINING count, and the two readings disagree about whether this is a
+ * conflict.
+ *
+ * The field is specified as remaining-from-report, but the model has emitted it
+ * as at least three different quantities — a real remaining figure (Bosa: 1),
+ * a total post-surgery count it computed itself (Kittle: 33 at 33 weeks
+ * elapsed; Parsons: "Week 5 is ~39 weeks post-op" → 39), and a season length.
+ * Fixing the arithmetic on top of a field holding three quantities would turn
+ * an obviously wrong number into a confidently wrong one, so where the reading
+ * changes the verdict a human decides.
+ *
+ * Inert on fresh injuries, which is the population the old code got right:
+ * assessTimelineAnchorAmbiguity requires two weeks elapsed before it can fire.
+ * Downgradeable without a deploy via MD_REVIEW_ANNOTATE_ONLY_CODES.
+ */
+export function shouldForceTimelineAnchorReview(
+  post: InjuryPostContent,
+  dateAnchor: string | null,
+  env: string | undefined = process.env.MD_REVIEW_ANNOTATE_ONLY_CODES,
+): { fires: boolean; force: boolean; annotate: boolean; detail?: string } {
+  const weeks = post.team_timeline_weeks;
+  if (typeof weeks !== 'number' || !Number.isFinite(weeks)) {
+    return { fires: false, force: false, annotate: false };
+  }
+  const { ambiguous, remaining, total } = assessTimelineAnchorAmbiguity(
+    weeks,
+    post.return_to_play,
+    { injury_date: dateAnchor },
+  );
+  if (!ambiguous) return { fires: false, force: false, annotate: false };
+  const annotateOnly = parseAnnotateOnlyCodes(env).has(TIMELINE_ANCHOR_CODE);
+  return {
+    fires: true,
+    force: !annotateOnly,
+    annotate: annotateOnly,
+    detail:
+      `team_timeline_weeks=${weeks} reads as remaining (total ${remaining.team_total_weeks}w, ` +
+      `${remaining.status}) or as already-total (${total.status}) at ` +
+      `${remaining.elapsed_weeks}w elapsed`,
+  };
 }
 
 export function addWeeksIso(baseIso: string, weeks: number): string | null {
@@ -963,6 +1014,8 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
     pre_filtered: 0,
     dropped_significance: 0,
     date_carryover_review: 0,
+    timeline_anchor_review: 0,
+    timeline_anchor_annotated: 0,
     date_carryover_annotated: 0,
     dropped_concussion: 0,
     athlete_name_drift: 0,
@@ -1487,13 +1540,11 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
       // time a reader sees and projected_return_date could be measured from
       // different anchors. Prefer the resolver when it is confident — it saw the
       // source narrative and, on Pass 2, the open web; OTM saw only the short
-      // description. One anchor, chosen before either is used.
-      const dateAnchor =
-        thread?.injury_date &&
-        (thread.injury_date_confidence === 'probable' ||
-          thread.injury_date_confidence === 'confirmed')
-          ? thread.injury_date
-          : (post.injury_date ?? thread?.injury_date ?? null);
+      // description. One anchor, chosen before either is used — and chosen by
+      // chooseDateAnchor, the same function the agent uses for conflict
+      // detection, so the gap and the post can never disagree about elapsed
+      // time.
+      const dateAnchor = chooseDateAnchor(thread, post.injury_date);
       if (post.injury_date && dateAnchor && post.injury_date !== dateAnchor) {
         console.warn(
           `[Poller] ${sport} — date anchor divergence for ${context}: OTM said ` +
@@ -1502,6 +1553,26 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
         );
       }
       post.injury_date = dateAnchor ?? undefined;
+
+      // The team timeline's own clock is in doubt on this post — decide before
+      // the drift check, so a post that ends up dropped never reaches here.
+      const timelineGate = shouldForceTimelineAnchorReview(post, dateAnchor);
+      if (timelineGate.force) {
+        summary.timeline_anchor_review++;
+        console.warn(
+          `[Poller] ${sport} — team timeline anchor ambiguous for ${context}: ` +
+            `${timelineGate.detail} — routing to MD review`,
+        );
+        if (!forceMDReviewReason) forceMDReviewReason = TIMELINE_ANCHOR_CODE;
+        else if (!forceMDReviewReason.includes(TIMELINE_ANCHOR_CODE))
+          forceMDReviewReason = `${forceMDReviewReason},${TIMELINE_ANCHOR_CODE}`;
+      } else if (timelineGate.annotate) {
+        summary.timeline_anchor_annotated++;
+        console.log(
+          `[Poller] ${sport} — team timeline anchor ambiguous (annotate-only) — ${context} — ` +
+            `${timelineGate.detail} (publishing; recorded in the audit trail)`,
+        );
+      }
 
       // ── Content-type drift re-check (see checkContentTypeDrift) ──────
       if (gateEnabled && post.content_type !== classified.content_type) {
@@ -1619,7 +1690,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
   }
 
   console.log(
-    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} date_carry_review=${summary.date_carryover_review} date_carry_annot=${summary.date_carryover_annotated} dropped_concussion=${summary.dropped_concussion} name_drift=${summary.athlete_name_drift} reanchored=${summary.athlete_reanchored} drift_spelling=${summary.athlete_drift_spelling} surname_ref=${summary.athlete_surname_ref} ct_drift=${summary.content_type_drift} dropped_fact=${summary.dropped_fact_validation} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} would_promote=${summary.would_promote_from_defer} expired=${summary.expired_from_defer} defer_q=${summary.defer_queue_size} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} review_supp=${summary.review_suppressed} reject_supp=${summary.rejection_suppressed} superseded=${summary.superseded} skipped=${summary.skipped} capped=${summary.capped} source_err=${summary.source_errors} classifier_err=${summary.classifier_errors} errors=${summary.errors}`
+    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} date_carry_review=${summary.date_carryover_review} date_carry_annot=${summary.date_carryover_annotated} tl_anchor_review=${summary.timeline_anchor_review} tl_anchor_annot=${summary.timeline_anchor_annotated} dropped_concussion=${summary.dropped_concussion} name_drift=${summary.athlete_name_drift} reanchored=${summary.athlete_reanchored} drift_spelling=${summary.athlete_drift_spelling} surname_ref=${summary.athlete_surname_ref} ct_drift=${summary.content_type_drift} dropped_fact=${summary.dropped_fact_validation} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} would_promote=${summary.would_promote_from_defer} expired=${summary.expired_from_defer} defer_q=${summary.defer_queue_size} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} review_supp=${summary.review_suppressed} reject_supp=${summary.rejection_suppressed} superseded=${summary.superseded} skipped=${summary.skipped} capped=${summary.capped} source_err=${summary.source_errors} classifier_err=${summary.classifier_errors} errors=${summary.errors}`
   );
   return summary;
 }

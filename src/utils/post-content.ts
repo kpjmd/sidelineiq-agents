@@ -68,6 +68,14 @@ export interface StoredPostRow {
   md_review_confidence?: unknown;
   conflict_reason?: unknown;
   team_timeline_weeks?: unknown;
+  /**
+   * The RTP window's anchor. Dropping it on reconstruction meant every
+   * approval-republish formatted a post as "start date unconfirmed" while the
+   * stored row knew the date perfectly well — and a CONFLICT_FLAG rebuilt that
+   * way could print no gap at all. Postgres DATE arrives as a full ISO
+   * timestamp, so it is sliced back to YYYY-MM-DD.
+   */
+  injury_date?: unknown;
   parent_post_id?: unknown;
   // Real injury_posts columns. Note the asymmetric naming — the week columns are
   // return_to_play_*, the probabilities are rtp_*. That is the schema, not a typo.
@@ -187,6 +195,9 @@ export function reconstructPostContent(row: StoredPostRow): ReconstructResult {
       ...(row.conflict_reason ? { conflict_reason: String(row.conflict_reason) } : {}),
       ...(row.team_timeline_weeks !== undefined
         ? { team_timeline_weeks: Number(row.team_timeline_weeks) }
+        : {}),
+      ...(typeof row.injury_date === 'string' && row.injury_date
+        ? { injury_date: row.injury_date.slice(0, 10) }
         : {}),
       ...(row.parent_post_id ? { parent_post_id: String(row.parent_post_id) } : {}),
     },

@@ -30,3 +30,35 @@ export const DATE_ANCHORING_SHARED = `DATE ANCHORING — CRITICAL:
 - SOURCE KIND matters. For a structured injury FEED, "Reported at" is a row's last-refresh timestamp on a status table — the row is re-stamped every time the athlete's availability changes, and the same URL serves every athlete in the league. It anchors relative language INSIDE that row's text, and is never by itself evidence that the injury occurred then. For an ARTICLE, "Reported at" is a genuine publication time.
 - A roster designation of PUP-P, PUP-R, NFI-A or NFI-R states, by league rule, that the injury PREDATES the current training period. Treat it as positive evidence that the report date is not the injury date.
 - Extract or infer the actual injury/surgery date from absolute references too (e.g., "underwent surgery in January", "injured three weeks ago", "recovering since October", "tore his ACL in Week 4 of last season"). Set "injury_date" whenever determinable by any of these rules.`;
+
+/** Confidence ladder for a resolved injury date, as stored on the thread. */
+export type DateAnchorConfidence = 'unknown' | 'possible' | 'probable' | 'confirmed';
+
+export interface DateAnchorThread {
+  injury_date: string | null | undefined;
+  injury_date_confidence?: DateAnchorConfidence | string | null;
+}
+
+/**
+ * Pick the ONE injury date everything downstream measures from.
+ *
+ * Two dates exist and can disagree: the resolver writes one onto the thread
+ * (it saw the source narrative and, on Pass 2, the open web) and OTM emits its
+ * own from the short description. Prefer the resolver when it is confident,
+ * fall back to OTM, then to a low-confidence resolver date, then to nothing.
+ *
+ * This lived inline in the poller, chosen AFTER `processInjuryEvent` had
+ * already returned — which meant conflict detection inside the agent ran
+ * against a different anchor than the one the post was ultimately formatted
+ * with. Both callers now use this function so there is exactly one rule.
+ */
+export function chooseDateAnchor(
+  thread: DateAnchorThread | undefined | null,
+  modelInjuryDate: string | undefined | null,
+): string | null {
+  const confidence = thread?.injury_date_confidence;
+  if (thread?.injury_date && (confidence === 'probable' || confidence === 'confirmed')) {
+    return thread.injury_date;
+  }
+  return modelInjuryDate ?? thread?.injury_date ?? null;
+}
