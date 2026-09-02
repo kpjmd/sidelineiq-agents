@@ -46,10 +46,10 @@ const CONFIG = {
   // NFL only, so the paging assertions below count one sport's calls.
   salary_tiers: { bands: { NFL: { tier_1_min: 25 * M, tier_2_min: 8 * M } } },
   defer: {
-    ttl_hours: 6,
+    ttl_hours: 48,
     promotion_cap: 3,
-    corroboration_bonus_per_source: 5,
-    corroboration_bonus_max: 20,
+    corroboration_discount_per_source: 10,
+    corroboration_discount_max: 20,
   },
 };
 

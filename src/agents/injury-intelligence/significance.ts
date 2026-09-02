@@ -62,11 +62,43 @@ interface SportWindow {
 }
 
 export interface DeferConfig {
+  /**
+   * How long a deferred event waits for a second publisher.
+   *
+   * MUST exceed POLL_INTERVAL_MS, and it did not: 6 hours against a 6-hour
+   * poll meant every entry was evicted at the start of the very next cycle,
+   * before it could be corroborated even once. DEFER was DROP with extra
+   * steps. 48h gives an entry one NewsAPI window (that source runs 1 cycle in
+   * 6) and several ESPN and X ones. checkDeferTtlReachable in poller.ts warns
+   * when this invariant breaks again.
+   */
   ttl_hours: number;
+  /** Max promotions per entry, a backstop under the family-adding rule. */
   promotion_cap: number;
-  corroboration_bonus_per_source: number;
-  corroboration_bonus_max: number;
+  /**
+   * Points taken OFF the PROCESS threshold per corroborating source family
+   * beyond the first, and the cap on that.
+   *
+   * A DISCOUNT, not a score bonus, because the score is a property of the
+   * event and pickiness lives in the threshold (see computeSignificance).
+   * The predecessor added points to event_recency_novelty, which carries
+   * weight 0.20 — so its advertised max of 20 moved the composite by 4, and
+   * its real reach was 2. Config that could not do what it said.
+   */
+  corroboration_discount_per_source: number;
+  corroboration_discount_max: number;
 }
+
+/**
+ * Used when significance-config.json has not loaded, and field-by-field when
+ * validateDeferConfig rejects a value.
+ */
+export const DEFAULT_DEFER_CONFIG: DeferConfig = {
+  ttl_hours: 48,
+  promotion_cap: 3,
+  corroboration_discount_per_source: 10,
+  corroboration_discount_max: 20,
+};
 
 /**
  * Salary floors, in whole USD, that promote an unlisted athlete out of the flat
@@ -350,8 +382,9 @@ export async function loadSignificanceData(): Promise<void> {
       );
     }
     validateSalaryBands(cachedConfig);
-  validateDraftTiers(cachedConfig);
+    validateDraftTiers(cachedConfig);
     validateDerivedTiers(cachedConfig);
+    validateDeferConfig(cachedConfig);
   } else {
     const reason = configResult.reason instanceof Error ? configResult.reason.message : String(configResult.reason);
     console.error(`[Significance] Failed to load significance-config.json: ${reason}`);
@@ -1089,11 +1122,109 @@ export function lookupAthleteTier(
   return { tier: 3, source: 'default' };
 }
 
-export function getDeferConfig(): DeferConfig {
-  if (!cachedConfig) {
-    return { ttl_hours: 6, promotion_cap: 3, corroboration_bonus_per_source: 5, corroboration_bonus_max: 20 };
+/**
+ * Rejects a malformed `defer` block field-by-field, degrading each bad value to
+ * its default rather than dropping the whole block — the same spirit as
+ * validateSalaryBands, applied to the settings that decide whether the defer
+ * queue does anything at all.
+ *
+ * It exists because the shipped block was internally contradictory for months
+ * with nothing to say so: `ttl_hours: 6` against a 6-hour poll meant no entry
+ * ever survived to be corroborated, while `corroboration_bonus_max: 20`
+ * described a ceiling that needed four corroborations to reach. Neither value
+ * is wrong in isolation, and no code read them together.
+ */
+function validateDeferConfig(config: SignificanceConfig | null): void {
+  if (!config) return;
+
+  if (!config.defer || typeof config.defer !== 'object') {
+    console.error(
+      '[Significance] significance-config.json has no valid `defer` block — using defaults ' +
+        `(ttl_hours=${DEFAULT_DEFER_CONFIG.ttl_hours}, ` +
+        `discount=${DEFAULT_DEFER_CONFIG.corroboration_discount_per_source}/` +
+        `${DEFAULT_DEFER_CONFIG.corroboration_discount_max}).`,
+    );
+    config.defer = { ...DEFAULT_DEFER_CONFIG };
+    return;
   }
+
+  const defer = config.defer;
+  const fallback = (field: keyof DeferConfig, why: string): void => {
+    const value = DEFAULT_DEFER_CONFIG[field];
+    console.error(
+      `[Significance] defer.${String(field)} is invalid (${why}) — using default ${value}.`,
+    );
+    (defer as unknown as Record<string, unknown>)[field as string] = value;
+  };
+
+  if (!Number.isFinite(defer.ttl_hours) || defer.ttl_hours <= 0) {
+    fallback('ttl_hours', `${defer.ttl_hours}; must be a positive number of hours`);
+  }
+  if (!Number.isInteger(defer.promotion_cap) || defer.promotion_cap < 1) {
+    fallback('promotion_cap', `${defer.promotion_cap}; must be an integer of at least 1`);
+  }
+  if (!Number.isFinite(defer.corroboration_discount_per_source) || defer.corroboration_discount_per_source < 0) {
+    fallback(
+      'corroboration_discount_per_source',
+      `${defer.corroboration_discount_per_source}; corroboration may only lower a bar, never raise one`,
+    );
+  }
+  if (!Number.isFinite(defer.corroboration_discount_max) || defer.corroboration_discount_max < 0) {
+    fallback('corroboration_discount_max', `${defer.corroboration_discount_max}; must be zero or more`);
+  }
+  // A cap below one step makes the per-source value a lie — the dead-config
+  // shape that made corroboration_bonus_max unreachable. Loud, then usable.
+  if (defer.corroboration_discount_max < defer.corroboration_discount_per_source) {
+    console.error(
+      `[Significance] defer.corroboration_discount_max (${defer.corroboration_discount_max}) is below ` +
+        `corroboration_discount_per_source (${defer.corroboration_discount_per_source}) — one corroborating ` +
+        'source can never earn a full step. Raising the cap to one step.',
+    );
+    defer.corroboration_discount_max = defer.corroboration_discount_per_source;
+  }
+
+  if ('corroboration_bonus_per_source' in defer || 'corroboration_bonus_max' in defer) {
+    console.warn(
+      '[Significance] significance-config.json still has the legacy `corroboration_bonus_*` keys — ' +
+        'they are IGNORED. Corroboration is now a threshold discount ' +
+        '(`corroboration_discount_per_source` / `_max`), not a recency-subscore bonus.',
+    );
+  }
+
+  // Not an error: the discount is clamped at the DEFER floor at apply time, so
+  // an oversized cap costs nothing. Worth saying once, because it means the
+  // configured maximum is not what those content types will actually see.
+  const bands = Object.values(config.thresholds ?? {})
+    .map((t) => (typeof t?.process === 'number' && typeof t?.defer === 'number' ? t.process - t.defer : null))
+    .filter((w): w is number => w !== null && w >= 0);
+  const narrowest = bands.length > 0 ? Math.min(...bands) : null;
+  if (narrowest !== null && defer.corroboration_discount_max > narrowest) {
+    console.warn(
+      `[Significance] defer.corroboration_discount_max (${defer.corroboration_discount_max}) exceeds the ` +
+        `narrowest DEFER band (${narrowest}); for those content types the discount stops at the defer floor.`,
+    );
+  }
+}
+
+export function getDeferConfig(): DeferConfig {
+  if (!cachedConfig) return { ...DEFAULT_DEFER_CONFIG };
   return cachedConfig.defer;
+}
+
+/**
+ * Corroboration's effect on the bar: nothing for the first family, then
+ * `per_source` for each additional one, capped.
+ *
+ * Clamped at 0 at the bottom, so no config value and no caller can turn this
+ * into a penalty — the whole mechanism is promote-only, and a negative
+ * discount would raise a publishing bar on evidence that should lower it.
+ */
+export function computeCorroborationDiscount(
+  distinctFamilies: number,
+  config: DeferConfig,
+): number {
+  const steps = Math.max(0, distinctFamilies - 1);
+  return clamp(steps * config.corroboration_discount_per_source, 0, config.corroboration_discount_max);
 }
 
 export interface SeasonDelta {
@@ -1219,6 +1350,9 @@ export interface EffectiveThresholds {
   defer: number | null;
   /** True when the tier rule blocks PROCESS regardless of score. */
   tier_blocked: boolean;
+  /** Points corroboration actually took off `process` — after the defer-floor
+   *  clamp, so this is what was applied, not what was requested. */
+  corroboration_discount: number;
 }
 
 /**
@@ -1230,15 +1364,38 @@ export function effectiveThresholds(
   contentType: ContentType,
   tier: AthleteTier,
   seasonDelta = 0,
+  corroborationDiscount = 0,
 ): EffectiveThresholds {
   const cfg = cachedConfig?.thresholds;
-  const bar = (base: number) => effectiveProcessThreshold(base, seasonDelta, contentType, tier);
+  // Corroboration lowers the PROCESS bar and nothing else.
+  //
+  // It goes here, in the same function as the season delta, because these are
+  // the same kind of adjustment: neither says the event scored differently,
+  // both say how picky we should be about it. Applying it anywhere else — as a
+  // second opinion in the defer queue, say — would mean two readers of one
+  // event disagreeing about its bar, and the delta and the reachability clamp
+  // would apply to one of them and not the other.
+  //
+  // Never below the DEFER floor: an event that has not cleared the floor on its
+  // own merits is not something two sources agreeing should publish, and the
+  // floor is also what keeps an oversized discount_max harmless on the 15-point
+  // BREAKING_T1 and DEEP_DIVE bands.
+  const discount = Math.max(0, corroborationDiscount);
+  let applied = 0;
+  const bar = (base: number, deferBase: number) => {
+    const seasoned = effectiveProcessThreshold(base, seasonDelta, contentType, tier);
+    if (discount <= 0) return seasoned;
+    // The floor is the DEFER threshold, not the undiscounted PROCESS bar.
+    const discounted = Math.max(seasoned - discount, deferBase + seasonDelta);
+    applied = seasoned - discounted;
+    return discounted;
+  };
   // The DEFER floor moves with the season too, but it is never clamped — an
   // unreachable defer floor just means "DROP instead", which is a safe outcome.
   const floor = (base: number) => base + seasonDelta;
 
   if (contentType === 'CONFLICT_FLAG' && (!cfg || cfg.CONFLICT_FLAG?.always_process !== false)) {
-    return { process: null, defer: null, tier_blocked: false };
+    return { process: null, defer: null, tier_blocked: false, corroboration_discount: 0 };
   }
 
   if (contentType === 'TRACKING') {
@@ -1249,23 +1406,35 @@ export function effectiveThresholds(
       // Running them through the clamp would emit an UNREACHABLE_THRESHOLD
       // warning about a bar that is never applied — noise on every low-tier
       // TRACKING event, which is most of the feed.
-      return { process: null, defer: null, tier_blocked: true };
+      return { process: null, defer: null, tier_blocked: true, corroboration_discount: 0 };
     }
+    const process = bar(t?.process ?? 70, t?.defer ?? 35);
     return {
-      process: bar(t?.process ?? 70),
+      process,
       defer: floor(t?.defer ?? 35),
       tier_blocked: false,
+      corroboration_discount: applied,
     };
   }
 
   if (contentType === 'DEEP_DIVE') {
     const t = cfg?.DEEP_DIVE;
-    return { process: bar(t?.process ?? 40), defer: floor(t?.defer ?? 25), tier_blocked: false };
+    return {
+      process: bar(t?.process ?? 40, t?.defer ?? 25),
+      defer: floor(t?.defer ?? 25),
+      tier_blocked: false,
+      corroboration_discount: applied,
+    };
   }
 
   if (contentType === 'BREAKING' && tier === 1) {
     const t = cfg?.BREAKING_T1;
-    return { process: bar(t?.process ?? 45), defer: floor(t?.defer ?? 30), tier_blocked: false };
+    return {
+      process: bar(t?.process ?? 45, t?.defer ?? 30),
+      defer: floor(t?.defer ?? 30),
+      tier_blocked: false,
+      corroboration_discount: applied,
+    };
   }
 
   // Default (BREAKING non-T1, and any unhandled content type)
@@ -1275,9 +1444,14 @@ export function effectiveThresholds(
   // honestly; letting the reachability clamp quietly lower the bar instead
   // would be the same silent-unreachability failure this guardrail exists for.
   if (d.max_tier !== undefined && tier > d.max_tier) {
-    return { process: null, defer: null, tier_blocked: true };
+    return { process: null, defer: null, tier_blocked: true, corroboration_discount: 0 };
   }
-  return { process: bar(d.process), defer: floor(d.defer), tier_blocked: false };
+  return {
+    process: bar(d.process, d.defer),
+    defer: floor(d.defer),
+    tier_blocked: false,
+    corroboration_discount: applied,
+  };
 }
 
 export function decideTriage(
@@ -1285,8 +1459,9 @@ export function decideTriage(
   contentType: ContentType,
   tier: AthleteTier,
   seasonDelta = 0,
+  corroborationDiscount = 0,
 ): TriageDecision {
-  const t = effectiveThresholds(contentType, tier, seasonDelta);
+  const t = effectiveThresholds(contentType, tier, seasonDelta, corroborationDiscount);
 
   // Must precede the `process === null` check — a tier-blocked cell also has no
   // threshold, and reading that as "always processes" would invert the rule.
@@ -1314,13 +1489,22 @@ export function computeFingerprint(event: RawInjuryEvent): string {
   return `${name}:${desc}`;
 }
 
+export interface SignificanceOptions {
+  /** Points to take off the PROCESS bar for corroboration. See DeferConfig. */
+  corroborationDiscount?: number;
+  /** The source families that earned it — recorded on the assessment so every
+   *  later reader sees the evidence, not just the adjusted number. */
+  corroboratingSources?: string[];
+}
+
 export function computeSignificance(
   tier: AthleteTier,
   tierSource: AthleteTierSource,
   haikuSubscores: { information_specificity: number; event_recency_novelty: number },
   contentType: ContentType,
   sport: SportKey,
-  date: Date
+  date: Date,
+  options?: SignificanceOptions
 ): SignificanceAssessment {
   const subscores: SignificanceSubscores = {
     athlete_prominence:      TIER_TO_PROMINENCE[tier],
@@ -1334,8 +1518,9 @@ export function computeSignificance(
   // threshold, not here — see the SportWindow comment for why.
   const composite_score = raw_score;
   const season = resolveSeasonDelta(sport, date);
-  const thresholds = effectiveThresholds(contentType, tier, season.delta);
-  const triage_decision = decideTriage(composite_score, contentType, tier, season.delta);
+  const discount = Math.max(0, options?.corroborationDiscount ?? 0);
+  const thresholds = effectiveThresholds(contentType, tier, season.delta, discount);
+  const triage_decision = decideTriage(composite_score, contentType, tier, season.delta, discount);
 
   const rationale = [
     `${triage_decision} score=${composite_score}`,
@@ -1348,6 +1533,11 @@ export function computeSignificance(
     `tier=${tier}${tierMarker(tierSource)}`,
     `spec=${subscores.information_specificity}`,
     `rec=${subscores.event_recency_novelty}`,
+    // Names the evidence, not just the number: a reader seeing a bar 10 points
+    // below the configured one needs to know which publishers bought it.
+    thresholds.corroboration_discount > 0
+      ? `corr=-${thresholds.corroboration_discount}(${(options?.corroboratingSources ?? []).join(',')})`
+      : '',
   ]
     .filter(Boolean)
     .join(' ')
@@ -1365,8 +1555,31 @@ export function computeSignificance(
     athlete_tier: tier,
     athlete_tier_source: tierSource,
     subscores,
+    ...(thresholds.corroboration_discount > 0
+      ? {
+          corroboration_discount: thresholds.corroboration_discount,
+          corroborating_sources: options?.corroboratingSources ?? [],
+        }
+      : {}),
     rationale,
   };
+}
+
+/**
+ * The defer queue's match key: one athlete in one sport.
+ *
+ * Deliberately NOT computeFingerprint, which mixes the athlete with the first
+ * four words of the description. Two publishers never describe one injury the
+ * same way — ESPN's table says "Ankle - Leg, Not Specified" and a tweet says
+ * "placed on IR" — so a fingerprint could only ever match a source to itself,
+ * and "corroboration" meant one feed re-serving the same row.
+ *
+ * Keyed on the CLASSIFIER's name, not the source's: for an ESPN row that is
+ * really about a teammate, the classifier names the injured athlete while the
+ * source names the healthy one it was filed under.
+ */
+export function computeAthleteKey(sport: SportKey, athleteName: string): string {
+  return `${sport}|${normalizeText(athleteName)}`;
 }
 
 // ── Promotion scoring (Phase 1: queue → Injury Desk candidate) ───────────────
@@ -1508,6 +1721,7 @@ export function _setConfigForTesting(config: SignificanceConfig | null): void {
   validateSalaryBands(cachedConfig);
   validateDraftTiers(cachedConfig);
   validateDerivedTiers(cachedConfig);
+  validateDeferConfig(cachedConfig);
 }
 
 /** Install (or clear) the salary snapshot. Clearing restores the exact

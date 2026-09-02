@@ -49,7 +49,7 @@ const CONFIG = {
       tier_2_clubs: [{ espn_team_id: '359', name: 'Arsenal' }],
     },
   },
-  defer: { ttl_hours: 6, promotion_cap: 3, corroboration_bonus_per_source: 5, corroboration_bonus_max: 20 },
+  defer: { ttl_hours: 48, promotion_cap: 3, corroboration_discount_per_source: 10, corroboration_discount_max: 20 },
 };
 
 const TIERS = { version: 4, updated_at: '2026-08-15', athletes: [] };

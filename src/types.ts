@@ -111,6 +111,22 @@ export interface RawInjuryEvent {
    */
   is_update?: boolean;
   source_name?: string;
+  /**
+   * Source FAMILIES (see monitoring/source-family.ts) of events that
+   * `deduplicateEvents` merged into this one — the publishers this report
+   * would otherwise have lost.
+   *
+   * MultiSource collapses two sources reporting one athlete on one day into a
+   * single event and discards the loser. That is right for everything
+   * downstream, which wants one event per injury, and wrong for the defer
+   * queue, whose whole question is how many independent publishers said this.
+   * Without carrying them, a same-day ESPN+Schefter pair reaches the queue
+   * looking exactly like ESPN alone.
+   *
+   * Resolved at merge time, not stored as raw names: `newsapi-nfl` covers five
+   * outlets and only the loser's own `source_url` distinguishes them.
+   */
+  corroborating_families?: string[];
   /** See SourceKind. Unset is read as 'feed'. */
   source_kind?: SourceKind;
   /**
@@ -236,6 +252,18 @@ export interface SignificanceAssessment {
   athlete_tier: AthleteTier;
   athlete_tier_source: AthleteTierSource;
   subscores: SignificanceSubscores;
+  /**
+   * Points the defer queue's corroboration evidence took OFF the PROCESS
+   * threshold, and the source families that earned them. Set only on an
+   * assessment produced by a promotion; absent everywhere else.
+   *
+   * Carried on the assessment rather than recomputed by each reader because
+   * `process_threshold` above is already discounted, and a second reader that
+   * re-scored without the discount would disagree with the gate about the same
+   * event — the divergence class this repo keeps rediscovering.
+   */
+  corroboration_discount?: number;
+  corroborating_sources?: string[];
   rationale: string;
 }
 

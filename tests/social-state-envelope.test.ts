@@ -33,7 +33,7 @@ import {
   _setConfigForTesting,
   _setTiersForTesting,
 } from '../src/agents/injury-intelligence/significance.js';
-import type { ClassificationResult } from '../src/types.js';
+import type { ClassificationResult, RawInjuryEvent } from '../src/types.js';
 
 const mockCallTool = vi.mocked(callTool);
 const mockIsServerAvailable = vi.mocked(isServerAvailable);
@@ -49,10 +49,10 @@ const LIVE: {
 );
 
 const DEFER_CONFIG = {
-  ttl_hours: 6,
+  ttl_hours: 48,
   promotion_cap: 3,
-  corroboration_bonus_per_source: 5,
-  corroboration_bonus_max: 20,
+  corroboration_discount_per_source: 10,
+  corroboration_discount_max: 20,
 };
 
 const TEST_CONFIG = {
@@ -99,7 +99,21 @@ function entry(fingerprint: string, hoursToExpiry: number) {
   };
 }
 
-function classified(): ClassificationResult {
+/** The event as a source hands it over — now a parameter of handleDeferDecision. */
+function rawEvent(overrides: Partial<RawInjuryEvent> = {}): RawInjuryEvent {
+  return {
+    athlete_name: 'Jake Bobo',
+    sport: 'NFL',
+    team: 'Seahawks',
+    injury_description: 'placed on injured reserve',
+    source_name: 'espn-nfl',
+    source_url: 'https://www.espn.com/nfl/injuries',
+    reported_at: new Date(),
+    ...overrides,
+  };
+}
+
+function classified(overrides: Partial<ClassificationResult> = {}): ClassificationResult {
   return {
     is_injury_event: true,
     confidence: 0.9,
@@ -131,6 +145,7 @@ function classified(): ClassificationResult {
       },
       rationale: 'DEFER score=40',
     },
+    ...overrides,
   } as ClassificationResult;
 }
 
@@ -194,14 +209,21 @@ describe('the defer queue actually loads what was stored', () => {
       return { content: [{ type: 'text', text: 'ok' }] };
     });
 
-    await handleDeferDecision('NFL', 'brand:new', classified(), DEFER_CONFIG);
+    // A DIFFERENT athlete, so this is genuinely a new entry rather than
+    // corroboration of the stored one — the queue is keyed on the athlete now.
+    await handleDeferDecision(
+      'NFL',
+      rawEvent({ athlete_name: 'Trey Benson', injury_description: 'hamstring strain' }),
+      classified({ athlete_name: 'Trey Benson', injury_description: 'hamstring strain' }),
+      DEFER_CONFIG,
+    );
 
     const save = mockCallTool.mock.calls.find(([, tool]) => tool === 'web_set_social_state');
     expect(save).toBeDefined();
     const written = JSON.parse((save![2] as { value: string }).value);
     expect(written.entries.map((e: { fingerprint: string }) => e.fingerprint)).toEqual([
       'already:here',
-      'brand:new',
+      'trey benson:hamstring-strain',
     ]);
   });
 
@@ -235,9 +257,9 @@ describe('an unreadable store must not read as an empty one', () => {
       return { content: [{ type: 'text', text: 'ok' }] };
     });
 
-    const result = await handleDeferDecision('NFL', 'fp:x', classified(), DEFER_CONFIG);
+    const result = await handleDeferDecision('NFL', rawEvent(), classified(), DEFER_CONFIG);
 
-    expect(result).toBe('deferred');
+    expect(result.result).toBe('deferred');
     expect(mockCallTool.mock.calls.some(([, tool]) => tool === 'web_set_social_state')).toBe(false);
   });
 });

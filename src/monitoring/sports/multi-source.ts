@@ -1,4 +1,5 @@
 import type { RawInjuryEvent } from '../../types.js';
+import { sourceFamilies, sourceFamily } from '../source-family.js';
 
 /**
  * Why a fetch produced the events it did.
@@ -128,6 +129,24 @@ function isRicher(candidate: RawInjuryEvent, existing: RawInjuryEvent): boolean 
   );
 }
 
+/**
+ * Carries the loser's PUBLISHER onto the survivor before the loser is dropped.
+ *
+ * The merge itself is right — everything downstream wants one event per injury
+ * — but it is also the only place in the pipeline that ever sees two
+ * publishers on one story, and it used to throw that away with a console.log.
+ * The defer queue's entire question is how many independent publishers said
+ * this, so a same-day ESPN+Schefter pair has to arrive carrying both.
+ */
+function mergeProvenance(winner: RawInjuryEvent, loser: RawInjuryEvent): void {
+  const own = sourceFamily(winner);
+  const carried = new Set(winner.corroborating_families ?? []);
+  for (const family of sourceFamilies(loser)) carried.add(family);
+  // A survivor never corroborates itself.
+  if (own) carried.delete(own);
+  if (carried.size > 0) winner.corroborating_families = [...carried];
+}
+
 export function deduplicateEvents(events: RawInjuryEvent[]): RawInjuryEvent[] {
   const byKey = new Map<string, RawInjuryEvent>();
   for (const event of events) {
@@ -135,14 +154,30 @@ export function deduplicateEvents(events: RawInjuryEvent[]): RawInjuryEvent[] {
     const existing = byKey.get(key);
     if (!existing) {
       byKey.set(key, event);
-    } else if (isRicher(event, existing)) {
-      // Log genuine cross-source merges (different source_name values)
-      if (event.source_name && existing.source_name && event.source_name !== existing.source_name) {
+      continue;
+    }
+
+    // Log genuine cross-source merges (different source_name values). Both
+    // directions: the incumbent-wins case used to be silent, which made a
+    // second publisher on a story invisible in the logs half the time.
+    const crossSource =
+      !!event.source_name && !!existing.source_name && event.source_name !== existing.source_name;
+
+    if (isRicher(event, existing)) {
+      if (crossSource) {
         console.log(
           `[MultiSource] cross-source merge: ${key} — kept ${event.source_name}, dropped ${existing.source_name}`
         );
       }
+      mergeProvenance(event, existing);
       byKey.set(key, event);
+    } else {
+      if (crossSource) {
+        console.log(
+          `[MultiSource] cross-source merge: ${key} — kept ${existing.source_name}, dropped ${event.source_name}`
+        );
+      }
+      mergeProvenance(existing, event);
     }
   }
   return Array.from(byKey.values());

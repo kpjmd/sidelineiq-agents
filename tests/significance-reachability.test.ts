@@ -281,3 +281,44 @@ describe('significance config — regression: the July 2026 outage shape', () =>
     expect(inSeason.season_threshold_delta).toBe(0);
   });
 });
+
+describe('significance config — the defer block must be able to do its job', () => {
+  // Both halves of this were silently false in production. `ttl_hours: 6`
+  // equalled POLL_INTERVAL_MS, so every deferred entry was evicted at the start
+  // of the very next cycle and nothing was ever corroborated; meanwhile
+  // `corroboration_bonus_max: 20` advertised a ceiling that needed four
+  // corroborations to reach. Neither value is wrong alone, and nothing read
+  // them together. These assertions read them together.
+  const PRODUCTION_POLL_INTERVAL_MS = 21_600_000; // 6h, set in Railway
+
+  it('ships the corroboration discount at 10 per family, capped at 20', () => {
+    expect(getLoadedConfig()!.defer).toMatchObject({
+      corroboration_discount_per_source: 10,
+      corroboration_discount_max: 20,
+    });
+  });
+
+  it('the TTL outlives the poll interval, with room for more than one window', () => {
+    const ttlMs = getLoadedConfig()!.defer.ttl_hours * 3_600_000;
+    expect(ttlMs).toBeGreaterThan(PRODUCTION_POLL_INTERVAL_MS);
+    expect(ttlMs).toBeGreaterThanOrEqual(PRODUCTION_POLL_INTERVAL_MS * 2);
+  });
+
+  it('survives its own validator unchanged', () => {
+    // validateDeferConfig degrades bad values to defaults. If the checked-in
+    // block needed degrading, production would run on something other than
+    // what the file says.
+    const defer = getLoadedConfig()!.defer;
+    expect(defer.ttl_hours).toBeGreaterThan(0);
+    expect(defer.promotion_cap).toBeGreaterThanOrEqual(1);
+    expect(defer.corroboration_discount_max).toBeGreaterThanOrEqual(
+      defer.corroboration_discount_per_source,
+    );
+  });
+
+  it('no longer carries the legacy bonus keys', () => {
+    const defer = getLoadedConfig()!.defer as Record<string, unknown>;
+    expect(defer.corroboration_bonus_per_source).toBeUndefined();
+    expect(defer.corroboration_bonus_max).toBeUndefined();
+  });
+});

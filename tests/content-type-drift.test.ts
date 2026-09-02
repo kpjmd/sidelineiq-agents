@@ -132,3 +132,78 @@ describe('checkContentTypeDrift — the re-score uses the final type, not the ol
     expect(result.rescored!.composite_score).toBeLessThan(s.composite_score);
   });
 });
+
+describe('drift re-scoring keeps the corroboration the gate applied', () => {
+  // Corroboration is a fact about the REPORT — how many publishers said it —
+  // and re-typing the post does not unsay any of them. Dropping it here would
+  // have the drift check judge a promoted event against a bar the gate never
+  // applied, which is the two-readers-of-one-fact divergence this repo keeps
+  // rediscovering (see the RTP columns, the missing `status` field, the
+  // web_get_social_state envelope).
+
+  /** A tier-2 assessment carrying a promotion's discount, as the defer queue
+   *  hands it back and applyDeferOutcome writes it onto the classified event. */
+  function promoted(contentType: ContentType, spec: number, rec: number) {
+    return computeSignificance(
+      2,
+      'lookup',
+      { information_specificity: spec, event_recency_novelty: rec },
+      contentType,
+      SPORT,
+      IN_SEASON,
+      { corroborationDiscount: 10, corroboratingSources: ['espn', 'x:shamscharania'] },
+    );
+  }
+
+  it('carries the discount into the re-score', () => {
+    const s = promoted('BREAKING', 48, 15);
+    const result = checkContentTypeDrift('BREAKING', 'DEEP_DIVE', s, SPORT, IN_SEASON);
+    expect(result.rescored!.corroboration_discount).toBe(10);
+    expect(result.rescored!.corroborating_sources).toEqual(['espn', 'x:shamscharania']);
+  });
+
+  it('a promoted post that drifts is judged on the same evidence', () => {
+    // Without the discount this re-score lands under the bar and the post is
+    // sent to a human for a reason that has nothing to do with the drift.
+    // Under TRACKING (prior 30, tier 2) these subscores land at 58: below the
+    // configured bar of 65, at or above the discounted 55.
+    const s = promoted('BREAKING', 70, 40);
+    const withEvidence = checkContentTypeDrift('BREAKING', 'TRACKING', s, SPORT, IN_SEASON);
+    const withoutEvidence = checkContentTypeDrift(
+      'BREAKING',
+      'TRACKING',
+      { ...s, corroboration_discount: undefined, corroborating_sources: undefined },
+      SPORT,
+      IN_SEASON,
+    );
+
+    expect(withEvidence.action).toBe('proceed');
+    expect(withoutEvidence.action).toBe('md_review');
+  });
+
+  it('FAIL-CLOSED: a tier-blocked cell still drops, discount or not', () => {
+    const s = promoted('BREAKING', 90, 90);
+    const result = checkContentTypeDrift(
+      'BREAKING',
+      'TRACKING',
+      { ...s, athlete_tier: 3 },
+      SPORT,
+      IN_SEASON,
+    );
+    expect(result.action).toBe('drop');
+    expect(result.reason).toContain('tier_blocked');
+  });
+
+  it('an uncorroborated assessment re-scores exactly as before', () => {
+    const plain = computeSignificance(
+      2,
+      'lookup',
+      { information_specificity: 48, event_recency_novelty: 15 },
+      'BREAKING',
+      SPORT,
+      IN_SEASON,
+    );
+    const result = checkContentTypeDrift('BREAKING', 'DEEP_DIVE', plain, SPORT, IN_SEASON);
+    expect(result.rescored!.corroboration_discount).toBeUndefined();
+  });
+});
