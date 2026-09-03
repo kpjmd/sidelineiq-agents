@@ -47,6 +47,49 @@ describe('RTP week bounds are anchored, and say so', () => {
   });
 });
 
+/**
+ * The sibling field on the OTHER clock. Every test here FAILS against pre-fix
+ * code, whose entire description was "the parsed midpoint in weeks (e.g.,
+ * '2-4 weeks' → 3)" — no anchor named at all, two lines below a comment
+ * warning about exactly this failure mode.
+ */
+describe('team_timeline_weeks names its own clock', () => {
+  const d = () =>
+    (AGENT_TOOL.input_schema.properties as Record<string, any>).team_timeline_weeks
+      .description as string;
+
+  it('says REMAINING, and says what it is not', () => {
+    expect(d()).toMatch(/REMAIN/);
+    expect(d()).toMatch(/NOT total time since the injury/i);
+    expect(d()).toMatch(/DIFFERENT CLOCK/i);
+  });
+
+  it('tells the model to omit game-status designations', () => {
+    // "Questionable" is an availability label, not a timeline. Bosa's row
+    // produced a team_timeline_weeks of 1 from one.
+    expect(d()).toMatch(/Questionable/);
+    expect(d()).toMatch(/OMIT/);
+  });
+
+  it('tells the model to omit season-ending floors', () => {
+    expect(d()).toMatch(/season/i);
+    expect(d()).toMatch(/PUP|IR/);
+  });
+
+  it('is described at the same weight as the bounds it is compared against', () => {
+    // The asymmetry WAS the bug: ~80 words on each RTP bound, one clause here.
+    expect(d().length).toBeGreaterThan(200);
+  });
+
+  it('mirrors the clock instruction in the prompt bullets', () => {
+    const src = SRC('src/agents/injury-intelligence/agent.ts');
+    expect(src).toMatch(/team_timeline_weeks is on the OPPOSITE clock/);
+    // The model wrote its own week-gap arithmetic into conflict_reason; the
+    // formatter's line is the authority.
+    expect(src).toMatch(/Do NOT state a week-gap number in conflict_reason/);
+  });
+});
+
 describe('DATE ANCHORING is shared, not copied', () => {
   it('no longer treats an announcement as the anchor for an old injury', () => {
     expect(DATE_ANCHORING_SHARED).not.toMatch(/operative anchor even if/i);

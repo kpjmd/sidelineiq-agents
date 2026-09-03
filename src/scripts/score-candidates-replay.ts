@@ -38,15 +38,24 @@ import {
   lookupAthleteTier,
   prominenceForTier,
   computePromotionScore,
+  toPromotionGapWeeks,
   PROMOTION_PROPOSE_THRESHOLD,
 } from '../agents/injury-intelligence/significance.js';
 import { resolveSourceTier } from '../agents/injury-intelligence/fact-validator.js';
 import type { SportKey, CorroborationTier, PromotionScore } from '../types.js';
 import { refreshTierSnapshotsIfStale } from '../agents/injury-intelligence/tier-snapshots.js';
+import {
+  computeConflictGap,
+  isConflict,
+  CONFLICT_GAP_THRESHOLD_WEEKS,
+  type ConflictGap,
+} from '../utils/conflict-gap.js';
 
 // A conflict is "real" when the team timeline exceeds the OTM ceiling by at
 // least this many weeks. Mirrors the delta-rule spirit used in dedup.
-const CONFLICT_GAP_MIN_WEEKS = 2;
+// Re-exported from the shared helper so this script and the live detector can
+// never disagree about the bar.
+const CONFLICT_GAP_MIN_WEEKS = CONFLICT_GAP_THRESHOLD_WEEKS;
 const DEFAULT_LIMIT = 15;
 const PAGE_SIZE = 50;
 
@@ -63,6 +72,7 @@ interface InjuryPost {
   conflict_reason: string | null;
   team_timeline_weeks: number | null;
   return_to_play_min_weeks: number | null;
+  injury_date: string | null;
   return_to_play_max_weeks: number | null;
   source_url: string | null;
   created_at: string;
@@ -121,14 +131,29 @@ function daysBetween(fromIso: string, now: Date): number {
 // signal is positive when OTM exceeds team. (NOTE: promotion_score itself only
 // uses conflict_flag *presence*, not this magnitude — we compute it here purely
 // to pick the replay set and to show the MD what varies. See the report.)
-function conflictGapWeeks(post: InjuryPost): number | null {
-  if (post.team_timeline_weeks == null || post.return_to_play_max_weeks == null) return null;
-  return post.return_to_play_max_weeks - post.team_timeline_weeks;
+//
+// The two numbers are on different clocks — team_timeline_weeks is remaining
+// from the report, the RTP bounds are total from injury_date — so this runs
+// through computeConflictGap. `max_weeks − team` used to add the elapsed time
+// since injury to every magnitude, saturating the 12-week cap on any carryover
+// conflict regardless of how small the real disagreement was. Magnitudes here
+// are consequently SMALLER than in any pre-2026-09 replay output, and
+// CONFLICT_GAP_CAP_WEEKS=12 now discriminates less across the set.
+function conflictGap(post: InjuryPost, now: Date): ConflictGap {
+  return computeConflictGap({
+    team_timeline_weeks: post.team_timeline_weeks,
+    min_weeks: post.return_to_play_min_weeks,
+    max_weeks: post.return_to_play_max_weeks,
+    injury_date: post.injury_date,
+    // As of when the post was written: the disclosure was remaining-weeks then.
+    as_of: post.created_at,
+  });
 }
 
 interface ScoredPost {
   post: InjuryPost;
   thresholdMet: boolean;
+  gap: ConflictGap;
   gapWeeks: number | null;
   tier: number;
   corroboration: CorroborationTier;
@@ -147,7 +172,8 @@ async function scorePost(post: InjuryPost, now: Date): Promise<ScoredPost> {
   // the real recency of the coverage. (Live auto-scoring will use the entity.)
   const stalenessDays = daysBetween(post.created_at, now);
 
-  const gapWeeks = conflictGapWeeks(post);
+  const gap = conflictGap(post, now);
+  const gapWeeks = toPromotionGapWeeks(gap);
 
   const result = computePromotionScore({
     composite,
@@ -157,16 +183,21 @@ async function scorePost(post: InjuryPost, now: Date): Promise<ScoredPost> {
     corroboration_tier: corroboration,
   });
 
-  const thresholdMet = gapWeeks != null && gapWeeks >= CONFLICT_GAP_MIN_WEEKS;
+  const thresholdMet = isConflict(gap);
 
-  return { post, thresholdMet, gapWeeks, tier, corroboration, stalenessDays, result };
+  return { post, thresholdMet, gap, gapWeeks, tier, corroboration, stalenessDays, result };
 }
 
 function fmtGap(s: ScoredPost): string {
-  if (s.gapWeeks == null) return 'gap=?';
+  const g = s.gap;
+  if (g.status === 'no_timeline') return 'gap=no team timeline';
+  if (g.status === 'no_anchor') return 'gap=no injury_date anchor';
   const t = s.post.team_timeline_weeks;
-  const o = s.post.return_to_play_max_weeks;
-  return `team ${t}w vs otm ${o}w (Δ${s.gapWeeks >= 0 ? '+' : ''}${s.gapWeeks})`;
+  return (
+    `team ${t}w remaining + ${g.elapsed_weeks}w elapsed = ${g.team_total_weeks}w vs otm ` +
+    `${s.post.return_to_play_min_weeks}-${s.post.return_to_play_max_weeks}w ` +
+    `(${g.status}${g.gap_weeks === 0 ? '' : ` ${g.gap_weeks > 0 ? '+' : ''}${g.gap_weeks}`})`
+  );
 }
 
 function printTable(title: string, rows: ScoredPost[]): void {

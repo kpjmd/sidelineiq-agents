@@ -1,0 +1,1148 @@
+{
+  "helper_version": 1,
+  "_recorded_from": "synthetic boundary cases + every CONFLICT_FLAG row from the live production DB via src/scripts/conflict-gap-dryrun.ts --emit-fixture",
+  "_recorded_at": "2026-09-02",
+  "_note": "Shared by sidelineiq-agents (src/utils/conflict-gap.ts) and sidelineiq-frontend (lib/conflict-gap.ts). The two implementations are byte-identical and this file is what stops them drifting: copy it to both repos together. Live expectations were RECORDED from the fixed helper against real rows, never hand-written. helper_version must equal CONFLICT_GAP_HELPER_VERSION in both copies.",
+  "cases": [
+    {
+      "id": "syn-no-timeline-null",
+      "source": "synthetic",
+      "note": "no team disclosure at all",
+      "input": {
+        "team_timeline_weeks": null,
+        "min_weeks": 39,
+        "max_weeks": 52,
+        "injury_date": "2025-11-02",
+        "as_of": "2026-09-02"
+      },
+      "expected": {
+        "status": "no_timeline",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "syn-no-anchor-missing",
+      "source": "synthetic",
+      "note": "team disclosure but no injury_date",
+      "input": {
+        "team_timeline_weeks": 2,
+        "min_weeks": 39,
+        "max_weeks": 52,
+        "injury_date": null,
+        "as_of": "2026-09-02"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "syn-no-anchor-garbage",
+      "source": "synthetic",
+      "note": "unparseable injury_date is not elapsed zero",
+      "input": {
+        "team_timeline_weeks": 2,
+        "min_weeks": 39,
+        "max_weeks": 52,
+        "injury_date": "not-a-date",
+        "as_of": "2026-09-02"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "syn-no-anchor-future",
+      "source": "synthetic",
+      "note": "an injury date after as_of is a data error, not elapsed zero",
+      "input": {
+        "team_timeline_weeks": 2,
+        "min_weeks": 39,
+        "max_weeks": 52,
+        "injury_date": "2026-12-01",
+        "as_of": "2026-09-02"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "syn-iso-timestamp-anchor",
+      "source": "synthetic",
+      "note": "a full ISO timestamp anchor is sliced to its date",
+      "input": {
+        "team_timeline_weeks": 2,
+        "min_weeks": 39,
+        "max_weeks": 52,
+        "injury_date": "2025-11-02T00:00:00.000Z",
+        "as_of": "2026-09-02"
+      },
+      "expected": {
+        "status": "inside",
+        "elapsed_weeks": 43,
+        "team_total_weeks": 45,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "syn-carryover-inside",
+      "source": "synthetic",
+      "note": "the Bosa shape \u2014 43w elapsed, team says 2 more, window 39-52",
+      "input": {
+        "team_timeline_weeks": 2,
+        "min_weeks": 39,
+        "max_weeks": 52,
+        "injury_date": "2025-11-02",
+        "as_of": "2026-09-02"
+      },
+      "expected": {
+        "status": "inside",
+        "elapsed_weeks": 43,
+        "team_total_weeks": 45,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "syn-boundary-exactly-min",
+      "source": "synthetic",
+      "note": "team-implied total lands EXACTLY on the floor \u2014 inside, not a conflict",
+      "input": {
+        "team_timeline_weeks": 6,
+        "min_weeks": 39,
+        "max_weeks": 52,
+        "injury_date": "2026-01-14",
+        "as_of": "2026-09-02"
+      },
+      "expected": {
+        "status": "inside",
+        "elapsed_weeks": 33,
+        "team_total_weeks": 39,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "syn-shorter-by-2-not-conflict",
+      "source": "synthetic",
+      "note": "2 weeks outside the window is the threshold, not past it",
+      "input": {
+        "team_timeline_weeks": 0,
+        "min_weeks": 10,
+        "max_weeks": 20,
+        "injury_date": "2026-07-08",
+        "as_of": "2026-09-02"
+      },
+      "expected": {
+        "status": "shorter",
+        "elapsed_weeks": 8,
+        "team_total_weeks": 8,
+        "gap_weeks": -2,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "syn-shorter-by-3-conflict",
+      "source": "synthetic",
+      "note": "3 weeks short of the floor crosses the bar",
+      "input": {
+        "team_timeline_weeks": 0,
+        "min_weeks": 10,
+        "max_weeks": 20,
+        "injury_date": "2026-07-15",
+        "as_of": "2026-09-02"
+      },
+      "expected": {
+        "status": "shorter",
+        "elapsed_weeks": 7,
+        "team_total_weeks": 7,
+        "gap_weeks": -3,
+        "is_conflict": true
+      }
+    },
+    {
+      "id": "syn-longer-by-2-not-conflict",
+      "source": "synthetic",
+      "note": "2 weeks past the ceiling is the threshold, not past it",
+      "input": {
+        "team_timeline_weeks": 14,
+        "min_weeks": 10,
+        "max_weeks": 20,
+        "injury_date": "2026-07-08",
+        "as_of": "2026-09-02"
+      },
+      "expected": {
+        "status": "longer",
+        "elapsed_weeks": 8,
+        "team_total_weeks": 22,
+        "gap_weeks": 2,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "syn-longer-by-3-conflict",
+      "source": "synthetic",
+      "note": "3 weeks past the ceiling crosses the bar",
+      "input": {
+        "team_timeline_weeks": 15,
+        "min_weeks": 10,
+        "max_weeks": 20,
+        "injury_date": "2026-07-08",
+        "as_of": "2026-09-02"
+      },
+      "expected": {
+        "status": "longer",
+        "elapsed_weeks": 8,
+        "team_total_weeks": 23,
+        "gap_weeks": 3,
+        "is_conflict": true
+      }
+    },
+    {
+      "id": "syn-fresh-breaking-news",
+      "source": "synthetic",
+      "note": "elapsed zero \u2014 the case the pre-fix code got right by accident",
+      "input": {
+        "team_timeline_weeks": 1,
+        "min_weeks": 6,
+        "max_weeks": 10,
+        "injury_date": "2026-09-01",
+        "as_of": "2026-09-02"
+      },
+      "expected": {
+        "status": "shorter",
+        "elapsed_weeks": 0,
+        "team_total_weeks": 1,
+        "gap_weeks": -5,
+        "is_conflict": true
+      }
+    },
+    {
+      "id": "syn-kittle-total-misread",
+      "source": "synthetic",
+      "note": "the Kittle shape \u2014 a TOTAL emitted into a REMAINING field",
+      "input": {
+        "team_timeline_weeks": 33,
+        "min_weeks": 39,
+        "max_weeks": 52,
+        "injury_date": "2026-01-11",
+        "as_of": "2026-09-02"
+      },
+      "expected": {
+        "status": "longer",
+        "elapsed_weeks": 33,
+        "team_total_weeks": 66,
+        "gap_weeks": 14,
+        "is_conflict": true
+      }
+    },
+    {
+      "id": "syn-boundary-exactly-max",
+      "source": "synthetic",
+      "note": "team-implied total lands EXACTLY on the ceiling \u2014 inside, not a conflict",
+      "input": {
+        "team_timeline_weeks": 12,
+        "min_weeks": 10,
+        "max_weeks": 20,
+        "injury_date": "2026-07-08",
+        "as_of": "2026-09-02"
+      },
+      "expected": {
+        "status": "inside",
+        "elapsed_weeks": 8,
+        "team_total_weeks": 20,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-22ae7ab6",
+      "source": "live",
+      "note": "George Kittle (PENDING_REVIEW)",
+      "input": {
+        "team_timeline_weeks": 33,
+        "min_weeks": 39,
+        "max_weeks": 52,
+        "injury_date": "2026-01-11",
+        "as_of": "2026-09-02T15:03:35.966Z"
+      },
+      "expected": {
+        "status": "longer",
+        "elapsed_weeks": 33,
+        "team_total_weeks": 66,
+        "gap_weeks": 14,
+        "is_conflict": true
+      }
+    },
+    {
+      "id": "live-f87851d7",
+      "source": "live",
+      "note": "Micah Parsons (PENDING_REVIEW)",
+      "input": {
+        "team_timeline_weeks": 41,
+        "min_weeks": 39,
+        "max_weeks": 52,
+        "injury_date": "2024-12-14",
+        "as_of": "2026-09-02T15:00:15.958Z"
+      },
+      "expected": {
+        "status": "longer",
+        "elapsed_weeks": 89,
+        "team_total_weeks": 130,
+        "gap_weeks": 78,
+        "is_conflict": true
+      }
+    },
+    {
+      "id": "live-9adc8110",
+      "source": "live",
+      "note": "Nick Bosa (PENDING_REVIEW)",
+      "input": {
+        "team_timeline_weeks": 1,
+        "min_weeks": 39,
+        "max_weeks": 52,
+        "injury_date": "2025-09-21",
+        "as_of": "2026-09-02T02:34:43.683Z"
+      },
+      "expected": {
+        "status": "inside",
+        "elapsed_weeks": 49,
+        "team_total_weeks": 50,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-61c35c64",
+      "source": "live",
+      "note": "Micah Parsons (PENDING_REVIEW)",
+      "input": {
+        "team_timeline_weeks": 39,
+        "min_weeks": 39,
+        "max_weeks": 52,
+        "injury_date": "2024-12-14",
+        "as_of": "2026-09-02T02:30:28.943Z"
+      },
+      "expected": {
+        "status": "longer",
+        "elapsed_weeks": 89,
+        "team_total_weeks": 128,
+        "gap_weeks": 76,
+        "is_conflict": true
+      }
+    },
+    {
+      "id": "live-6154e7df",
+      "source": "live",
+      "note": "Micah Parsons (REJECTED)",
+      "input": {
+        "team_timeline_weeks": 40,
+        "min_weeks": 39,
+        "max_weeks": 52,
+        "injury_date": "2024-12-14",
+        "as_of": "2026-09-01T20:20:23.554Z"
+      },
+      "expected": {
+        "status": "longer",
+        "elapsed_weeks": 89,
+        "team_total_weeks": 129,
+        "gap_weeks": 77,
+        "is_conflict": true
+      }
+    },
+    {
+      "id": "live-b9292db4",
+      "source": "live",
+      "note": "Tyrell Shavers (PENDING_REVIEW)",
+      "input": {
+        "team_timeline_weeks": 52,
+        "min_weeks": 39,
+        "max_weeks": 52,
+        "injury_date": "2026-01-11",
+        "as_of": "2026-09-01T14:10:43.299Z"
+      },
+      "expected": {
+        "status": "longer",
+        "elapsed_weeks": 33,
+        "team_total_weeks": 85,
+        "gap_weeks": 33,
+        "is_conflict": true
+      }
+    },
+    {
+      "id": "live-59846342",
+      "source": "live",
+      "note": "Mykel Williams (PENDING_REVIEW)",
+      "input": {
+        "team_timeline_weeks": 52,
+        "min_weeks": 39,
+        "max_weeks": 52,
+        "injury_date": "2025-11-02",
+        "as_of": "2026-09-01T02:01:14.256Z"
+      },
+      "expected": {
+        "status": "longer",
+        "elapsed_weeks": 43,
+        "team_total_weeks": 95,
+        "gap_weeks": 43,
+        "is_conflict": true
+      }
+    },
+    {
+      "id": "live-06b3e2cd",
+      "source": "live",
+      "note": "Micah Parsons (REJECTED)",
+      "input": {
+        "team_timeline_weeks": 4,
+        "min_weeks": 39,
+        "max_weeks": 52,
+        "injury_date": "2025-12-14",
+        "as_of": "2026-09-01T01:57:12.759Z"
+      },
+      "expected": {
+        "status": "inside",
+        "elapsed_weeks": 37,
+        "team_total_weeks": 41,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-8171fc62",
+      "source": "live",
+      "note": "Patrick Mahomes (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 39,
+        "min_weeks": 39,
+        "max_weeks": 52,
+        "injury_date": "2025-12-14",
+        "as_of": "2026-08-30T06:59:43.504Z"
+      },
+      "expected": {
+        "status": "longer",
+        "elapsed_weeks": 37,
+        "team_total_weeks": 76,
+        "gap_weeks": 24,
+        "is_conflict": true
+      }
+    },
+    {
+      "id": "live-5c414be1",
+      "source": "live",
+      "note": "Patrick Mahomes (REJECTED)",
+      "input": {
+        "team_timeline_weeks": 38,
+        "min_weeks": 39,
+        "max_weeks": 52,
+        "injury_date": "2025-12-14",
+        "as_of": "2026-08-29T18:37:11.595Z"
+      },
+      "expected": {
+        "status": "longer",
+        "elapsed_weeks": 36,
+        "team_total_weeks": 74,
+        "gap_weeks": 22,
+        "is_conflict": true
+      }
+    },
+    {
+      "id": "live-abc62c15",
+      "source": "live",
+      "note": "Braden Smith (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 1,
+        "min_weeks": 2,
+        "max_weeks": 12,
+        "injury_date": "2026-08-26",
+        "as_of": "2026-08-28T12:00:14.970Z"
+      },
+      "expected": {
+        "status": "shorter",
+        "elapsed_weeks": 0,
+        "team_total_weeks": 1,
+        "gap_weeks": -1,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-5c9ec8c5",
+      "source": "live",
+      "note": "Braden Smith (REJECTED)",
+      "input": {
+        "team_timeline_weeks": 1,
+        "min_weeks": 2,
+        "max_weeks": 16,
+        "injury_date": "2026-08-26",
+        "as_of": "2026-08-27T23:49:32.755Z"
+      },
+      "expected": {
+        "status": "shorter",
+        "elapsed_weeks": 0,
+        "team_total_weeks": 1,
+        "gap_weeks": -1,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-c510ed7c",
+      "source": "live",
+      "note": "Rueben Bain Jr. (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 1,
+        "min_weeks": 1,
+        "max_weeks": 12,
+        "injury_date": "2026-08-25",
+        "as_of": "2026-08-27T11:41:58.200Z"
+      },
+      "expected": {
+        "status": "inside",
+        "elapsed_weeks": 0,
+        "team_total_weeks": 1,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-1a82a002",
+      "source": "live",
+      "note": "Patrick Mahomes (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 1,
+        "min_weeks": 39,
+        "max_weeks": 52,
+        "injury_date": "2025-12-14",
+        "as_of": "2026-08-24T23:36:54.274Z"
+      },
+      "expected": {
+        "status": "shorter",
+        "elapsed_weeks": 36,
+        "team_total_weeks": 37,
+        "gap_weeks": -2,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-4c7f8791",
+      "source": "live",
+      "note": "Shaedon Sharpe (REJECTED)",
+      "input": {
+        "team_timeline_weeks": 26,
+        "min_weeks": 16,
+        "max_weeks": 26,
+        "injury_date": "2026-08-24",
+        "as_of": "2026-08-24T22:12:58.709Z"
+      },
+      "expected": {
+        "status": "inside",
+        "elapsed_weeks": 0,
+        "team_total_weeks": 26,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-3b481805",
+      "source": "live",
+      "note": "E.J. Speed (REJECTED)",
+      "input": {
+        "team_timeline_weeks": 52,
+        "min_weeks": 26,
+        "max_weeks": 39,
+        "injury_date": "2026-05-22",
+        "as_of": "2026-08-23T22:57:11.706Z"
+      },
+      "expected": {
+        "status": "longer",
+        "elapsed_weeks": 13,
+        "team_total_weeks": 65,
+        "gap_weeks": 26,
+        "is_conflict": true
+      }
+    },
+    {
+      "id": "live-fc8371be",
+      "source": "live",
+      "note": "Coby Bryant (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 24,
+        "min_weeks": 15,
+        "max_weeks": 23,
+        "injury_date": "2026-08-07",
+        "as_of": "2026-08-15T19:09:37.308Z"
+      },
+      "expected": {
+        "status": "longer",
+        "elapsed_weeks": 1,
+        "team_total_weeks": 25,
+        "gap_weeks": 2,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-3fb90b6b",
+      "source": "live",
+      "note": "Coby Bryant (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 22,
+        "min_weeks": 14,
+        "max_weeks": 24,
+        "injury_date": "2026-08-08",
+        "as_of": "2026-08-13T20:38:03.600Z"
+      },
+      "expected": {
+        "status": "inside",
+        "elapsed_weeks": 0,
+        "team_total_weeks": 22,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-747127e2",
+      "source": "live",
+      "note": "Coby Bryant (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 26,
+        "min_weeks": 8,
+        "max_weeks": 24,
+        "injury_date": "2026-08-07",
+        "as_of": "2026-08-11T21:37:40.614Z"
+      },
+      "expected": {
+        "status": "longer",
+        "elapsed_weeks": 0,
+        "team_total_weeks": 26,
+        "gap_weeks": 2,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-28eef092",
+      "source": "live",
+      "note": "Coby Bryant (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 9,
+        "min_weeks": 2,
+        "max_weeks": 10,
+        "injury_date": "2026-08-03",
+        "as_of": "2026-08-09T03:44:41.843Z"
+      },
+      "expected": {
+        "status": "inside",
+        "elapsed_weeks": 0,
+        "team_total_weeks": 9,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-5a4d2ab1",
+      "source": "live",
+      "note": "OG Anunoby (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 1,
+        "min_weeks": 1,
+        "max_weeks": 3,
+        "injury_date": null,
+        "as_of": "2026-05-11T13:51:14.902Z"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-63a63faf",
+      "source": "live",
+      "note": "Anthony Edwards (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 1,
+        "min_weeks": 0,
+        "max_weeks": 6,
+        "injury_date": null,
+        "as_of": "2026-05-08T00:33:27.751Z"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-e2e51727",
+      "source": "live",
+      "note": "Caleb Banks (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 3,
+        "min_weeks": 0,
+        "max_weeks": 22,
+        "injury_date": null,
+        "as_of": "2026-04-28T05:54:51.601Z"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-0020c86a",
+      "source": "live",
+      "note": "Daniel Jones (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 0,
+        "min_weeks": 0,
+        "max_weeks": 24,
+        "injury_date": null,
+        "as_of": "2026-04-28T05:51:55.624Z"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-5ff0036b",
+      "source": "live",
+      "note": "Justin Walley (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 0,
+        "min_weeks": 0,
+        "max_weeks": 20,
+        "injury_date": null,
+        "as_of": "2026-04-28T02:25:05.527Z"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-d7540429",
+      "source": "live",
+      "note": "Joel Embiid (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 1,
+        "min_weeks": 4,
+        "max_weeks": 12,
+        "injury_date": null,
+        "as_of": "2026-04-27T23:26:27.221Z"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-ddc41ca7",
+      "source": "live",
+      "note": "Luka Doncic (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 0,
+        "min_weeks": 0,
+        "max_weeks": 5,
+        "injury_date": null,
+        "as_of": "2026-04-27T23:25:47.188Z"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-348751a1",
+      "source": "live",
+      "note": "Zach Tom (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 3,
+        "min_weeks": 0,
+        "max_weeks": 24,
+        "injury_date": null,
+        "as_of": "2026-04-27T07:46:47.230Z"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-7d707e53",
+      "source": "live",
+      "note": "T.J. Edwards (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 3,
+        "min_weeks": 0,
+        "max_weeks": 20,
+        "injury_date": null,
+        "as_of": "2026-04-27T07:45:00.417Z"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-9ddfcc27",
+      "source": "live",
+      "note": "Drew Allar (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 1,
+        "min_weeks": 12,
+        "max_weeks": 20,
+        "injury_date": null,
+        "as_of": "2026-04-25T02:30:34.632Z"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-af88e2fa",
+      "source": "live",
+      "note": "Patrick Mahomes (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 0,
+        "min_weeks": 36,
+        "max_weeks": 52,
+        "injury_date": null,
+        "as_of": "2026-04-24T23:19:44.666Z"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-36b65ed8",
+      "source": "live",
+      "note": "Alec Pierce (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 12,
+        "min_weeks": 10,
+        "max_weeks": 16,
+        "injury_date": null,
+        "as_of": "2026-04-24T23:19:09.368Z"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-576ddb58",
+      "source": "live",
+      "note": "Tyler Bass (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 1,
+        "min_weeks": 36,
+        "max_weeks": 72,
+        "injury_date": null,
+        "as_of": "2026-04-24T21:13:40.429Z"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-f9557cbd",
+      "source": "live",
+      "note": "Quinshon Judkins (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 1,
+        "min_weeks": 8,
+        "max_weeks": 20,
+        "injury_date": null,
+        "as_of": "2026-04-24T18:07:08.679Z"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-e00ee541",
+      "source": "live",
+      "note": "Zach Charbonnet (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 1,
+        "min_weeks": 36,
+        "max_weeks": 52,
+        "injury_date": null,
+        "as_of": "2026-04-24T16:03:37.512Z"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-15bee16b",
+      "source": "live",
+      "note": "Zach Tom (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 0,
+        "min_weeks": 24,
+        "max_weeks": 48,
+        "injury_date": null,
+        "as_of": "2026-04-24T06:38:20.498Z"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-3162a6e1",
+      "source": "live",
+      "note": "Spencer Shrader (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 1,
+        "min_weeks": 36,
+        "max_weeks": 52,
+        "injury_date": null,
+        "as_of": "2026-04-24T00:25:56.370Z"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-351eb18a",
+      "source": "live",
+      "note": "Justin Walley (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 1,
+        "min_weeks": 1,
+        "max_weeks": 8,
+        "injury_date": null,
+        "as_of": "2026-04-24T00:25:26.970Z"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-0907dee2",
+      "source": "live",
+      "note": "Patrick Mahomes (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 0,
+        "min_weeks": 36,
+        "max_weeks": 52,
+        "injury_date": null,
+        "as_of": "2026-04-23T22:22:59.448Z"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-338cdcbd",
+      "source": "live",
+      "note": "Tyler Bass (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 1,
+        "min_weeks": 8,
+        "max_weeks": 16,
+        "injury_date": null,
+        "as_of": "2026-04-23T20:18:53.130Z"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-4a861268",
+      "source": "live",
+      "note": "Nnamdi Madubuike (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 1,
+        "min_weeks": 12,
+        "max_weeks": 52,
+        "injury_date": null,
+        "as_of": "2026-04-23T18:15:59.624Z"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-99be22f0",
+      "source": "live",
+      "note": "Zach Tom (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 0,
+        "min_weeks": 36,
+        "max_weeks": 52,
+        "injury_date": null,
+        "as_of": "2026-04-23T05:59:03.515Z"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-30d65f79",
+      "source": "live",
+      "note": "Spencer Shrader (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 0,
+        "min_weeks": 36,
+        "max_weeks": 52,
+        "injury_date": null,
+        "as_of": "2026-04-22T23:49:54.808Z"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-7d2bcf27",
+      "source": "live",
+      "note": "Aaron Gordon (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 1,
+        "min_weeks": 1,
+        "max_weeks": 3,
+        "injury_date": null,
+        "as_of": "2026-04-22T22:24:38.449Z"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-8e826e02",
+      "source": "live",
+      "note": "Mark Williams (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 1,
+        "min_weeks": 1,
+        "max_weeks": 6,
+        "injury_date": null,
+        "as_of": "2026-04-22T21:23:28.921Z"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    },
+    {
+      "id": "live-46beaf27",
+      "source": "live",
+      "note": "Victor Wembanyama (PUBLISHED)",
+      "input": {
+        "team_timeline_weeks": 0,
+        "min_weeks": 0,
+        "max_weeks": 0,
+        "injury_date": null,
+        "as_of": "2026-04-22T01:12:23.887Z"
+      },
+      "expected": {
+        "status": "no_anchor",
+        "elapsed_weeks": null,
+        "team_total_weeks": null,
+        "gap_weeks": 0,
+        "is_conflict": false
+      }
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 import type { InjuryPostContent, ReturnToPlayEstimate } from '../types.js';
+import { computeConflictGap, elapsedWeeksSince, isConflict } from './conflict-gap.js';
 
 const FARCASTER_CHAR_LIMIT = 320;
 const TWITTER_CHAR_LIMIT = Number(process.env.TWITTER_CHAR_LIMIT) || 280;
@@ -57,7 +58,9 @@ export function formatRtpWindow(
   if (opts.minimal) return `${label}: ${range} from ${injuryDate.slice(0, 10)}`;
 
   const now = opts.now ?? new Date();
-  const elapsed = Math.floor((now.getTime() - t) / (7 * 86_400_000));
+  // Shared with computeConflictGap so the elapsed time printed here and the
+  // elapsed time inside a conflict gap can never disagree.
+  const elapsed = elapsedWeeksSince(injuryDate, now) ?? 0;
   // Under a week elapsed the anchor adds nothing a reader does not assume, and
   // this is the common breaking-news case — keep it short.
   if (elapsed < 1) {
@@ -318,16 +321,57 @@ function buildDeepDiveThread(
   return casts;
 }
 
+/**
+ * The team-vs-OTM gap line, in the one currency both numbers can share.
+ *
+ * `team_timeline_weeks` is weeks REMAINING from the report; `min_weeks`/
+ * `max_weeks` are TOTAL from `injury_date`. Three builders used to print
+ * `|team − max_weeks|`, which is the elapsed time since injury plus the real
+ * divergence — and none of them matched the midpoint rule that fired the flag,
+ * so a post could be flagged with one number and published with another.
+ * Everything now goes through computeConflictGap. See src/utils/conflict-gap.ts.
+ *
+ * Without an anchor there is no number to print. Saying so is the point: the
+ * old code printed a confident delta beside an "OTM read: 39-52w, start
+ * unconfirmed" line that admitted it did not know when the injury happened.
+ */
+export function formatConflictGapLine(
+  content: InjuryPostContent,
+  opts: { compact?: boolean; minimal?: boolean; now?: Date } = {},
+): string {
+  const rtp = content.return_to_play;
+  const label = opts.compact || opts.minimal ? 'Gap' : 'Delta';
+  const gap = computeConflictGap({
+    team_timeline_weeks: content.team_timeline_weeks ?? null,
+    min_weeks: rtp.min_weeks,
+    max_weeks: rtp.max_weeks,
+    injury_date: content.injury_date,
+    as_of: opts.now ?? new Date(),
+  });
+
+  if (gap.status === 'no_timeline') return `${label}: exceeds 2-week conflict threshold`;
+  if (gap.status === 'no_anchor') return `${label}: not computable — injury date unresolved`;
+  if (gap.status === 'inside') return `${label}: team timeline sits inside the OTM window`;
+
+  const magnitude = Math.abs(gap.gap_weeks);
+  const direction = gap.status === 'shorter' ? 'short of' : 'beyond';
+  const anchor = String(content.injury_date).slice(0, 10);
+  const total =
+    opts.minimal
+      ? `team ~${gap.team_total_weeks}w total`
+      : `team ~${gap.team_total_weeks}w total from ${anchor}`;
+  const met = isConflict(gap) ? ' — conflict threshold met' : '';
+  return `${label}: ${magnitude}w ${direction} the OTM window (${total})${met}`;
+}
+
 // CONFLICT_FLAG — Farcaster: single long-form cast with OTM 🚩 sections
 function buildConflictFarcasterCast(content: InjuryPostContent, charLimit: number): string {
   const rtp = content.return_to_play;
   const teamLine = content.team_timeline_weeks != null
-    ? `Team timeline: ${content.team_timeline_weeks} weeks`
+    ? `Team timeline: ${content.team_timeline_weeks} weeks from report`
     : 'Team timeline: not disclosed';
   const otmLine = formatRtpWindow(rtp, content.injury_date, { label: 'OTM read', minimal: true });
-  const deltaLine = content.team_timeline_weeks != null
-    ? `Delta: ${Math.abs(content.team_timeline_weeks - rtp.max_weeks)}+ weeks — conflict threshold met`
-    : 'Delta: exceeds 2-week conflict threshold';
+  const deltaLine = formatConflictGapLine(content, { minimal: true });
 
   const parts = [
     `OTM 🚩 ${content.athlete_name}`,
@@ -355,7 +399,6 @@ function buildConflictTwitterThread(content: InjuryPostContent, charLimit: numbe
   const rtp = content.return_to_play;
   const teamWeeks = content.team_timeline_weeks;
   const teamDisclosure = teamWeeks != null ? `${teamWeeks} weeks` : 'day-to-day';
-  const delta = teamWeeks != null ? Math.abs(teamWeeks - rtp.max_weeks) : null;
 
   const posts: string[] = [
     // Post 1: hook
@@ -368,8 +411,8 @@ function buildConflictTwitterThread(content: InjuryPostContent, charLimit: numbe
       [
         `The injury: ${content.injury_type}`,
         formatRtpWindow(rtp, content.injury_date, { label: 'Standard recovery', compact: true }),
-        `Team disclosed: ${teamDisclosure}`,
-        delta != null ? `The gap: ${delta}+ weeks` : 'Gap: exceeds 2-week conflict threshold',
+        `Team disclosed: ${teamDisclosure} from report`,
+        formatConflictGapLine(content, { compact: true }),
       ].join('\n'),
       charLimit
     ),
@@ -466,7 +509,6 @@ function buildLongFormConflict(content: InjuryPostContent): string[] {
   const rtp = content.return_to_play;
   const teamWeeks = content.team_timeline_weeks;
   const teamDisclosure = teamWeeks != null ? `${teamWeeks} weeks` : 'day-to-day';
-  const delta = teamWeeks != null ? Math.abs(teamWeeks - rtp.max_weeks) : null;
 
   const post1 = [
     `OTM 🚩 ${content.athlete_name} — ${content.team}'s timeline doesn't add up.`,
@@ -476,9 +518,9 @@ function buildLongFormConflict(content: InjuryPostContent): string[] {
     stripMarkdown(content.clinical_summary),
     '',
     'The gap:',
-    `Team disclosed: ${teamDisclosure}`,
+    `Team disclosed: ${teamDisclosure} from report`,
     formatRtpWindow(rtp, content.injury_date, { label: 'OTM read' }),
-    delta != null ? `Delta: ${delta}+ weeks — conflict threshold met` : 'Delta: exceeds 2-week conflict threshold',
+    formatConflictGapLine(content),
     ...(content.conflict_reason ? ['', content.conflict_reason] : []),
   ].join('\n');
 
