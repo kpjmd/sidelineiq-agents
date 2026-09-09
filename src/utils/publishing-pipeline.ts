@@ -527,7 +527,15 @@ interface MCPResponse {
   isError?: boolean;
 }
 
-function isMCPError(data: unknown): boolean {
+/**
+ * `callTool` resolves a tool-level failure as a normal VALUE carrying
+ * `isError`, not a throw — so a caller that does not check this silently treats
+ * a rejected write as a success. Exported because the poller's thread-date
+ * write had exactly that bug: a `YYYY-MM` date failed the MCP schema, the whole
+ * update (date, confidence, sources, needs_date_review) was discarded, and the
+ * poller logged a success line anyway.
+ */
+export function isMCPError(data: unknown): boolean {
   return (data as MCPResponse)?.isError === true;
 }
 
@@ -547,7 +555,7 @@ function extractTextPayload(data: unknown): Record<string, unknown> | null {
  * MCP errors wrap the detail in content[0].text — usually JSON with an
  * `error`, `message`, or `detail` field, sometimes plain text.
  */
-function extractMCPErrorMessage(data: unknown): string {
+export function extractMCPErrorMessage(data: unknown): string {
   try {
     const result = data as MCPResponse;
     const text = result?.content?.[0]?.text;

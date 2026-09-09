@@ -1,0 +1,190 @@
+{
+  "_recorded_from": "live ESPN NFL injuries feed + web_resolve_player, via date-resolution-dryrun --emit-cases",
+  "_recorded_at": "2026-09-09",
+  "_note": "Input spec for --record. Events are RECORDED from the live feed, never hand-authored. `truth` is the date an MD corrected the thread to, where one did.",
+  "cases": [
+    {
+      "label": "Patrick Mahomes",
+      "event": {
+        "athlete_name": "Patrick Mahomes",
+        "sport": "NFL",
+        "team": "Unknown",
+        "injury_description": "Left Leg Knee - ACL Surgery — questionable — Status: Questionable — Kansas City head coach Andy Reid said Tuesday that Mahomes (knee) has a \"pretty good chance\" to start next Monday's season opener versus the Broncos, Sam McDowell of The Kansas City Star reports.",
+        "source_url": "https://site.api.espn.com/apis/site/v2/sports/football/nfl/injuries",
+        "reported_at": "2026-09-08T17:14:00.000Z",
+        "source_name": "espn-nfl",
+        "source_kind": "feed",
+        "athlete_status": "Questionable",
+        "injury_details": {
+          "type": "Knee - ACL",
+          "location": "Leg",
+          "detail": "Surgery",
+          "side": "Left"
+        },
+        "injury_description_long": "Mahomes didn't play in any preseason games, but he was cleared for 11-on-11 work early in camp and steered clear of any setbacks in his recovery from Dec. 15 surgery to repair a torn ACL and LCL in his left knee. Kansas City will release its first injury report Thursday, and assuming the star QB is listed as a full participant, it would confirm that he's on track to start against Denver. Mahomes will likely be playing without one of his top protectors, however, as Reid said that starting left tackle Josh Simmons (back) has a \"good chance\" of sitting out Week 1, per Matt McMullen of the team's official site.",
+        "roster_designation": "QUESTIONABLE",
+        "team_timeline": "Questionable",
+        "is_update": true
+      },
+      "player": {
+        "player_id": "b277221d-58a6-4cdf-9c67-6f8063de2c95",
+        "full_name": "Patrick Mahomes",
+        "prominence_tier": 1,
+        "current_team_id": "aa12eeb4-f1da-43a5-a0ba-4840336e83d8",
+        "current_team_name": "Chiefs",
+        "current_team_abbreviation": "KC",
+        "current_team_synced_at": "2026-09-09T12:44:49.060Z",
+        "retired_at": null,
+        "confidence": "normalized",
+        "match_count": 1
+      },
+      "metadata": {
+        "body_parts": [
+          "knee"
+        ],
+        "primary_body_part": "knee",
+        "laterality": "LEFT",
+        "injury_type_hint": "surgery"
+      },
+      "today": "2026-09-09",
+      "truth": "2025-12-15"
+    },
+    {
+      "label": "Ashton Jeanty",
+      "event": {
+        "athlete_name": "Ashton Jeanty",
+        "sport": "NFL",
+        "team": "Unknown",
+        "injury_description": "Right Leg Ankle Sprain — questionable — Status: Questionable — questionable",
+        "source_url": "https://site.api.espn.com/apis/site/v2/sports/football/nfl/injuries",
+        "reported_at": "2026-09-08T20:42:00.000Z",
+        "source_name": "espn-nfl",
+        "source_kind": "feed",
+        "athlete_status": "Questionable",
+        "injury_details": {
+          "type": "Ankle",
+          "location": "Leg",
+          "detail": "Sprain",
+          "side": "Right"
+        },
+        "injury_description_long": "questionable",
+        "roster_designation": "QUESTIONABLE",
+        "team_timeline": "Questionable",
+        "is_update": true
+      },
+      "player": {
+        "player_id": "9f5f3957-8c3c-488a-808e-884172e246fa",
+        "full_name": "Ashton Jeanty",
+        "prominence_tier": null,
+        "current_team_id": "9af607c5-9b6f-45ad-8f3a-846cb3fa8013",
+        "current_team_name": "Raiders",
+        "current_team_abbreviation": "LV",
+        "current_team_synced_at": "2026-09-09T12:44:49.832Z",
+        "retired_at": null,
+        "confidence": "normalized",
+        "match_count": 1
+      },
+      "metadata": {
+        "body_parts": [
+          "ankle"
+        ],
+        "primary_body_part": "ankle",
+        "laterality": "RIGHT",
+        "injury_type_hint": "sprain"
+      },
+      "today": "2026-09-09",
+      "truth": null
+    },
+    {
+      "label": "Mykel Williams",
+      "event": {
+        "athlete_name": "Mykel Williams",
+        "sport": "NFL",
+        "team": "Unknown",
+        "injury_description": "Right Leg Knee - ACL Surgery — out — Status: Out — out",
+        "source_url": "https://site.api.espn.com/apis/site/v2/sports/football/nfl/injuries",
+        "reported_at": "2026-09-08T20:42:00.000Z",
+        "source_name": "espn-nfl",
+        "source_kind": "feed",
+        "athlete_status": "Out",
+        "injury_details": {
+          "type": "Knee - ACL",
+          "location": "Leg",
+          "detail": "Surgery",
+          "side": "Right"
+        },
+        "injury_description_long": "out",
+        "roster_designation": "PUP-R",
+        "team_timeline": "Out"
+      },
+      "player": {
+        "player_id": "dd060d29-6a43-4979-aac0-c7582a38e537",
+        "full_name": "Mykel Williams",
+        "prominence_tier": null,
+        "current_team_id": "eeac7152-97d3-48fe-b938-8b0db86013a9",
+        "current_team_name": "49ers",
+        "current_team_abbreviation": "SF",
+        "current_team_synced_at": "2026-09-09T12:44:58.540Z",
+        "retired_at": null,
+        "confidence": "normalized",
+        "match_count": 1
+      },
+      "metadata": {
+        "body_parts": [
+          "knee"
+        ],
+        "primary_body_part": "knee",
+        "laterality": "RIGHT",
+        "injury_type_hint": "surgery"
+      },
+      "today": "2026-09-09",
+      "truth": "2025-11-02"
+    },
+    {
+      "label": "Jonathan Greenard",
+      "event": {
+        "athlete_name": "Jonathan Greenard",
+        "sport": "NFL",
+        "team": "Unknown",
+        "injury_description": "Not Specified Torso Pectoral Surgery — questionable — Status: Questionable — The Eagles activated Greenard (pectoral) off the active/PUP list on Aug. 30, Chris McPherson of the team's official site reports.",
+        "source_url": "https://site.api.espn.com/apis/site/v2/sports/football/nfl/injuries",
+        "reported_at": "2026-09-08T00:04:00.000Z",
+        "source_name": "espn-nfl",
+        "source_kind": "feed",
+        "athlete_status": "Questionable",
+        "injury_details": {
+          "type": "Pectoral",
+          "location": "Torso",
+          "detail": "Surgery",
+          "side": "Not Specified"
+        },
+        "injury_description_long": "Greenard is listed on the Eagles' active roster but remains questionable with a pectoral injury he suffered while lifting weights preparing for training camp in July. The shift to the active roster instead of the reserve/PUP list implies the team thinks the linebacker will be ready for game action sooner rather than later, though it remains unclear if Greenard will be able to suit up for the Week 1 contest with the Commanders on Sunday.",
+        "roster_designation": "QUESTIONABLE",
+        "team_timeline": "Questionable",
+        "is_update": true
+      },
+      "player": {
+        "player_id": "b6d529f5-be6d-4ad2-84e1-f62856745c79",
+        "full_name": "Jonathan Greenard",
+        "prominence_tier": null,
+        "current_team_id": "c3da7c60-9ef0-4928-9155-bdb05af7f93b",
+        "current_team_name": "Eagles",
+        "current_team_abbreviation": "PHI",
+        "current_team_synced_at": "2026-09-09T12:44:57.017Z",
+        "retired_at": null,
+        "confidence": "normalized",
+        "match_count": 1
+      },
+      "metadata": {
+        "body_parts": [
+          "pectoral"
+        ],
+        "primary_body_part": "pectoral",
+        "laterality": "UNSPECIFIED",
+        "injury_type_hint": "surgery"
+      },
+      "today": "2026-09-09",
+      "truth": null
+    }
+  ]
+}

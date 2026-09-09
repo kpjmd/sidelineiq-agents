@@ -18,8 +18,33 @@ import { DATE_ANCHORING_SHARED } from './date-anchoring.js';
 import { detectCarryoverSignals } from './carryover.js';
 import type { RawInjuryEvent } from '../../types.js';
 import type { ResolvedPlayerInfo, ExtractedInjuryMetadata } from './fact-validator.js';
+import { buildCalendarBlock } from './season-calendar.js';
+import { validateResolvedDates, type DateViolationCode } from './date-validation.js';
 
 const MODEL = 'claude-sonnet-4-6';
+
+/**
+ * Both passes sample at 0.
+ *
+ * The same event resolved to a different date on different poll cycles —
+ * Patrick Mahomes went 2025-12-14 → 2025-12-15 → 2024-12-15 → 2025-12-15 across
+ * three system writes six hours apart — and every one of those lines logged
+ * `web_search=false`, which rules out the open web as the source of the
+ * variance and leaves sampling. Pass 1 is extraction plus judgement behind a
+ * forced tool call; there is no task-level value in sampling diversity, and the
+ * tail is exactly what produces "2024" one draw in four.
+ *
+ * Not a determinism guarantee, and measurably not sufficient on its own: at
+ * temperature 0 on 2026-09-09, Ashton Jeanty still answered 2026-08-23 /
+ * 2026-08-24 / 2026-08-23 across three real calls. This is the SECONDARY lever.
+ * The primary two are the CALENDAR REFERENCE block (which removes the
+ * arithmetic the model was getting wrong) and not re-resolving a settled date
+ * at all (isSettledThreadDate). Deliberately not an env knob: a hotter date
+ * resolver is not a thing anyone wants, and a flag would double the state space
+ * the determinism fixture has to cover. It is observable instead — the dry-run
+ * reports distinct dates per event.
+ */
+const TEMPERATURE = 0;
 
 // Native server-side web search (dynamic filtering; no beta header, no separate
 // code_execution tool). Capped to keep per-event cost/latency bounded.
@@ -39,7 +64,7 @@ const EMIT_TOOL = {
       injury_date: {
         type: 'string',
         description:
-          'ISO 8601 date (YYYY-MM-DD) when the injury or surgery ORIGINALLY occurred, resolved per the DATE ANCHORING rules. For a carryover — an injury the source describes as an ongoing recovery — this is the original date, never the date of the status update being read. Empty string if undeterminable; emit an empty string rather than substituting the report date, and set injury_date_confidence to \'unknown\'.',
+          'ISO 8601 date (YYYY-MM-DD) when the injury or surgery ORIGINALLY occurred, resolved per the DATE ANCHORING rules. For a carryover — an injury the source describes as an ongoing recovery — this is the original date, never the date of the status update being read. Empty string if undeterminable; emit an empty string rather than substituting the report date, and set injury_date_confidence to \'unknown\'. The YEAR is part of the date and is the most common thing to get wrong here: take it from the CALENDAR REFERENCE block in the user message rather than assuming the current calendar year. A December injury reported in September belongs to the PREVIOUS December, and NFL/NBA/Premier League seasons straddle the year end.',
       },
       injury_date_confidence: {
         type: 'string',
@@ -49,7 +74,8 @@ const EMIT_TOOL = {
       },
       surgery_date: {
         type: 'string',
-        description: 'ISO 8601 date of surgery if distinct and determinable, else empty string.',
+        description:
+          'ISO 8601 date of surgery if distinct and determinable, else empty string. It must fall on or after injury_date and, unless the source says otherwise, in the same season — two dates roughly a year apart at the same time of year mean one of them carries the wrong year.',
       },
       surgery_confirmed: {
         type: 'boolean',
@@ -88,6 +114,13 @@ export interface DateResolutionResult {
   surgery_confirmed: boolean;
   sources: DateResolutionSource[];
   used_web_search: boolean;
+  /**
+   * Shape/plausibility problems found in the model's emit and already acted on
+   * (see date-validation.ts). Reported for logging and the audit trail; they do
+   * not themselves force MD review, because the drop or downgrade they caused
+   * already routes through the existing gates.
+   */
+  violations: DateViolationCode[];
 }
 
 // Minimal structural type so tests can inject a fake without pulling the full
@@ -134,7 +167,7 @@ ${DATE_ANCHORING_SHARED}
 
 CONFIDENCE TIERS (set injury_date_confidence):
 - confirmed = an explicit calendar date stated by the team or a Tier-1 credentialed reporter (Shams, Woj, Rapoport, Pelissero, Schefter equivalent).
-- probable = a relative reference ("Wednesday", "yesterday", "today") resolvable against the report date, OR "underwent surgery [month]" with an unambiguous year.
+- probable = a relative reference ("Wednesday", "yesterday", "today") resolvable against the report date, OR "underwent surgery [month]" whose year is fixed by the CALENDAR REFERENCE block. A month whose year you had to infer is 'probable' at best, never 'confirmed'.
 - possible = only a vague window ("a few weeks ago", "earlier this season").
 - unknown = no usable date anchor at all.
 - For a FEED-kind source, the row's own timestamp NEVER justifies 'probable' or 'confirmed' on its own — textual corroboration in the source narrative is required. A carryover with no resolvable original date is 'unknown', not a confident guess at the report date.
@@ -162,7 +195,15 @@ function buildUserMessage(input: DateResolutionInput, withSearch: boolean): stri
     ? `Roster designation: ${event.roster_designation}\n`
     : '';
 
+  // Computed, and stated to the model as authoritative. The arithmetic it
+  // replaces — "which December is the most recent one", "does the NFL season
+  // straddle the year end", "what local day was this stamped" — is precisely
+  // the arithmetic the model got wrong in production.
+  const calendar = buildCalendarBlock({ today, reportedAt, sport: event.sport });
+
   const base = `Resolve the injury/surgery date.
+${calendar}
+
 Athlete: ${player.full_name}
 Team: ${player.current_team_name ?? event.team}
 Sport: ${event.sport}
@@ -226,24 +267,35 @@ function extractSearchSources(blocks: AnthropicBlock[]): DateResolutionSource[] 
   return sources;
 }
 
+/**
+ * Normalize the model's emit, then VALIDATE it.
+ *
+ * Validation happens here rather than at the call site so it covers both passes
+ * and, critically, runs BEFORE the Pass-1 fast path reads the confidence. One
+ * behaviour change worth knowing: a malformed Pass-1 emit now falls through to
+ * the web-search pass instead of being returned, because dropping the date
+ * drops the confidence with it. That costs one extra search on a rare path.
+ */
 function toResult(
   emit: Record<string, unknown> | null,
   sources: DateResolutionSource[],
   usedWebSearch: boolean,
+  today: string,
 ): DateResolutionResult {
   const injuryDateRaw = typeof emit?.injury_date === 'string' ? emit.injury_date.trim() : '';
   const surgeryDateRaw = typeof emit?.surgery_date === 'string' ? emit.surgery_date.trim() : '';
   const confidence = (emit?.injury_date_confidence as DateConfidence) ?? 'unknown';
-  return {
+  const validated = validateResolvedDates({
     injury_date: injuryDateRaw || null,
     injury_date_confidence: ['unknown', 'possible', 'probable', 'confirmed'].includes(confidence)
       ? confidence
       : 'unknown',
     surgery_date: surgeryDateRaw || null,
     surgery_confirmed: emit?.surgery_confirmed === true,
-    sources,
-    used_web_search: usedWebSearch,
-  };
+    today,
+  });
+
+  return { ...validated, sources, used_web_search: usedWebSearch };
 }
 
 /**
@@ -269,6 +321,7 @@ export async function resolveInjuryDate(
   const pass1 = await anthropic.messages.create({
     model: MODEL,
     max_tokens: 2048,
+    temperature: TEMPERATURE,
     system,
     tools: [EMIT_TOOL],
     tool_choice: { type: 'tool', name: 'emit_date_resolution' },
@@ -276,7 +329,7 @@ export async function resolveInjuryDate(
   });
 
   const pass1Emit = extractEmit(pass1.content ?? []);
-  const pass1Result = toResult(pass1Emit, apiSource, false);
+  const pass1Result = toResult(pass1Emit, apiSource, false, input.today);
 
   if (
     pass1Result.injury_date_confidence === 'probable' ||
@@ -290,6 +343,7 @@ export async function resolveInjuryDate(
   const pass2Params = {
     model: MODEL,
     max_tokens: 4096,
+    temperature: TEMPERATURE,
     system,
     tools: [WEB_SEARCH_TOOL, EMIT_TOOL],
     tool_choice: { type: 'auto' as const },
@@ -313,5 +367,5 @@ export async function resolveInjuryDate(
   const pass2Emit = extractEmit(allBlocks);
   const sources = [...apiSource, ...extractSearchSources(allBlocks)];
   // Fall back to Pass 1's emit if Pass 2 never emitted (e.g. exhausted continuations).
-  return toResult(pass2Emit ?? pass1Emit, sources, true);
+  return toResult(pass2Emit ?? pass1Emit, sources, true, input.today);
 }

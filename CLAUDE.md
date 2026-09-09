@@ -365,7 +365,126 @@ be zero is rows whose `injury_description` changed.
 `injury_date_unresolved` forces MD review only on the PAIR: gating carryover
 evidence AND `injury_date_confidence` of `unknown`/`possible`. Either alone is
 normal traffic. It is in `MD_REVIEW_ANNOTATE_ONLY_CODES`, so it can be downgraded
-without a deploy.
+without a deploy. It is NOT consulted on the `md_manual` skip path — `possible`
+there is the MD's own considered answer, and re-queueing it every cycle is noise.
+
+### A settled date is not re-resolved
+
+`resolveInjuryDate` is two Sonnet calls (four with a web search) and the poller ran it
+on EVERY cycle that reached it. There was no "already resolved, leave it alone" check
+anywhere, and the call is **nondeterministic**, so the same event resolved to a different
+date on different cycles. Patrick Mahomes went `2025-12-14 → 2025-12-15 → 2024-12-15 →
+2025-12-15` across three system writes six hours apart; Danny Pinter flipped 08-19 ↔ 08-20
+four times; and the system twice reverted a date an MD had hand-corrected (Kamara,
+Higgins), once seven minutes after the edit (Parsons).
+
+All three `[ThreadManager]` lines for the Mahomes ladder logged `web_search=false`, so this
+is **sampling variance on Pass 1**, not the open web. `temperature: 0` is now set on both
+passes and is the SECONDARY lever — measured at temperature 0, Ashton Jeanty still answered
+2026-08-23 / 2026-08-24 / 2026-08-23 across three real calls. **No prompt or sampling
+setting makes an LLM deterministic; not asking twice is what does.**
+
+`isSettledThreadDate` (`date-anchoring.ts`, NOT the poller — `date-anchor-choice.test.ts`
+greps poller.ts for a re-inlined confidence ternary) settles on:
+- **`md_manual` at any confidence, including with a null date.** The mcp guard already
+  nulls every date field of a system write once md_manual is stored, so this deletes work
+  whose result was already discarded — not a policy change.
+- **a real `YYYY-MM-DD` date at `probable` or `confirmed`** — the same bar
+  `chooseDateAnchor` already uses, from the same `ANCHOR_CONFIDENCES` set so "settled" and
+  "wins the anchor" cannot drift apart.
+
+A thread with **no** date is never settled whatever its confidence claims, so first
+establishment always resolves and `updateThreadDates`' first `otm_projection_reanchored`
+still fires. Live: 74 of 243 ACTIVE threads (30%) are settled; replaying all 31
+`otm_projection_reanchored` rows, **19 of 19 system date changes are suppressed and 0
+survive**.
+
+`resolveThreadAndDates` reads the thread BEFORE resolving, and only when `dedup.entityId`
+was already set. Net cost: −1 to −4 Anthropic calls and −1 write on the settled path, +1
+indexed read on the rest. The post-write read-back is still there and is NOT redundant —
+the md_manual guard can refuse part of a write.
+
+`resolvedConfidence` on the skip path is the **stored** confidence, not `unknown`. The
+JSDoc invariant it protects (a stale `confirmed` masking a resolution that just failed) is
+about the resolving path; on the skip path nothing resolved. `unknown` would make
+`shouldForceDateReview` route every carryover event on an anchored thread to MD review
+every cycle forever, and would write that lie into the audit trail the dry-run replays.
+
+**The trade-off: a first-pass wrong-but-confident date now freezes.** Three things defend
+against it, and they are why the skip shipped LAST — `validateResolvedDates` caps an
+incoherent emit below `probable`; `assessAnchorDivergence` un-settles a year-wrong thread;
+and the MD can correct it, permanently now. The re-roll was never a repair mechanism: 31
+reanchor rows across 13 threads converged on nothing.
+
+`DATE_RESOLUTION_RESOLVE_MODE=skip_settled|always` (default `skip_settled`) restores the old
+behaviour without a deploy. Observable: `date_settled=` in the poll summary. Re-verify with
+`src/scripts/date-resolution-dryrun.ts`.
+
+### The year is the largest single date error, and it fails silently
+
+There was **no year logic anywhere** — one clause in the confidence ladder ("with an
+unambiguous year") presupposed the judgement it asked for, and nothing said an NFL/NBA/PL
+season straddles the calendar year. With today = 2026-09-09 every December injury resolved
+to the December BEFORE the most recent one, and every MD correction was exactly +1 year
+(Parsons, Mahomes, Sewell). A year wrong makes elapsed time 52 weeks wrong and can invert
+a published CONFLICT_FLAG.
+
+Three things carry the fix:
+- **`season-calendar.ts` computes a CALENDAR REFERENCE block** in code — the most recent
+  past-or-current occurrence of every month, the season spans with their straddle, NFL week
+  numbers (Labor Day + 3 days = Week 1), and the LOCAL calendar date of `reported_at`. It is
+  prepended to BOTH resolver passes and the prompt says it is authoritative. Handing the
+  model the arithmetic beats asking it to redo the step it demonstrably got wrong. Measured
+  after: Mahomes' "Dec. 15 surgery" resolved to 2025-12-15 three times out of three.
+  `SPORT_SEASON_SHAPES` is deliberately NOT `significance-config.json`'s `sport_seasons` —
+  those are threshold knobs, and binding the prompt to them would let a threshold edit
+  rewrite the calendar. A test pins the two together on the month boundaries.
+- **The YEAR RESOLUTION bullets in `DATE_ANCHORING_SHARED`.** Appended, so every existing
+  bullet stays byte-identical. The CALENDAR REFERENCE reference is phrased CONDITIONALLY
+  because `agent.ts` interpolates the same constant and carries no block — OTM got the year
+  right in both live divergences, so adding one there would change 100% of post prompts to
+  fix a defect not observed, and would destroy the independence the cross-check below needs.
+- **`assessAnchorDivergence` (`date-anchoring.ts`)** acts on a signal the poller was already
+  logging and ignoring. `year_apart` = 300-430 days apart AND within 30 days on the
+  month/day circle. Both bars matter: a genuinely delayed procedure happens ~a year later
+  but virtually never at the same time of year. 30 rather than 5 because the two sides are
+  not the same quantity — OTM sometimes anchors on the surgery; Parsons (resolver 2024-12-14
+  vs OTM 2025-12-29, 380d/15d) is the case that sets it, and ±5 missed him. On a hit the
+  poller re-chooses through `chooseDateAnchor` with the confidence demoted rather than
+  adding a "prefer OTM" branch, forces review under `date_anchor_year_divergence`, and
+  persists the downgrade with **no `injury_date` key** so COALESCE keeps the stored date
+  while the thread drops out of the settled set. Without that persistence the wrong
+  `confirmed` would freeze forever.
+
+It does NOT pick a winner. A divergence says one of them is wrong, not which; n = 2 on OTM
+being right is not a rule.
+
+### A malformed date silently discarded the whole thread write
+
+`toResult` did no validation — it only trimmed — so `injury_date=2026-07` (Greenard) and
+`surgery=2025-11` (Mykel Williams) reached the MCP call verbatim. `z.string().date()`
+rejects those, the MCP SDK reports a rejected tool call as a normal **value** carrying
+`isError`, and neither `callTool` nor the poller's step-3 write looked. The ENTIRE update —
+date, confidence, sources, `needs_date_review` — was discarded while the poller logged a
+success line. Williams' audit row records `previous_injury_date: null` when an MD
+hand-entered 2025-11-02 two hours after the resolver had "resolved" it to exactly that.
+
+`validateResolvedDates` (`date-validation.ts`) runs inside `toResult`, so it covers both
+passes and runs BEFORE the Pass-1 fast path reads the confidence. **DROP** for structurally
+unusable (malformed, >today+1, older than 6 years — "an absent date is recoverable
+downstream; a confidently wrong one is not"); **DOWNGRADE** for merely incoherent (surgery
+before injury; injury and surgery ~a year apart on the same calendar day, the Mahomes
+signature), because the value may be right and the MD needs the evidence. A tier above
+`unknown` with no date is forced to `unknown` — the poller sets `needs_date_review` on
+`unknown` alone, so anything else leaves a dateless thread unflagged. `2026-07` is never
+salvaged to `2026-07-01`: inventing a day is the confidently-wrong date the anchoring rules
+forbid. One behaviour change: a malformed Pass-1 emit now falls through to the web-search
+pass.
+
+The write is now loud — `isMCPError` / `extractMCPErrorMessage` are exported from
+`publishing-pipeline.ts` (do not write a fifth copy), `[ThreadManager] THREAD DATE WRITE
+REJECTED` is logged, `thread_date_write_failed` forces MD review, and poller's `unwrapMCP`
+throws on `isError` like `index.ts`'s.
 
 ### RTP weeks are TOTAL from injury_date
 
@@ -499,7 +618,8 @@ score and no threshold change can un-gate a post once it is set. Sites:
 `x_insider` (poller.ts, env-gated), `athlete_name_drift`, `fact_soft_fail:*`
 (the 8 soft codes), `laterality_thread_mismatch`, `content_type_drift`,
 `post_team_mismatch`, `post_team_unverifiable`, `injury_date_unresolved`,
-`team_timeline_anchor_ambiguous`. Between Aug 16-18 2026 **every**
+`team_timeline_anchor_ambiguous`, `date_anchor_year_divergence`,
+`thread_date_write_failed`. Between Aug 16-18 2026 **every**
 routed post went through this path, never through the confidence gate.
 
 Two levers, both fail-closed by default (`injury_date_unresolved` is governed by

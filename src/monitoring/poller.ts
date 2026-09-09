@@ -16,7 +16,13 @@ import {
   assessTimelineAnchorAmbiguity,
   type InjuryThreadContext,
 } from '../agents/injury-intelligence/agent.js';
-import { chooseDateAnchor } from '../agents/injury-intelligence/date-anchoring.js';
+import {
+  chooseDateAnchor,
+  isSettledThreadDate,
+  assessAnchorDivergence,
+  type SettledReason,
+  type AnchorDivergence,
+} from '../agents/injury-intelligence/date-anchoring.js';
 import { resolveInjuryDate } from '../agents/injury-intelligence/date-resolution.js';
 import type { DateConfidence } from '../agents/injury-intelligence/date-resolution.js';
 import {
@@ -25,7 +31,12 @@ import {
   type CarryoverSignals,
 } from '../agents/injury-intelligence/carryover.js';
 import { checkForExisting, parseListPostsResponse, type DedupResult } from './deduplicator.js';
-import { publishInjuryPost, getMDReviewThreshold } from '../utils/publishing-pipeline.js';
+import {
+  publishInjuryPost,
+  getMDReviewThreshold,
+  isMCPError,
+  extractMCPErrorMessage,
+} from '../utils/publishing-pipeline.js';
 import {
   loadSignificanceData,
   lookupAthleteTier,
@@ -363,6 +374,12 @@ interface PollSummary {
   timeline_anchor_review: number;
   timeline_anchor_annotated: number;
   date_carryover_annotated: number;
+  /** Events whose thread already held a settled date, so the resolver was skipped. */
+  date_resolution_skipped: number;
+  /** web_thread_update_dates calls the server rejected (previously silent). */
+  thread_date_write_failed: number;
+  /** Resolver and OTM disagreed by roughly a year at the same time of year. */
+  date_year_divergence: number;
   /** Concussion-only events dropped by the tier rule, before any model call. */
   dropped_concussion: number;
   /** Events where the classifier's athlete disagreed with the source's. */
@@ -417,6 +434,15 @@ interface MCPResultLike {
 }
 
 function unwrapMCP<T>(res: unknown): T | null {
+  // A tool-level failure arrives as a VALUE carrying isError, never a throw, so
+  // without this a REJECTED call is indistinguishable from an empty success.
+  // Thrown rather than folded into the null return (which is for "no payload"),
+  // and outside the try so the catch below cannot swallow it again. Every
+  // caller is inside a try/catch that degrades, so this turns a silent wrong
+  // answer into a logged one. Mirrors index.ts.
+  if (isMCPError(res)) {
+    throw new Error(`MCP tool error: ${extractMCPErrorMessage(res)}`);
+  }
   try {
     const text = (res as MCPResultLike)?.content?.[0]?.text;
     if (!text) return null;
@@ -603,6 +629,37 @@ export function partitionSoftFailures(
 
 /** The code recorded on forceMDReviewReason, in the audit row, and in the log. */
 export const DATE_REVIEW_CODE = 'injury_date_unresolved';
+
+/**
+ * The thread's date write was REJECTED by the server, so the post's clinical
+ * timeline rests on whatever the thread already held (often nothing) rather
+ * than on what was just resolved. A human should look before it publishes.
+ */
+export const DATE_WRITE_FAILED_CODE = 'thread_date_write_failed';
+
+/**
+ * The resolver's injury date and OTM's disagree by roughly a year at the same
+ * time of year. Two independent readings of "when did this happen" that far
+ * apart mean one is wrong, and a 52-week error inverts every RTP judgement
+ * downstream — not a question a machine should settle.
+ */
+export const DATE_YEAR_DIVERGENCE_CODE = 'date_anchor_year_divergence';
+
+/**
+ * Force MD review on a year-scale anchor divergence.
+ *
+ * No conditions of its own — assessAnchorDivergence has already established the
+ * signature, and the caller only reaches here on 'year_apart'. It exists as a
+ * function purely so the code passes through parseAnnotateOnlyCodes like every
+ * other soft gate, and can therefore be downgraded to an annotation without a
+ * deploy via MD_REVIEW_ANNOTATE_ONLY_CODES.
+ */
+export function shouldForceYearDivergenceReview(
+  env: string | undefined = process.env.MD_REVIEW_ANNOTATE_ONLY_CODES,
+): { fires: boolean; force: boolean; annotate: boolean } {
+  const annotateOnly = parseAnnotateOnlyCodes(env).has(DATE_YEAR_DIVERGENCE_CODE);
+  return { fires: true, force: !annotateOnly, annotate: annotateOnly };
+}
 
 /**
  * Force MD review when the source shows a CARRYOVER injury AND the date
@@ -796,6 +853,12 @@ interface ThreadEntityRow {
   status: 'ACTIVE' | 'RESOLVED' | 'RETIRED';
   body_part: string | null;
   laterality: 'LEFT' | 'RIGHT' | 'BILATERAL' | 'UNSPECIFIED' | null;
+  // Both are returned by web_thread_get and were simply omitted here. Without
+  // date_resolution_sources the poller cannot see that a thread is MD-curated,
+  // which is why it spent two Sonnet calls per cycle producing a value the MCP
+  // md_manual guard then threw away.
+  date_resolution_sources: Array<{ url?: string; title?: string; stage: string }> | null;
+  needs_date_review: boolean | null;
 }
 interface ThreadUpdateRow {
   team_timeline_weeks: number | null;
@@ -804,7 +867,134 @@ interface ThreadUpdateRow {
   created_at: string;
 }
 
-async function resolveThreadAndDates(
+/**
+ * Assemble the InjuryThreadContext OTM consumes from a web_thread_get payload.
+ *
+ * Extracted so the resolving path and the settled/skip path build the context
+ * identically — the skip path must not be a second, subtly different assembly,
+ * which is how a "cheap shortcut" branch quietly stops seeing the trajectory
+ * that compression detection reads.
+ *
+ * `fallback` is what to use when the read returned nothing: this cycle's
+ * resolution on the resolving path, the pre-read's own row on the skip path.
+ */
+function assembleThreadContext(
+  event: RawInjuryEvent,
+  metadata: import('../agents/injury-intelligence/fact-validator.js').ExtractedInjuryMetadata,
+  thread: { entity?: ThreadEntityRow; updates?: ThreadUpdateRow[] } | null,
+  fallback: {
+    injury_date: string | null;
+    injury_date_confidence: DateConfidence;
+    surgery_date: string | null;
+    surgery_confirmed: boolean;
+  },
+): InjuryThreadContext {
+  const priorFromDb = (thread?.updates ?? [])
+    .map((u) => ({
+      reported_weeks: u.team_timeline_weeks ?? null,
+      otm_min_weeks: u.otm_min_weeks ?? null,
+      severity: u.severity_at_time ?? null,
+      at: u.created_at,
+    }))
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at)); // list is newest-first
+
+  // Append the current event's reported timeline in-memory (the persisted row
+  // is written post-publish by maintainEntity) so compression detection sees it.
+  const currentReported = event.team_timeline ? parseTeamTimeline(event.team_timeline) : null;
+  const prior_timelines = [
+    ...priorFromDb,
+    {
+      reported_weeks: currentReported,
+      otm_min_weeks: null,
+      severity: null,
+      at: event.reported_at.toISOString(),
+    },
+  ];
+
+  const entity = thread?.entity;
+  return {
+    injury_date: entity?.injury_date ?? fallback.injury_date,
+    injury_date_confidence: entity?.injury_date_confidence ?? fallback.injury_date_confidence,
+    surgery_date: entity?.surgery_date ?? fallback.surgery_date,
+    surgery_confirmed: entity?.surgery_confirmed ?? fallback.surgery_confirmed,
+    status: entity?.status ?? 'ACTIVE',
+    // Prefer the entity's stored (established) values over this event's
+    // freshly-extracted ones — the thread's history is the ground truth.
+    body_part: entity?.body_part ?? metadata.primary_body_part ?? null,
+    laterality: entity?.laterality ?? metadata.laterality ?? null,
+    prior_timelines,
+  };
+}
+
+/**
+ * How the resolver treats a thread that already holds a date.
+ *
+ * `skip_settled` (default) leaves a settled date alone. `always` restores the
+ * pre-fix behaviour of re-resolving on every cycle, without a deploy, if a bad
+ * batch ever needs re-rolling. Same shape as DEFER_CORROBORATION_MODE and
+ * ATHLETE_REANCHOR_MODE.
+ */
+export function resolveMode(
+  env: string | undefined = process.env.DATE_RESOLUTION_RESOLVE_MODE,
+): 'skip_settled' | 'always' {
+  return env?.trim().toLowerCase() === 'always' ? 'always' : 'skip_settled';
+}
+
+/**
+ * Downgrade a thread's date confidence to 'possible' and put it on the MD
+ * worklist, without touching the date itself.
+ *
+ * `injury_date` is deliberately ABSENT from the payload: every column in
+ * updateThreadDates is COALESCE(param, column), so omitting it preserves what
+ * is stored while the confidence drop demotes it below chooseDateAnchor's bar
+ * and out of isSettledThreadDate's set. Sending the date back would be a no-op
+ * at best and a re-anchor at worst.
+ *
+ * Never fatal: a failure here leaves the thread as it was, which is the same
+ * state the code was in before this check existed.
+ */
+export async function unsettleThreadDate(
+  entityId: string,
+  event: RawInjuryEvent,
+  divergence: AnchorDivergence,
+): Promise<void> {
+  if (!isServerAvailable('web')) return;
+  try {
+    const res = await callTool('web', 'web_thread_update_dates', {
+      entity_id: entityId,
+      injury_date_confidence: 'possible',
+      needs_date_review: true,
+    });
+    if (isMCPError(res)) {
+      console.error(
+        `[ThreadManager] date downgrade REJECTED for ${event.athlete_name} ` +
+          `entity=${entityId}: ${extractMCPErrorMessage(res)}`,
+      );
+      return;
+    }
+    await callTool('web', 'web_audit_append', {
+      actor: 'system',
+      actor_id: 'date-resolver',
+      entity_type: 'injury_thread',
+      entity_id: entityId,
+      action: 'date_anchor_year_divergence',
+      payload: {
+        athlete: event.athlete_name,
+        sport: event.sport,
+        resolver_date: divergence.resolver_date,
+        otm_date: divergence.otm_date,
+        days_apart: divergence.days_apart,
+        downgraded_to: 'possible',
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[ThreadManager] date downgrade failed for ${event.athlete_name}: ${message}`);
+  }
+}
+
+// Exported for tests (like maintainEntity / checkContentTypeDrift).
+export async function resolveThreadAndDates(
   event: RawInjuryEvent,
   validation: ValidationResult,
   dedup: DedupResult,
@@ -813,11 +1003,33 @@ async function resolveThreadAndDates(
   thread: InjuryThreadContext;
   carryover: CarryoverSignals;
   /**
-   * THIS cycle's resolution confidence, not the thread's. The thread read-back
-   * lets a persisted entity value win (see below), so a stale 'confirmed' from
-   * an earlier cycle would otherwise mask a resolution that just failed.
+   * The confidence that GOVERNS this cycle's date decision.
+   *
+   * On the RESOLVING path that is this cycle's resolution, not the thread's:
+   * the read-back lets a persisted entity value win, so a stale 'confirmed'
+   * from an earlier cycle must never stand in for a resolution that just
+   * failed.
+   *
+   * On the SKIP path no resolution ran, so there is nothing to mask, and the
+   * stored value IS the governing one. That is safe by construction rather than
+   * by convention — the skip is only reachable when the stored state is
+   * probable/confirmed/md_manual, which is exactly where "the thread's
+   * confidence" and "this cycle's governing confidence" are the same claim.
+   * `resolutionSource` says which path produced it.
+   *
+   * Returning 'unknown' on the skip path would be actively wrong in both of its
+   * consumers: shouldForceDateReview fires on unknown|possible plus gating
+   * carryover, so every carryover event on an already-anchored thread would
+   * route to MD review every cycle forever, asserting the opposite of the
+   * truth; and auditCarryover would write that same lie into the audit trail.
    */
   resolvedConfidence: DateConfidence;
+  /** Which path produced `resolvedConfidence`. */
+  resolutionSource: 'resolver' | 'thread_settled';
+  /** Why the resolver was skipped, when it was. */
+  skipReason: SettledReason | null;
+  /** True when web_thread_update_dates rejected the write. */
+  dateWriteFailed: boolean;
 } | null> {
   const player = validation.resolvedPlayer;
   if (!player) return null;
@@ -838,7 +1050,42 @@ async function resolveThreadAndDates(
     }
     if (!entityId) return null;
 
-    // 2. Resolve the injury/surgery date (Pass 1 source-only, Pass 2 web search).
+    // 2. Has this thread already settled on a date? Only worth asking when the
+    //    entity pre-existed — one freshly created two lines up holds nothing.
+    //    This read is the cost of the change: +1 indexed lookup on the ~70% of
+    //    threads that still resolve, against -1 to -4 Anthropic calls and -1
+    //    write on the ~30% that do not.
+    let prior: { entity?: ThreadEntityRow; updates?: ThreadUpdateRow[] } | null = null;
+    if (dedup.entityId && resolveMode() === 'skip_settled') {
+      prior = unwrapMCP<{ entity: ThreadEntityRow; updates: ThreadUpdateRow[] }>(
+        await callTool('web', 'web_thread_get', { entity_id: entityId }),
+      );
+    }
+    const settled = isSettledThreadDate(prior?.entity);
+
+    if (settled.settled && prior?.entity) {
+      console.log(
+        `[ThreadManager] ${event.athlete_name} (${event.sport}) — entity=${entityId} ` +
+          `date settled (reason=${settled.reason} injury_date=${prior.entity.injury_date ?? 'none'} ` +
+          `confidence=${prior.entity.injury_date_confidence}) — resolver skipped`,
+      );
+      return {
+        entityId,
+        thread: assembleThreadContext(event, metadata, prior, {
+          injury_date: prior.entity.injury_date,
+          injury_date_confidence: prior.entity.injury_date_confidence,
+          surgery_date: prior.entity.surgery_date,
+          surgery_confirmed: prior.entity.surgery_confirmed,
+        }),
+        carryover,
+        resolvedConfidence: prior.entity.injury_date_confidence,
+        resolutionSource: 'thread_settled',
+        skipReason: settled.reason,
+        dateWriteFailed: false,
+      };
+    }
+
+    // 3. Resolve the injury/surgery date (Pass 1 source-only, Pass 2 web search).
     const resolution = await resolveInjuryDate({
       event,
       player,
@@ -847,8 +1094,8 @@ async function resolveThreadAndDates(
       today: new Date().toISOString().slice(0, 10),
     });
 
-    // 3. Persist dates + provenance; flag for MD review when still unknown.
-    await callTool('web', 'web_thread_update_dates', {
+    // 4. Persist dates + provenance; flag for MD review when still unknown.
+    const writeRes = await callTool('web', 'web_thread_update_dates', {
       entity_id: entityId,
       injury_date: resolution.injury_date ?? undefined,
       injury_date_confidence: resolution.injury_date_confidence,
@@ -863,60 +1110,52 @@ async function resolveThreadAndDates(
           resolution.injury_date_confidence === 'possible'),
     });
 
+    // A rejected tool call resolves as a VALUE, so this used to pass unnoticed
+    // and the success line below printed anyway — while the ENTIRE update (date,
+    // confidence, sources, needs_date_review) had been discarded. Live: a
+    // 'YYYY-MM' surgery date failed the schema and an MD had to enter Mykel
+    // Williams' date by hand two hours later. Loud, and the event routes to a
+    // human, but we still read the thread back — the context is worth having.
+    const dateWriteFailed = isMCPError(writeRes);
+    if (dateWriteFailed) {
+      console.error(
+        `[ThreadManager] THREAD DATE WRITE REJECTED for ${event.athlete_name} ` +
+          `(${event.sport}) entity=${entityId}: ${extractMCPErrorMessage(writeRes)} — ` +
+          `injury_date=${resolution.injury_date ?? 'none'} ` +
+          `surgery_date=${resolution.surgery_date ?? 'none'} ` +
+          `violations=${resolution.violations.join('|') || 'none'}`,
+      );
+    }
+
     const webSources = resolution.sources.filter((s) => s.stage === 'web_search').length;
     console.log(
       `[ThreadManager] ${event.athlete_name} (${event.sport}) — entity=${entityId} ` +
         `injury_date=${resolution.injury_date ?? 'none'} confidence=${resolution.injury_date_confidence} ` +
         `surgery=${resolution.surgery_confirmed ? (resolution.surgery_date ?? 'confirmed') : 'no'} ` +
         `web_search=${resolution.used_web_search} web_sources=${webSources} ` +
-        `carryover=${carryover.strength}${carryover.codes.length ? `[${carryover.codes.join('|')}]` : ''}`,
+        `carryover=${carryover.strength}${carryover.codes.length ? `[${carryover.codes.join('|')}]` : ''}` +
+        `${resolution.violations.length ? ` violations=${resolution.violations.join('|')}` : ''}`,
     );
 
-    // 4. Read the thread back (entity with dates + trajectory) and assemble context.
+    // 5. Read the thread back. Not redundant with the pre-read above: the write
+    //    changed the row, and the MCP md_manual guard may have refused part of
+    //    it, so only a post-write read reflects what is actually stored.
     const getRes = await callTool('web', 'web_thread_get', { entity_id: entityId });
     const thread = unwrapMCP<{ entity: ThreadEntityRow; updates: ThreadUpdateRow[] }>(getRes);
 
-    const priorFromDb = (thread?.updates ?? [])
-      .map((u) => ({
-        reported_weeks: u.team_timeline_weeks ?? null,
-        otm_min_weeks: u.otm_min_weeks ?? null,
-        severity: u.severity_at_time ?? null,
-        at: u.created_at,
-      }))
-      .sort((a, b) => Date.parse(a.at) - Date.parse(b.at)); // list is newest-first
-
-    // Append the current event's reported timeline in-memory (the persisted row
-    // is written post-publish by maintainEntity) so compression detection sees it.
-    const currentReported = event.team_timeline
-      ? parseTeamTimeline(event.team_timeline)
-      : null;
-    const priorTimelines = [
-      ...priorFromDb,
-      {
-        reported_weeks: currentReported,
-        otm_min_weeks: null,
-        severity: null,
-        at: event.reported_at.toISOString(),
-      },
-    ];
-
-    const entity = thread?.entity;
     return {
       entityId,
-      thread: {
-        injury_date: entity?.injury_date ?? resolution.injury_date,
-        injury_date_confidence: entity?.injury_date_confidence ?? resolution.injury_date_confidence,
-        surgery_date: entity?.surgery_date ?? resolution.surgery_date,
-        surgery_confirmed: entity?.surgery_confirmed ?? resolution.surgery_confirmed,
-        status: entity?.status ?? 'ACTIVE',
-        // Prefer the entity's stored (established) values over this event's
-        // freshly-extracted ones — the thread's history is the ground truth.
-        body_part: entity?.body_part ?? metadata.primary_body_part ?? null,
-        laterality: entity?.laterality ?? metadata.laterality ?? null,
-        prior_timelines: priorTimelines,
-      },
+      thread: assembleThreadContext(event, metadata, thread, {
+        injury_date: resolution.injury_date,
+        injury_date_confidence: resolution.injury_date_confidence,
+        surgery_date: resolution.surgery_date,
+        surgery_confirmed: resolution.surgery_confirmed,
+      }),
       carryover,
       resolvedConfidence: resolution.injury_date_confidence,
+      resolutionSource: 'resolver',
+      skipReason: null,
+      dateWriteFailed,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1017,6 +1256,9 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
     timeline_anchor_review: 0,
     timeline_anchor_annotated: 0,
     date_carryover_annotated: 0,
+    date_resolution_skipped: 0,
+    thread_date_write_failed: 0,
+    date_year_divergence: 0,
     dropped_concussion: 0,
     athlete_name_drift: 0,
     athlete_reanchored: 0,
@@ -1494,15 +1736,26 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
         if (resolved) {
           thread = resolved.thread;
           threadEntityId = resolved.entityId;
+          if (resolved.resolutionSource === 'thread_settled') summary.date_resolution_skipped++;
+          if (resolved.dateWriteFailed) {
+            summary.thread_date_write_failed++;
+            if (!forceMDReviewReason) forceMDReviewReason = DATE_WRITE_FAILED_CODE;
+            else if (!forceMDReviewReason.includes(DATE_WRITE_FAILED_CODE))
+              forceMDReviewReason = `${forceMDReviewReason},${DATE_WRITE_FAILED_CODE}`;
+          }
 
           // A carryover injury dated to the day it was re-reported produces a
           // confident, precise, WRONG clinical timeline. Gate on the pair —
           // carryover evidence AND an unresolved date — not on either alone.
-          const dateGate = shouldForceDateReview(
-            resolved.carryover,
-            event,
-            resolved.resolvedConfidence,
-          );
+          //
+          // Not consulted when an MD has already adjudicated this thread's
+          // date: `possible` there is the MD's own considered answer, and
+          // re-queueing it every cycle is noise. needs_date_review stays their
+          // lever.
+          const dateGate =
+            resolved.skipReason === 'md_manual'
+              ? { fires: false, force: false, annotate: false }
+              : shouldForceDateReview(resolved.carryover, event, resolved.resolvedConfidence);
           if (dateGate.force) {
             summary.date_carryover_review++;
             console.warn(
@@ -1544,7 +1797,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
       // chooseDateAnchor, the same function the agent uses for conflict
       // detection, so the gap and the post can never disagree about elapsed
       // time.
-      const dateAnchor = chooseDateAnchor(thread, post.injury_date);
+      let dateAnchor = chooseDateAnchor(thread, post.injury_date);
       if (post.injury_date && dateAnchor && post.injury_date !== dateAnchor) {
         console.warn(
           `[Poller] ${sport} — date anchor divergence for ${context}: OTM said ` +
@@ -1552,6 +1805,45 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
             `(confidence ${thread?.injury_date_confidence}) — using the resolver's`,
         );
       }
+
+      // A YEAR-scale divergence is a different animal, and until now it was
+      // only logged. Both live wrong-year cases announced themselves on the
+      // line above and the resolver won anyway: Micah Parsons (OTM 2025-12-29 /
+      // resolver 2024-12-14) and Patrick Mahomes (OTM 2025-12-15 / resolver
+      // 2024-12-15), both at confidence 'confirmed'. Parsons' own published
+      // prose read "December 29, 2025 … approximately 35 weeks post-op" beside
+      // an injury_date column of 2024-12-14.
+      const divergence = assessAnchorDivergence(thread?.injury_date, post.injury_date);
+      if (divergence.kind === 'year_apart') {
+        summary.date_year_divergence++;
+        console.warn(
+          `[Poller] ${sport} — YEAR-SCALE date anchor divergence for ${context}: resolver ` +
+            `${divergence.resolver_date}, OTM ${divergence.otm_date} (${divergence.days_apart}d apart, ` +
+            `confidence ${thread?.injury_date_confidence}) — downgrading and routing to MD review`,
+        );
+        // Re-choose through the SAME rule rather than adding a "prefer OTM"
+        // branch: demote the thread's confidence and chooseDateAnchor falls
+        // through to OTM by the rule that already exists. A second anchor rule
+        // is exactly what that function was extracted to prevent.
+        dateAnchor = chooseDateAnchor(
+          { injury_date: thread?.injury_date, injury_date_confidence: 'possible' },
+          post.injury_date,
+        );
+        const yearGate = shouldForceYearDivergenceReview();
+        if (yearGate.force) {
+          if (!forceMDReviewReason) forceMDReviewReason = DATE_YEAR_DIVERGENCE_CODE;
+          else if (!forceMDReviewReason.includes(DATE_YEAR_DIVERGENCE_CODE))
+            forceMDReviewReason = `${forceMDReviewReason},${DATE_YEAR_DIVERGENCE_CODE}`;
+        }
+        // Persist the DOWNGRADE only — no injury_date key, so COALESCE keeps
+        // the stored date while the confidence drop takes the thread out of the
+        // settled set and the next cycle re-resolves it under the new prompt.
+        // Without this the wrong 'confirmed' would freeze forever.
+        if (threadEntityId) {
+          await unsettleThreadDate(threadEntityId, event, divergence);
+        }
+      }
+
       post.injury_date = dateAnchor ?? undefined;
 
       // The team timeline's own clock is in doubt on this post — decide before
@@ -1690,7 +1982,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
   }
 
   console.log(
-    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} date_carry_review=${summary.date_carryover_review} date_carry_annot=${summary.date_carryover_annotated} tl_anchor_review=${summary.timeline_anchor_review} tl_anchor_annot=${summary.timeline_anchor_annotated} dropped_concussion=${summary.dropped_concussion} name_drift=${summary.athlete_name_drift} reanchored=${summary.athlete_reanchored} drift_spelling=${summary.athlete_drift_spelling} surname_ref=${summary.athlete_surname_ref} ct_drift=${summary.content_type_drift} dropped_fact=${summary.dropped_fact_validation} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} would_promote=${summary.would_promote_from_defer} expired=${summary.expired_from_defer} defer_q=${summary.defer_queue_size} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} review_supp=${summary.review_suppressed} reject_supp=${summary.rejection_suppressed} superseded=${summary.superseded} skipped=${summary.skipped} capped=${summary.capped} source_err=${summary.source_errors} classifier_err=${summary.classifier_errors} errors=${summary.errors}`
+    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} date_carry_review=${summary.date_carryover_review} date_carry_annot=${summary.date_carryover_annotated} date_settled=${summary.date_resolution_skipped} date_write_fail=${summary.thread_date_write_failed} date_yr_diverge=${summary.date_year_divergence} tl_anchor_review=${summary.timeline_anchor_review} tl_anchor_annot=${summary.timeline_anchor_annotated} dropped_concussion=${summary.dropped_concussion} name_drift=${summary.athlete_name_drift} reanchored=${summary.athlete_reanchored} drift_spelling=${summary.athlete_drift_spelling} surname_ref=${summary.athlete_surname_ref} ct_drift=${summary.content_type_drift} dropped_fact=${summary.dropped_fact_validation} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} would_promote=${summary.would_promote_from_defer} expired=${summary.expired_from_defer} defer_q=${summary.defer_queue_size} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} review_supp=${summary.review_suppressed} reject_supp=${summary.rejection_suppressed} superseded=${summary.superseded} skipped=${summary.skipped} capped=${summary.capped} source_err=${summary.source_errors} classifier_err=${summary.classifier_errors} errors=${summary.errors}`
   );
   return summary;
 }

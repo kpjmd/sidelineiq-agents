@@ -186,3 +186,81 @@ describe('resolveInjuryDate', () => {
     expect(createMock).toHaveBeenCalledTimes(4);
   });
 });
+
+describe('resolveInjuryDate — validated and calendar-anchored', () => {
+  it('samples at temperature 0 on both passes', () => {
+    // Not a determinism guarantee — the secondary lever behind the calendar
+    // block and not re-resolving at all. See TEMPERATURE in date-resolution.ts.
+    createMock.mockResolvedValueOnce(
+      emitMessage({ injury_date: '', injury_date_confidence: 'unknown' }),
+    );
+    createMock.mockResolvedValueOnce(
+      emitMessage({ injury_date: '2026-04-01', injury_date_confidence: 'probable' }),
+    );
+    return resolveInjuryDate(makeInput()).then(() => {
+      expect(createMock).toHaveBeenCalledTimes(2);
+      for (const call of createMock.mock.calls) {
+        expect((call[0] as { temperature?: number }).temperature).toBe(0);
+      }
+    });
+  });
+
+  it('prepends the computed CALENDAR REFERENCE block to both passes', async () => {
+    createMock.mockResolvedValueOnce(
+      emitMessage({ injury_date: '', injury_date_confidence: 'unknown' }),
+    );
+    createMock.mockResolvedValueOnce(
+      emitMessage({ injury_date: '2026-04-01', injury_date_confidence: 'probable' }),
+    );
+
+    await resolveInjuryDate(makeInput());
+
+    for (const call of createMock.mock.calls) {
+      const params = call[0] as { messages: Array<{ content: string }> };
+      const text = params.messages[0].content;
+      expect(text).toContain('CALENDAR REFERENCE');
+      expect(text).toContain('AUTHORITATIVE');
+      // today = 2026-05-08, so the most recent December is 2025-12 — the
+      // arithmetic three live December resolutions got wrong by a year.
+      expect(text).toContain('December → 2025-12');
+      expect(text).toContain('May → 2026-05');
+      // reportedAt = 2026-05-06T14:00:00Z is still May 6 in US Eastern.
+      expect(text).toContain('LOCAL calendar date where this is reported 2026-05-06');
+      // NBA event: the straddling season span, not a bare year.
+      expect(text).toContain('NBA "2025-26 season" = October 2025 through June 2026');
+    }
+  });
+
+  it('a malformed date at confirmed no longer short-circuits the fast path', async () => {
+    // Live: "[ThreadManager] Jonathan Greenard — injury_date=2026-07". Dropping
+    // the date drops the confidence with it, so pass 2 now runs. One extra
+    // search on a rare path, in exchange for never writing a partial date.
+    createMock.mockResolvedValueOnce(
+      emitMessage({ injury_date: '2026-07', injury_date_confidence: 'confirmed' }),
+    );
+    createMock.mockResolvedValueOnce(
+      emitMessage({ injury_date: '2026-04-14', injury_date_confidence: 'probable' }),
+    );
+
+    const result = await resolveInjuryDate(makeInput());
+
+    expect(createMock).toHaveBeenCalledTimes(2);
+    expect(result.injury_date).toBe('2026-04-14');
+    expect(result.violations).toEqual([]);
+  });
+
+  it('reports the violations it acted on', async () => {
+    createMock.mockResolvedValueOnce(
+      emitMessage({ injury_date: '2026-07', injury_date_confidence: 'possible' }),
+    );
+    createMock.mockResolvedValueOnce(
+      emitMessage({ injury_date: '2026-07', injury_date_confidence: 'possible' }),
+    );
+
+    const result = await resolveInjuryDate(makeInput());
+
+    expect(result.injury_date).toBeNull();
+    expect(result.injury_date_confidence).toBe('unknown');
+    expect(result.violations).toContain('injury_date_malformed');
+  });
+});
