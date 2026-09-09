@@ -29,6 +29,25 @@
  *   7. Recorded resolutions emitting a malformed date.
  *   8. Replayed resolver/OTM pairs a year apart where the resolver would still
  *      win the anchor (--log; needs a Railway log).
+ *   9. Backfill shells still inside web_find_matching_entity's 21-day window. A
+ *      shell inside the window can still absorb a live report, so it is not
+ *      inert and bulk-voiding it would remove real coverage. This is THE
+ *      coverage gate — see Section E.
+ *  10. Backfill shells carrying resolver or review state (otm_projection /
+ *      date_resolution_sources / needs_date_review / accuracy_record). Any of
+ *      those means the thread is not a shell and the predicate is wrong.
+ *  11. Backfill shells with any audit_log history. Same argument, different
+ *      evidence: a thread something has written to is not a shell.
+ *  12. A corpus-wide audit probe that read zero entries. web_list_audit_entries
+ *      keys on entity_type 'injury_thread'; passing 'injury_entity' returns []
+ *      with no error, and a broken probe reads exactly like a clean sweep. If no
+ *      thread in the whole corpus has history, gate 11 passed vacuously.
+ *  13. Dateless ACTIVE threads created inside the backfill window that fail the
+ *      shell predicate. The cohort must be homogeneous or the window is the
+ *      wrong selector for it.
+ *  14. Backfill shells that are the freshest ACTIVE thread in a
+ *      player+body_part group that also holds a dated thread. States gate 9's
+ *      property structurally, so it survives a change to the match window.
  *
  * Reported but NOT gates:
  *   - Total system date changes suppressed. That is the point of the change.
@@ -44,10 +63,19 @@
  *     That variance is the JUSTIFICATION for not re-resolving a settled date,
  *     not a regression to fail the build on. What is gated is that the variance
  *     never reaches a thread (zeros 1 and 3).
+ *   - The backfill cohort's internal duplication (one injury split across up to
+ *     five entities, because backfill-entities.ts matched at recency_days 60),
+ *     and the shells that shadow a dated live thread. Both are consequences of
+ *     the backfill, not of anything shipping here.
+ *   - That the resolver has never run on ONE shell. Reported, because it is the
+ *     evidence refuting a resolver backoff, not a regression to fail on.
+ *   - That every shell's canonical post is PUBLISHED. Voiding a thread does not
+ *     touch the post row.
  *
  * Usage:
  *   npx tsx src/scripts/date-resolution-dryrun.ts
  *   npx tsx src/scripts/date-resolution-dryrun.ts --limit 40        (smoke run)
+ *       Section E classifies the ACTIVE corpus and names the backfill cohort.
  *   npx tsx src/scripts/date-resolution-dryrun.ts --log railway.log (scores zero 7)
  *   npx tsx src/scripts/date-resolution-dryrun.ts --emit-fixture --out tests/fixtures/date-resolution-threads.json
  *   npx tsx src/scripts/date-resolution-dryrun.ts --emit-cases 'Patrick Mahomes,Mykel Williams' --out tests/fixtures/date-resolution-cases.json
@@ -79,12 +107,23 @@ import {
 import type { RawInjuryEvent } from '../types.js';
 import type { ResolvedPlayerInfo, ExtractedInjuryMetadata }
   from '../agents/injury-intelligence/fact-validator.js';
+import {
+  classifyShell,
+  daysStale,
+  listRowsAreWide,
+  defaultShellPolicy,
+  type ShellCandidate,
+  type ShellPolicy,
+  type ShellReason,
+} from '../utils/backfill-shells.js';
 
 // ── Wire shapes ───────────────────────────────────────────────────────
 interface ThreadListRow {
   id: string;
+  player_id: string;
   athlete_name: string | null;
   sport: string | null;
+  body_part: string | null;
   status: string;
   injury_date: string | null;
   injury_date_confidence: DateConfidence;
@@ -92,11 +131,23 @@ interface ThreadListRow {
   surgery_confirmed: boolean;
   needs_date_review: boolean;
   otm_projection: { min_weeks?: number; max_weeks?: number } | null;
+  accuracy_record: unknown | null;
+  first_reported_at: string;
+  last_updated_at: string;
+  // OPTIONAL on purpose: absent ENTIRELY when this mcp-servers build predates
+  // the listThreads widening. Absent is not the same as null — the column is
+  // JSONB and is legitimately null on most rows.
+  date_resolution_sources?: Array<{ stage?: string }> | null;
+  canonical_post_id?: string | null;
 }
 
 interface ThreadEntity extends ThreadListRow {
+  // Required once loaded, by either path.
   date_resolution_sources: Array<{ stage?: string }> | null;
+  canonical_post_id: string | null;
 }
+
+type LoadMode = 'list' | 'per-entity';
 
 interface AuditRow {
   ts: string;
@@ -165,7 +216,9 @@ const PROMPT_VERSION = 'calendar-block-v1';
 const short = (id: string): string => id.slice(0, 8);
 
 // ── Section A: corpus ─────────────────────────────────────────────────
-async function loadThreads(limit: number | null): Promise<ThreadEntity[]> {
+async function loadThreads(
+  limit: number | null,
+): Promise<{ threads: ThreadEntity[]; mode: LoadMode }> {
   const listed: ThreadListRow[] = [];
   for (const status of STATUSES) {
     const res = await callTool('web', 'web_list_threads', { status, limit: LIST_LIMIT });
@@ -183,15 +236,92 @@ async function loadThreads(limit: number | null): Promise<ThreadEntity[]> {
   }
 
   const targets = limit === null ? listed : listed.slice(0, limit);
-  // listThreads does not select date_resolution_sources, so the md_manual half
-  // of the predicate is invisible without a per-entity read. That is why this
-  // section is O(threads) rather than four list calls.
-  const out: ThreadEntity[] = [];
-  for (const t of targets) {
+
+  // Decided ONCE, from the accumulated list, and by KEY PRESENCE. Since
+  // mcp-servers PR #26 listThreads projects date_resolution_sources, which is
+  // the only reason this was ever O(threads) instead of four list calls.
+  const wide = listRowsAreWide(listed);
+  const mode: LoadMode = wide ? 'list' : 'per-entity';
+
+  const hydrate = async (t: ThreadListRow): Promise<ThreadEntity | null> => {
     const got = unwrap<{ entity: ThreadEntity }>(
       await callTool('web', 'web_thread_get', { entity_id: t.id }),
     );
-    if (got?.entity) out.push({ ...t, ...got.entity, id: t.id, athlete_name: t.athlete_name, sport: t.sport });
+    if (!got?.entity) return null;
+    return {
+      ...t,
+      ...got.entity,
+      id: t.id,
+      athlete_name: t.athlete_name,
+      sport: t.sport,
+    };
+  };
+
+  if (!wide) {
+    console.log(
+      `[dryrun] thread load: mode=per-entity — this mcp-servers build's listThreads ` +
+        `omits date_resolution_sources, so the md_manual half of the settled predicate ` +
+        `is invisible from a list call. Falling back to ${targets.length} web_thread_get ` +
+        `reads. Deploy the widened listThreads to skip them.`,
+    );
+    const out: ThreadEntity[] = [];
+    for (const t of targets) {
+      const e = await hydrate(t);
+      if (e) out.push(e);
+    }
+    return { threads: out, mode };
+  }
+
+  // A rolling deploy can serve both shapes behind one URL. Read individually
+  // only the rows that arrived narrow, so the corpus stays homogeneous.
+  const mixed = targets.filter((t) => !('date_resolution_sources' in t));
+  if (mixed.length > 0) {
+    console.log(
+      `[dryrun] WARNING: ${mixed.length} of ${targets.length} list rows arrived without ` +
+        'date_resolution_sources (rolling deploy?) — reading those individually.',
+    );
+  }
+  const narrowIds = new Set(mixed.map((t) => t.id));
+  const out: ThreadEntity[] = [];
+  for (const t of targets) {
+    if (narrowIds.has(t.id)) {
+      const e = await hydrate(t);
+      if (e) out.push(e);
+      continue;
+    }
+    out.push({
+      ...t,
+      date_resolution_sources: t.date_resolution_sources ?? null,
+      canonical_post_id: t.canonical_post_id ?? null,
+    });
+  }
+  console.log(
+    `[dryrun] thread load: mode=list (${out.length} threads from ${STATUSES.length} list ` +
+      `calls, ${mixed.length} per-entity reads).`,
+  );
+  return { threads: out, mode };
+}
+
+/**
+ * One audit read per thread, hoisted so sections B and E share it.
+ *
+ * entity_type is 'injury_thread'. 'injury_entity' — the table name, and the
+ * obvious guess — returns `entries: []` with no error for every thread, which
+ * reads as "no history anywhere" and would make Section E's history gate pass
+ * vacuously. Gate 12 exists to catch exactly that.
+ */
+async function loadAuditIndex(threads: ThreadEntity[]): Promise<Map<string, AuditRow[]>> {
+  const out = new Map<string, AuditRow[]>();
+  for (const t of threads) {
+    const rows =
+      unwrap<{ entries: AuditRow[] }>(
+        await callTool('web', 'web_list_audit_entries', {
+          entity_type: 'injury_thread',
+          entity_id: t.id,
+          limit: LIST_LIMIT,
+        }),
+      )?.entries ?? [];
+    out.set(t.id, rows);
   }
   return out;
 }
@@ -263,7 +393,7 @@ interface Replay {
   stillExamples: string[];
 }
 
-async function sectionB(threads: ThreadEntity[]): Promise<void> {
+function sectionB(threads: ThreadEntity[], audit: Map<string, AuditRow[]>): void {
   console.log('\nB. Audit replay — would the new logic have made these writes?\n');
   const r: Replay = {
     suppressed: 0, stillOccurs: 0, firstEstablishments: 0, inferred: 0,
@@ -271,14 +401,7 @@ async function sectionB(threads: ThreadEntity[]): Promise<void> {
   };
 
   for (const t of threads) {
-    const rows =
-      unwrap<{ entries: AuditRow[] }>(
-        await callTool('web', 'web_list_audit_entries', {
-          entity_type: 'injury_thread',
-          entity_id: t.id,
-          limit: LIST_LIMIT,
-        }),
-      )?.entries ?? [];
+    const rows = audit.get(t.id) ?? [];
     const reanchors = rows
       .filter((a) => a.action === 'otm_projection_reanchored')
       .sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts));
@@ -698,6 +821,229 @@ async function record(n: number): Promise<void> {
   emit(fixture);
 }
 
+
+// ── Section E: what the dateless ACTIVE threads actually are ──────────
+/** The dryrun's ThreadEntity is already a ShellCandidate; this only narrows. */
+function asCandidate(t: ThreadEntity): ShellCandidate {
+  return {
+    id: t.id,
+    player_id: t.player_id,
+    athlete_name: t.athlete_name,
+    body_part: t.body_part,
+    status: t.status,
+    injury_date: t.injury_date,
+    otm_projection: t.otm_projection ?? null,
+    date_resolution_sources: t.date_resolution_sources,
+    accuracy_record: t.accuracy_record ?? null,
+    needs_date_review: t.needs_date_review,
+    canonical_post_id: t.canonical_post_id,
+    first_reported_at: t.first_reported_at,
+    last_updated_at: t.last_updated_at,
+  };
+}
+
+const groupKey = (t: ThreadEntity): string => `${t.player_id}|${(t.body_part ?? '').toLowerCase()}`;
+
+function sectionE(
+  threads: ThreadEntity[],
+  audit: Map<string, AuditRow[]>,
+  mode: LoadMode,
+): void {
+  console.log(`\nE. The ACTIVE corpus: what the dateless threads actually are   [load mode=${mode}]\n`);
+
+  const policy: ShellPolicy = defaultShellPolicy(Date.parse(`${today}T12:00:00Z`));
+  const active = threads.filter((t) => t.status === 'ACTIVE');
+  const auditCount = (t: ThreadEntity): number => (audit.get(t.id) ?? []).length;
+
+  const verdict = new Map<string, ShellReason>();
+  for (const t of active) verdict.set(t.id, classifyShell(asCandidate(t), policy, auditCount(t)).reason);
+
+  const dated = active.filter((t) => t.injury_date);
+  const dateless = active.filter((t) => !t.injury_date);
+  const shells = active.filter((t) => verdict.get(t.id) === 'ok');
+  const unexplained = dateless.filter((t) => verdict.get(t.id) !== 'ok');
+
+  console.log(
+    `  ACTIVE=${active.length}  dated(live)=${dated.length}  ` +
+      `backfill shells=${shells.length}  unexplained dateless=${unexplained.length}`,
+  );
+  console.log(
+    '  shell predicate: ACTIVE ^ no injury_date ^ no otm_projection ^ no\n' +
+      '    date_resolution_sources ^ !needs_date_review ^ no accuracy_record ^\n' +
+      '    first_reported_at in\n' +
+      `    [${policy.createdFrom}, ${policy.createdTo}] ^\n` +
+      `    last_updated_at older than ${policy.matchWindowDays}d ^ zero audit_log rows`,
+  );
+
+  // Creation clustering: the whole causal claim rests on it, so it is printed
+  // rather than asserted.
+  console.log('\n  creation clustering (dateless ACTIVE, bucketed to the minute):');
+  const buckets = new Map<string, number>();
+  for (const t of dateless) {
+    const k = t.first_reported_at.slice(0, 16);
+    buckets.set(k, (buckets.get(k) ?? 0) + 1);
+  }
+  for (const [k, v] of [...buckets].sort((a, b) => b[1] - a[1]).slice(0, 8)) {
+    console.log(`    ${k}Z   n=${v}`);
+  }
+  const inWindow = dateless.filter((t) => {
+    const c = Date.parse(t.first_reported_at);
+    return c >= Date.parse(policy.createdFrom) && c <= Date.parse(policy.createdTo);
+  });
+  const stamps = inWindow.map((t) => t.first_reported_at).sort();
+  if (stamps.length > 0) {
+    console.log(
+      `    -> ${inWindow.length}/${dateless.length} created in one pass ` +
+        `(${stamps[0]} -> ${stamps[stamps.length - 1]}), i.e.\n` +
+        '       src/scripts/backfill-entities.ts. That script has no resolver import\n' +
+        '       and never writes a date.',
+    );
+  }
+  for (const t of dateless.filter((t) => !inWindow.includes(t)).slice(0, 5)) {
+    console.log(
+      `    outlier: ${short(t.id)} ${t.athlete_name} ${t.first_reported_at.slice(0, 10)} ` +
+        `(canonical_post_id=${t.canonical_post_id ?? 'null'}, reason=${verdict.get(t.id)})`,
+    );
+  }
+
+  console.log('\nE1. The numbers that must be zero (backfill cohort)\n');
+
+  // 9. THE coverage gate. A shell inside the match window is a live absorber.
+  const notInert = shells.filter(
+    (t) => daysStale(t, policy.now) < policy.matchWindowDays,
+  );
+  mustBeZero(
+    `backfill shells still inside web_find_matching_entity's ${policy.matchWindowDays}-day window ` +
+      '(a live absorber, not an inert row)',
+    notInert.length,
+    notInert.map((t) => `${short(t.id)} ${t.athlete_name} stale=${daysStale(t, policy.now)}d`),
+  );
+
+  // 10/11. Structural: the predicate already excludes these, so a non-zero here
+  // means classifyShell and this section disagree about what a shell is.
+  const carryingState = shells.filter(
+    (t) =>
+      t.otm_projection != null ||
+      (Array.isArray(t.date_resolution_sources) && t.date_resolution_sources.length > 0) ||
+      t.needs_date_review ||
+      t.accuracy_record != null,
+  );
+  mustBeZero(
+    'backfill shells carrying resolver or review state ' +
+      '(otm_projection / date_resolution_sources / needs_date_review / accuracy_record)',
+    carryingState.length,
+    carryingState.map((t) => `${short(t.id)} ${t.athlete_name}`),
+  );
+
+  const withHistory = shells.filter((t) => auditCount(t) > 0);
+  mustBeZero(
+    'backfill shells with any audit_log history',
+    withHistory.length,
+    withHistory.map((t) => `${short(t.id)} ${t.athlete_name} entries=${auditCount(t)}`),
+  );
+
+  // 12. The probe control. entity_type 'injury_entity' returns [] for every
+  // thread with no error, and gate 11 would then pass because the probe is
+  // broken, not because the threads are clean.
+  const probeSaw = threads.reduce((n, t) => n + auditCount(t), 0);
+  mustBeZero(
+    'the audit probe read zero entries across the ENTIRE corpus ' +
+      "(a broken probe reads exactly like a clean sweep — check entity_type='injury_thread')",
+    probeSaw > 0 ? 0 : 1,
+    probeSaw > 0 ? [] : [`scanned ${threads.length} threads, found 0 audit rows anywhere`],
+  );
+  report(`audit rows seen across the corpus (probe control)`, probeSaw);
+
+  // 13. Homogeneity of the cohort.
+  const windowMisfits = inWindow.filter((t) => verdict.get(t.id) !== 'ok');
+  mustBeZero(
+    'dateless ACTIVE threads created inside the backfill window that fail the shell predicate',
+    windowMisfits.length,
+    windowMisfits.map((t) => `${short(t.id)} ${t.athlete_name} reason=${verdict.get(t.id)}`),
+  );
+
+  // 14. Gate 9's property, stated structurally so it survives a window change.
+  const byGroup = new Map<string, ThreadEntity[]>();
+  for (const t of active) {
+    const k = groupKey(t);
+    byGroup.set(k, [...(byGroup.get(k) ?? []), t]);
+  }
+  const freshestShell = shells.filter((t) => {
+    const peers = byGroup.get(groupKey(t)) ?? [];
+    if (!peers.some((p) => p.injury_date)) return false;
+    return peers.every((p) => Date.parse(p.last_updated_at) <= Date.parse(t.last_updated_at));
+  });
+  mustBeZero(
+    'backfill shells that are the freshest ACTIVE thread in a player+body_part group ' +
+      'that also holds a dated thread',
+    freshestShell.length,
+    freshestShell.map((t) => `${short(t.id)} ${t.athlete_name} ${t.body_part}`),
+  );
+
+  console.log('\nE2. Reported, not gated\n');
+
+  const shellGroups = new Map<string, number>();
+  for (const t of shells) shellGroups.set(groupKey(t), (shellGroups.get(groupKey(t)) ?? 0) + 1);
+  const multi = [...shellGroups].filter(([, c]) => c > 1);
+  report(
+    'shell (player_id, body_part) groups holding more than one shell',
+    multi.length,
+    multi
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([k, c]) => {
+        const name = shells.find((t) => groupKey(t) === k)?.athlete_name ?? k;
+        return `${name} x${c}`;
+      }),
+  );
+  report(
+    'redundant shell rows inside those groups (rows - groups)',
+    multi.reduce((n, [, c]) => n + c - 1, 0),
+  );
+
+  const datedGroups = new Set(dated.map(groupKey));
+  const shadowing = shells.filter((t) => datedGroups.has(groupKey(t)));
+  report(
+    'shells shadowing a dated ACTIVE thread on the same player+body_part',
+    shadowing.length,
+    shadowing.map((t) => `${short(t.id)} ${t.athlete_name} ${t.body_part}`),
+  );
+  report(
+    'shells on which the resolver ever ran (date_resolution_sources set)',
+    shells.filter((t) => Array.isArray(t.date_resolution_sources) && t.date_resolution_sources.length > 0)
+      .length,
+  );
+  report(
+    'shells with a canonical_post_id — voiding the THREAD does not touch the post row; ' +
+      'the pointer runs entity->post and publish-side dedup reads web_list_posts, never entities',
+    shells.filter((t) => t.canonical_post_id != null).length,
+  );
+  // Not a conjunct, and the reason is in backfill-shells.ts: a NULL here is the
+  // ON DELETE SET NULL signature of a pre-migration-021 reject deleting the post,
+  // leaving a post-less ACTIVE thread — the Greenard shape, which retraction fits
+  // better than anything else, not worse.
+  report(
+    'shells whose canonical post was later DELETED (canonical_post_id nulled by ' +
+      "the pre-migration-021 Reject button — post-less ACTIVE threads)",
+    shells.filter((t) => t.canonical_post_id == null).length,
+  );
+
+  console.log('\n  REFUTATION OF THE BACKOFF PREMISE');
+  console.log(
+    "    PR #43's follow-up claimed these threads re-resolve every 6h at ~169 model\n" +
+      '    calls per cycle, having "already failed repeatedly". That is false in both\n' +
+      '    directions, and this section is the evidence.\n' +
+      `      * date_resolution_sources is NULL and audit_log is EMPTY on ${shells.length}/${shells.length}\n` +
+      '        shells. The resolver has not run on ONE of them, once. Nothing was\n' +
+      '        attempted, so there is nothing to back off.\n' +
+      `      * web_find_matching_entity gates on last_updated_at >= NOW() - ${policy.matchWindowDays}d,\n` +
+      `        and these are ${shells.length ? daysStale(shells[0], policy.now) : 0}d stale, so no new report routes to them either.\n` +
+      '    A resolver backoff would suppress ZERO calls and gate a path these rows\n' +
+      '    never enter. The cost is inert rows in the ACTIVE list; the fix is\n' +
+      '    retraction (VOID) — see src/scripts/close-backfill-shells.ts.',
+  );
+}
+
 // ── main ──────────────────────────────────────────────────────────────
 async function main(): Promise<void> {
   const limitArg = flag('--limit');
@@ -731,7 +1077,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const threads = await loadThreads(limit);
+  const { threads, mode } = await loadThreads(limit);
 
   if (has('--emit-fixture')) {
     // Provenance is mechanical, never typed by hand: four fixtures in this repo
@@ -766,10 +1112,13 @@ async function main(): Promise<void> {
     return;
   }
 
+  const audit = await loadAuditIndex(threads);
+
   console.log(`\n═══ date-resolution dry run (today=${today}) ═══`);
   sectionA(threads);
-  await sectionB(threads);
+  sectionB(threads, audit);
   sectionC(threads);
+  sectionE(threads, audit, mode);
   sectionD2(flag('--log'));
   await sectionD();
 

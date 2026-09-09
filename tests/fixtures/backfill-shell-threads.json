@@ -1,0 +1,176 @@
+{
+  "_recorded_from": "live production DB via src/scripts/close-backfill-shells.ts --emit-fixture",
+  "_recorded_at": "2026-09-09",
+  "_note": "Selection is mechanical: the first entity per (ShellReason x has-canonical-post) pair present in the live ACTIVE corpus — candidates AND negative controls, since every in-window row shares reason ok. Payloads are raw web_thread_get entity rows plus the two display fields only the list join carries. Never hand-author these — four fixtures in this repo have shared the code's blind spot because they were written to match it.",
+  "_policy": {
+    "now": 1788990574561,
+    "createdFrom": "2026-05-31T23:00:00.000Z",
+    "createdTo": "2026-06-01T00:00:00.000Z",
+    "matchWindowDays": 21
+  },
+  "_selected_from": 242,
+  "rows": [
+    {
+      "id": "a7831886-be33-4dbc-a371-ebcd9cd48478",
+      "player_id": "4d1fd552-a23f-47e1-af79-bd8ee8ee8a6a",
+      "athlete_name": "Jayden Higgins",
+      "sport": "NFL",
+      "body_part": "knee",
+      "status": "ACTIVE",
+      "injury_date": "2026-08-19",
+      "otm_projection": {
+        "max_weeks": 52,
+        "min_weeks": 39,
+        "created_at": "2026-08-19T21:01:28.454Z",
+        "probability_week_2": 0,
+        "probability_week_4": 0,
+        "probability_week_8": 0,
+        "projected_return_date": "2027-07-03"
+      },
+      "date_resolution_sources": [
+        {
+          "stage": "md_manual"
+        }
+      ],
+      "accuracy_record": null,
+      "needs_date_review": false,
+      "canonical_post_id": "b06f8326-e500-4715-b127-b02378f874fa",
+      "first_reported_at": "2026-08-19T18:34:18.693Z",
+      "last_updated_at": "2026-09-09T19:34:06.552Z"
+    },
+    {
+      "id": "215b61b3-fda4-4f75-a77d-d6cad7879d62",
+      "player_id": "984a0736-6d20-4844-b924-af83ebb08d85",
+      "athlete_name": "Alfred Collins",
+      "sport": "NFL",
+      "body_part": "knee",
+      "status": "ACTIVE",
+      "injury_date": "2026-09-08",
+      "otm_projection": {
+        "max_weeks": 52,
+        "min_weeks": 4,
+        "created_at": "2026-09-09T08:26:30.981Z",
+        "probability_week_2": 0,
+        "probability_week_4": 0.05,
+        "probability_week_8": 0.2,
+        "projected_return_date": "2027-03-23"
+      },
+      "date_resolution_sources": [
+        {
+          "url": "https://site.api.espn.com/apis/site/v2/sports/football/nfl/injuries",
+          "stage": "api"
+        },
+        {
+          "url": "https://sports.yahoo.com/nfl/breaking-news/article/49ers-lose-dt-alfred-collins-for-the-season-with-knee-injury-ahead-of-rams-opener-in-australia-031135915.html",
+          "stage": "web_search",
+          "title": "49ers lose DT Alfred Collins for the season with knee injury ahead of Rams opener in Australia - Yahoo Sports"
+        },
+        {
+          "url": "https://www.pressdemocrat.com/2026/09/08/49ers-defensive-line-loses-another-dt-alfred-collins-sustains-knee-injury/",
+          "stage": "web_search",
+          "title": "49ers’ defensive line loses another: DT Alfred Collins sustains knee injury"
+        },
+        {
+          "url": "https://www.nbcsports.com/nfl/profootballtalk/rumor-mill/news/49ers-dt-alfred-collins-out-for-season-with-knee-injury",
+          "stage": "web_search",
+          "title": "49ers DT Alfred Collins out for season with knee injury - NBC Sports"
+        },
+        {
+          "url": "https://www.espn.com/nfl/story/_/id/49875661/49ers-alfred-collins-knee-injured-practice-season",
+          "stage": "web_search",
+          "title": "49ers' Alfred Collins (knee) injured in practice, out for season - ESPN"
+        },
+        {
+          "url": "https://sports.yahoo.com/nfl/breaking-news/article/49ers-lose-dt-alfred-collins-for-the-season-with-torn-patellar-tendon-ahead-of-opener-in-australia-031135915.html",
+          "stage": "web_search",
+          "title": "49ers lose DT Alfred Collins for the season with torn patellar tendon ahead of opener in Australia - Yahoo Sports"
+        },
+        {
+          "url": "https://ca.sports.yahoo.com/news/49ers-lose-dt-alfred-collins-for-the-season-with-torn-patellar-tendon-ahead-of-opener-in-australia-031135915.html",
+          "stage": "web_search",
+          "title": "49ers lose DT Alfred Collins for the season with torn patellar tendon ahead of opener in Australia - Yahoo Sports"
+        },
+        {
+          "url": "https://www.49erswebzone.com/news/203093-alfred-collins-sustains-season-ending-practice/",
+          "stage": "web_search",
+          "title": "49ers DT Alfred Collins sustains season-ending knee injury during practice | 49ers Webzone"
+        },
+        {
+          "url": "https://www.si.com/nfl/49ers/onsi/what-alfred-collins-season-ending-knee-injury-means-49ers-defense",
+          "stage": "web_search",
+          "title": "What Alfred Collins' Season-Ending Knee Injury Means for the 49ers' Defense"
+        },
+        {
+          "url": "https://bvmsports.com/2026/09/08/49ers-lose-dt-alfred-collins-for-the-season-with-torn-patellar-tendon-ahead-of-opener-in-australia/",
+          "stage": "web_search",
+          "title": "49ers lose DT Alfred Collins for the season with torn patellar tendon ahead of opener in Australia - BVM Sports"
+        },
+        {
+          "url": "https://www.archynewsy.com/49ers-dt-alfred-collins-out-for-season-with-knee-injury/",
+          "stage": "web_search",
+          "title": "49ers DT Alfred Collins Out for Season With Knee Injury - Archynewsy"
+        }
+      ],
+      "accuracy_record": null,
+      "needs_date_review": false,
+      "canonical_post_id": null,
+      "first_reported_at": "2026-09-09T08:25:41.734Z",
+      "last_updated_at": "2026-09-09T16:05:45.713Z"
+    },
+    {
+      "id": "28301a02-e46b-4136-95bc-bb735e8ce468",
+      "player_id": "447a9329-fd2c-4bfd-a192-9a00df4b9e51",
+      "athlete_name": "Kenyon Sadiq",
+      "sport": "NFL",
+      "body_part": "head",
+      "status": "ACTIVE",
+      "injury_date": null,
+      "otm_projection": null,
+      "date_resolution_sources": null,
+      "accuracy_record": null,
+      "needs_date_review": false,
+      "canonical_post_id": null,
+      "first_reported_at": "2026-08-10T01:50:01.130Z",
+      "last_updated_at": "2026-08-10T01:50:01.130Z"
+    },
+    {
+      "id": "f3b0f9bc-b13e-4e09-9720-54358fdc4001",
+      "player_id": "c47e1b7e-eab9-4f35-a70c-d3a4fc99c85f",
+      "athlete_name": "Ja'Tavion Sanders",
+      "sport": "NFL",
+      "body_part": null,
+      "status": "ACTIVE",
+      "injury_date": null,
+      "otm_projection": null,
+      "date_resolution_sources": null,
+      "accuracy_record": null,
+      "needs_date_review": false,
+      "canonical_post_id": "a187bd97-80da-43d8-ad75-939d13543460",
+      "first_reported_at": "2026-05-31T23:19:32.901Z",
+      "last_updated_at": "2026-05-31T23:23:45.252Z"
+    },
+    {
+      "id": "93720d64-a9d5-4c51-b7e0-efa85c9c7942",
+      "player_id": "a605fe5e-c2b6-4db3-8e5d-fb2a32f09495",
+      "athlete_name": "Kevin Durant",
+      "sport": "NBA",
+      "body_part": "ankle",
+      "status": "ACTIVE",
+      "injury_date": null,
+      "otm_projection": null,
+      "date_resolution_sources": null,
+      "accuracy_record": null,
+      "needs_date_review": false,
+      "canonical_post_id": null,
+      "first_reported_at": "2026-05-31T23:18:52.115Z",
+      "last_updated_at": "2026-05-31T23:23:28.019Z"
+    }
+  ],
+  "audit_counts": {
+    "a7831886-be33-4dbc-a371-ebcd9cd48478": 1,
+    "215b61b3-fda4-4f75-a77d-d6cad7879d62": 0,
+    "28301a02-e46b-4136-95bc-bb735e8ce468": 0,
+    "f3b0f9bc-b13e-4e09-9720-54358fdc4001": 0,
+    "93720d64-a9d5-4c51-b7e0-efa85c9c7942": 0
+  }
+}
