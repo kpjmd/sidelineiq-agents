@@ -1,0 +1,41 @@
+{
+  "_written_at": "2026-09-09T21:51:40.914Z",
+  "_mode": "dry-run",
+  "_policy": {
+    "now": 1788990700914,
+    "createdFrom": "2026-05-31T23:00:00.000Z",
+    "createdTo": "2026-06-01T00:00:00.000Z",
+    "matchWindowDays": 21
+  },
+  "_void_reason": "backfill shell: created by src/scripts/backfill-entities.ts in the 2026-05-31 migration pass with no injury_date; never resolved (date_resolution_sources null, zero audit_log rows) and inert since — last_updated_at is older than web_find_matching_entity's recency window, so nothing has routed to it. Retracted, not resolved: there is no projection to score.",
+  "entries": [
+    {
+      "entity_id": "f3b0f9bc-b13e-4e09-9720-54358fdc4001",
+      "athlete_name": "Ja'Tavion Sanders",
+      "sport": "NFL",
+      "body_part": null,
+      "status": "ACTIVE",
+      "first_reported_at": "2026-05-31T23:19:32.901Z",
+      "last_updated_at": "2026-05-31T23:23:45.252Z",
+      "days_stale": 100,
+      "canonical_post_id": "a187bd97-80da-43d8-ad75-939d13543460",
+      "audit_entries": 0,
+      "decision": "void",
+      "reason": "ok"
+    },
+    {
+      "entity_id": "93720d64-a9d5-4c51-b7e0-efa85c9c7942",
+      "athlete_name": "Kevin Durant",
+      "sport": "NFL",
+      "body_part": "ankle",
+      "status": "ACTIVE",
+      "first_reported_at": "2026-05-31T23:18:52.115Z",
+      "last_updated_at": "2026-05-31T23:23:28.019Z",
+      "days_stale": 100,
+      "canonical_post_id": null,
+      "audit_entries": 0,
+      "decision": "void",
+      "reason": "ok"
+    }
+  ]
+}
