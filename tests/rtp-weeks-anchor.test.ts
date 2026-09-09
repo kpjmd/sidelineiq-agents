@@ -98,6 +98,31 @@ describe('DATE ANCHORING is shared, not copied', () => {
     expect(DATE_ANCHORING_SHARED).toMatch(/PUP-P/);
   });
 
+  it('carries the YEAR RESOLUTION rules', () => {
+    // Added because the resolver had no year logic at all: with today =
+    // 2026-09-09 it dated three December injuries to the December BEFORE the
+    // most recent one, and every MD correction was exactly +1 year.
+    expect(DATE_ANCHORING_SHARED).toMatch(/YEAR RESOLUTION/);
+    expect(DATE_ANCHORING_SHARED).toMatch(/MOST RECENT PAST-OR-CURRENT occurrence/);
+    expect(DATE_ANCHORING_SHARED).toMatch(/STRADDLE the calendar year/);
+    expect(DATE_ANCHORING_SHARED).toMatch(/Week 1 is the season opener/);
+    expect(DATE_ANCHORING_SHARED).toMatch(/CALENDAR REFERENCE block/);
+    // Same season, and surgery never before the injury.
+    expect(DATE_ANCHORING_SHARED).toMatch(/must fall in the SAME season/);
+    // The local-calendar bullet, for the adjacent-day flip-flops.
+    expect(DATE_ANCHORING_SHARED).toMatch(/against the LOCAL calendar date/);
+  });
+
+  it('phrases the CALENDAR REFERENCE reference conditionally, because agent.ts has no block', () => {
+    // The constant is interpolated by OTM too, which does not (yet) carry a
+    // calendar block. An unconditional reference would dangle there.
+    expect(DATE_ANCHORING_SHARED).toMatch(/If a CALENDAR REFERENCE block appears/);
+    expect(SRC('src/agents/injury-intelligence/date-resolution.ts')).toContain(
+      'buildCalendarBlock',
+    );
+    expect(SRC('src/agents/injury-intelligence/agent.ts')).not.toContain('buildCalendarBlock');
+  });
+
   it('is referenced by both prompt sites rather than re-typed', () => {
     // The two copies had already drifted in three bullets. A shared constant
     // is only a drift lock if neither file re-types the block.
