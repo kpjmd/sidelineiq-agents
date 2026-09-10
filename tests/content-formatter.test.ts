@@ -280,9 +280,19 @@ describe('formatForWeb', () => {
         confidence: 0.85,
       },
       source_url: 'https://example.com/mahomes-injury',
-      confidence: 0.92,
+      // The COLUMN name, not the domain field name. Sent as `confidence` it was
+      // stripped by web_create_injury_post's zod object and never stored.
+      md_review_confidence: 0.92,
       status: 'PUBLISHED',
     });
+  });
+
+  it('emits the post-level confidence under the column name, distinct from the RTP one', () => {
+    const result = formatForWeb(makeContent());
+    expect(result.md_review_confidence).toBe(0.92);
+    expect(result).not.toHaveProperty('confidence');
+    // Two different judgements, two different numbers, two different columns.
+    expect((result.return_to_play_estimate as { confidence: number }).confidence).toBe(0.85);
   });
 
   it('sets status to PENDING_REVIEW when specified', () => {

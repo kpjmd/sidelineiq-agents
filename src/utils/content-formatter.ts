@@ -608,7 +608,18 @@ export function formatForWeb(
     ...(content.team_timeline_weeks !== undefined && { team_timeline_weeks: content.team_timeline_weeks }),
     ...(content.parent_post_id !== undefined && { parent_post_id: content.parent_post_id }),
     ...(content.injury_date !== undefined && { injury_date: content.injury_date }),
-    confidence: content.confidence,
+    // The key must be the COLUMN name. This was `confidence`, which
+    // web_create_injury_post's zod object does not declare — and z.object strips
+    // unknown keys and returns success, so the model's post-level confidence was
+    // discarded on 183 of 472 live PUBLISHED rows, every one of them on the
+    // auto-publish path. rtp_confidence survived only because it rides nested
+    // inside return_to_play_estimate, which IS in the schema.
+    md_review_confidence: content.confidence,
+    // `status` is ALSO stripped, and that one is deliberate: the review path
+    // relies on the row landing at the column default (PUBLISHED) and
+    // flagForMdReview flipping it to PENDING_REVIEW afterwards. Accepting it
+    // server-side would change behaviour. tests/web-create-post-contract.test.ts
+    // names it as the one permitted exception so every OTHER unaccepted key fails.
     status,
   };
 }

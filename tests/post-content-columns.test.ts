@@ -52,6 +52,25 @@ describe('post-content reads real injury_posts columns', () => {
     expect(content?.confidence).toBe(0.5);
   });
 
+  it('never substitutes the fact confidence for the RTP one', () => {
+    // The RTP chain used to end `?? row.rtp_confidence ?? row.md_review_confidence
+    // ?? 0`. That link was unreachable while md_review_confidence was NULL on
+    // every auto-published row, and became reachable the moment the create path
+    // started persisting it — at which point it would print a FACT confidence
+    // (are we sure of the diagnosis, the athlete, the side?) as a LITERATURE
+    // confidence (how good is the evidence behind this timeline?).
+    //
+    // Derived from the recorded row rather than authored: drop the one column
+    // the fallback was reached through, change nothing else.
+    const withoutRtp = { ...(row as Record<string, unknown>) };
+    delete withoutRtp.rtp_confidence;
+
+    const { content } = reconstructPostContent(withoutRtp as StoredPostRow);
+    expect(content?.return_to_play.confidence).toBe(0);
+    // The post-level number is still read, by its own name, from its own column.
+    expect(content?.confidence).toBe(0.5);
+  });
+
   it('renders the week line from stored values, not zeros', () => {
     const { content } = reconstructPostContent(row);
     const rtp = content!.return_to_play;
