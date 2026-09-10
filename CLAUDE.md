@@ -607,9 +607,42 @@ stored as `md_review_confidence`) and `return_to_play.confidence` (stored as
 `rtp_confidence`). They measure different things: how sure we are of the
 reported facts, versus how good the literature behind the timeline is. Keep
 their tool-schema descriptions distinct — when the RTP one had no description
-at all, the model emitted the same number into both.
+at all, the model emitted the same number into both. That applies to BOTH
+schemas: `emit_injury_post` in agent.ts and `web_create_injury_post` in
+mcp-servers, whose `returnToPlaySchema` had no descriptions at all until
+2026-09-10. 102 of 314 stored rows still carry the two confidences byte-identical.
 Posts pending review are stored in database with status PENDING_REVIEW.
 They do NOT publish to Farcaster or Twitter until approved.
+
+**Both confidences are persisted on EVERY post now, not only reviewed ones.**
+`md_review_confidence` used to be written solely by `flagForMdReview`, so it
+recorded "the gate fired" rather than "a confidence was emitted" — NULL on 183
+of 472 live PUBLISHED rows, every one on the auto-publish path. `formatForWeb`
+had always sent the number, under the key `confidence`, which
+`web_create_injury_post`'s zod object does not declare: **`z.object` strips
+unknown keys and returns success**, so it was discarded silently. The emitted
+key must be the COLUMN name. `rtp_confidence` survived only because it rides
+NESTED inside `return_to_play_estimate`, which is in the schema.
+
+`status` is stripped the same way and that one is DELIBERATE: the review path
+relies on the row landing at the DDL default `PUBLISHED` and `flagForMdReview`
+flipping it to `PENDING_REVIEW` afterwards. `tests/web-create-post-contract.test.ts`
+names it as the one permitted exception, checked against a RECORDED `tools/list`
+response, so every other unaccepted key fails. The four `/seed` payloads in
+index.ts call the tool directly and are covered by the same test.
+
+Two traps for anyone testing near this. The mcp suite's
+`getTool(server, name).handler(args, {})` calls the RAW callback — zod runs in
+`McpServer.validateToolInput` on the `tools/call` path only, so that pattern
+hands the handler an object zod never touched and a stripped field is
+structurally invisible to it. Go through `tool.inputSchema.parse()` first. And
+`post-content.ts`'s RTP confidence must NEVER fall back to
+`md_review_confidence`: that link was unreachable only while the column was
+NULL, and it would print a FACT confidence as a LITERATURE confidence.
+Re-verify with `src/scripts/md-confidence-dryrun.ts`; the numbers that must be
+zero are RTP confidences that move under the new chain, rows with a NULL
+`rtp_confidence`, flagged rows with a NULL value, and — with `--since` — new
+auto-published rows still NULL.
 
 ### forceMDReviewReason outranks all of that
 

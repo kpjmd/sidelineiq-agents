@@ -451,7 +451,7 @@ app.post('/seed/test-posts', async (_req, res) => {
         probability_week_8: 0.99,
         confidence: 0.88,
       },
-      confidence: 0.88,
+      md_review_confidence: 0.88,
       status: 'PUBLISHED',
     });
     results.breaking_id = extractSeedPostId(breakingData);
@@ -479,7 +479,7 @@ app.post('/seed/test-posts', async (_req, res) => {
         confidence: 0.91,
       },
       parent_post_id: results.breaking_id ?? undefined,
-      confidence: 0.91,
+      md_review_confidence: 0.91,
       status: 'PUBLISHED',
     });
     results.tracking_id = extractSeedPostId(trackingData);
@@ -510,7 +510,7 @@ app.post('/seed/test-posts', async (_req, res) => {
         confidence: 0.71,
       },
       md_review_required: true,
-      confidence: 0.71,
+      md_review_confidence: 0.71,
       status: 'PENDING_REVIEW',
     });
     results.deep_dive_id = extractSeedPostId(deepDiveData);
@@ -558,7 +558,7 @@ app.post('/seed/test-posts', async (_req, res) => {
       team_timeline_weeks: 2,
       conflict_reason:
         'Team medical staff report a 2-week return timeline. OTM three-axis classification of a Grade II MCL sprain estimates 6–8 weeks based on valgus mechanism and ligament fiber involvement — a 4-week gap that exceeds the OTM conflict threshold.',
-      confidence: 0.79,
+      md_review_confidence: 0.79,
       status: 'PUBLISHED',
     });
     results.conflict_flag_id = extractSeedPostId(conflictData);

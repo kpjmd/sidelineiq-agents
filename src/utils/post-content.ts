@@ -182,15 +182,20 @@ export function reconstructPostContent(row: StoredPostRow): ReconstructResult {
         probability_week_2: Number(prob2 ?? 0),
         probability_week_4: Number(prob4 ?? 0),
         probability_week_8: Number(prob8 ?? 0),
-        confidence: Number(
-          rtpNested?.confidence ?? row.rtp_confidence ?? row.md_review_confidence ?? 0,
-        ),
+        // No fallback to md_review_confidence. That link was unreachable while
+        // the column was NULL on every auto-published row, and it becomes
+        // reachable the moment the create path starts persisting it — at which
+        // point it would print a FACT confidence as a literature confidence.
+        // The two score different things and are not substitutable in either
+        // direction.
+        confidence: Number(rtpNested?.confidence ?? row.rtp_confidence ?? 0),
       },
-      // md_review_confidence is only written when a post is flagged for MD
-      // review, so it is NULL on autonomously published rows. Neither this nor
-      // the RTP confidence above is printed to social — publishApprovedPost
-      // formats for Farcaster/X only and never calls formatForWeb — so a 0 here
-      // is inert. Read correctly anyway rather than leaving a known-wrong name.
+      // The post-level confidence: how sure we were of the reported FACTS.
+      // Inert today — reconstructed content reaches only publishApprovedPost,
+      // which formats for Farcaster/X and never calls needsMDReview or
+      // formatForWeb, so this `?? 0` can neither re-gate nor re-store anything.
+      // Read it by its real name anyway: the moment a reader does route this
+      // back through the gate, a silent 0 is a forced review.
       confidence: Number(row.md_review_confidence ?? 0),
       ...(row.conflict_reason ? { conflict_reason: String(row.conflict_reason) } : {}),
       ...(row.team_timeline_weeks !== undefined

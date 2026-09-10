@@ -1,0 +1,186 @@
+{
+  "_recorded_from": "tools/list on the sidelineiq-mcp-servers web MCP server",
+  "_recorded_at": "2026-09-10",
+  "_note": "The web_create_injury_post entry, lifted verbatim out of a real JSON-RPC tools/list response (61 tools; only this one is kept). NEVER hand-author this file \u2014 the point of the contract test is that it reflects what the SERVER accepts, and a hand-written copy would just re-encode what the agent already believes.\nRe-record it in any mcp PR that touches this tool's schema:\n  curl -sS -X POST \"$WEB_MCP_URL\" \\\n    -H \"Authorization: Bearer $MCP_AUTH_SECRET\" \\\n    -H \"Content-Type: application/json\" \\\n    -H \"Accept: application/json, text/event-stream\" \\\n    -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}' \\\n    | sed -n 's/^data: //p'\nthen take result.tools[] where name == web_create_injury_post.",
+  "_recorded_against": "sidelineiq-mcp-servers @ fix/persist-md-review-confidence, run locally (tools/list touches no database). The PRODUCTION instance still advertises 17 properties and no md_review_confidence until that branch deploys \u2014 re-recording against production before the deploy makes the contract test fail, which is the intended direction.",
+  "tool": {
+    "name": "web_create_injury_post",
+    "description": "Create a new injury post in the SidelineIQ database for display on the web frontend. Stores full clinical content, platform publish status, and metadata. Auto-generates a URL slug.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "athlete_name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Athlete's full name"
+        },
+        "sport": {
+          "type": "string",
+          "enum": [
+            "NFL",
+            "NBA",
+            "PREMIER_LEAGUE",
+            "UFC",
+            "OTHER"
+          ],
+          "description": "Sport league"
+        },
+        "team": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Team name"
+        },
+        "injury_type": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Clinical injury classification"
+        },
+        "injury_severity": {
+          "type": "string",
+          "enum": [
+            "MINOR",
+            "MODERATE",
+            "SEVERE",
+            "UNKNOWN"
+          ],
+          "description": "Injury severity level"
+        },
+        "content_type": {
+          "type": "string",
+          "enum": [
+            "BREAKING",
+            "TRACKING",
+            "DEEP_DIVE",
+            "CONFLICT_FLAG"
+          ],
+          "description": "Type of content"
+        },
+        "headline": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Post headline (max 120 characters)"
+        },
+        "clinical_summary": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Full clinical breakdown"
+        },
+        "return_to_play_estimate": {
+          "type": "object",
+          "properties": {
+            "min_weeks": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Lower bound of the return-to-play window, in weeks counted as a TOTAL from injury_date \u2014 or from the surgery date when there was one \u2014 NOT the time remaining from today. These bounds do not shrink as the athlete rehabs: an ACL reconstruction is ~39 weeks whether surgery was last week or nine months ago. Remaining time is derived for display and never stored."
+            },
+            "max_weeks": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Upper bound of the same TOTAL window from injury_date. Same clock as min_weeks, and a DIFFERENT clock from team_timeline_weeks, which is weeks remaining as of the report date \u2014 the two are only comparable after adding elapsed time to the team's figure."
+            },
+            "probability_week_2": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Probability from 0 to 1 that the athlete has returned to play by week 2 counted from injury_date, on the same TOTAL clock as min_weeks/max_weeks. A genuine 0 is meaningful and must be sent rather than omitted \u2014 a complete tendon rupture really does have no chance of return at week 2."
+            },
+            "probability_week_4": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Probability from 0 to 1 of having returned by week 4 from injury_date. Same TOTAL clock; a genuine 0 is meaningful."
+            },
+            "probability_week_8": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Probability from 0 to 1 of having returned by week 8 from injury_date. Same TOTAL clock; a genuine 0 is meaningful."
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "How good the EVIDENCE behind this timeline is, 0 to 1: the strength and directness of the literature for this injury type and grade, per the SKILL.md evidence tiers. This is a DIFFERENT judgement from the post-level md_review_confidence, which scores how sure we are of the reported facts. They will usually be different numbers, and neither may be copied into the other."
+            }
+          },
+          "required": [
+            "min_weeks",
+            "max_weeks",
+            "probability_week_2",
+            "probability_week_4",
+            "probability_week_8",
+            "confidence"
+          ],
+          "additionalProperties": false,
+          "description": "Return-to-play timeline estimates"
+        },
+        "farcaster_hash": {
+          "type": "string",
+          "description": "Populated after Farcaster publish"
+        },
+        "twitter_id": {
+          "type": "string",
+          "description": "Populated after Twitter publish"
+        },
+        "source_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Original news source URL"
+        },
+        "md_review_required": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether MD review is needed"
+        },
+        "md_review_confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "How sure the agent is of the POST'S FACTS, 0 to 1: whether the diagnosis is confirmed rather than inferred from mechanism, whether the athlete, team and side are unambiguous, and whether the sources agree. This is a DIFFERENT judgement from return_to_play_estimate.confidence, which scores the literature behind the timeline; the two will usually be different numbers and neither may be copied into the other. A low value routes the post to physician review before it publishes. Send it on EVERY create, including posts that publish with no review \u2014 a NULL here cannot be told apart from never having been scored."
+        },
+        "parent_post_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Parent BREAKING post ID \u2014 set on TRACKING updates"
+        },
+        "conflict_reason": {
+          "type": "string",
+          "description": "Reason for conflict flag \u2014 set on CONFLICT_FLAG posts"
+        },
+        "team_timeline_weeks": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Weeks REMAINING before return as of this post's report date, as the team stated it \u2014 NOT total time since the injury. This is a different clock from return_to_play_min_weeks/max_weeks, which are total from injury_date: compare the two only after adding elapsed time. Omit for game-status designations (Questionable/Out/day-to-day) and season-ending or PUP/IR statements, which are availability labels and administrative floors rather than timelines."
+        },
+        "injury_date": {
+          "type": "string",
+          "format": "date",
+          "description": "ISO 8601 date (YYYY-MM-DD) when the injury or surgery originally occurred"
+        }
+      },
+      "required": [
+        "athlete_name",
+        "sport",
+        "team",
+        "injury_type",
+        "injury_severity",
+        "content_type",
+        "headline",
+        "clinical_summary",
+        "return_to_play_estimate"
+      ],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  }
+}
