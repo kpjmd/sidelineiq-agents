@@ -60,7 +60,7 @@ import { resolve } from 'node:path';
 import { initializeMCPClients, callTool, disconnectAll } from '../utils/mcp-client-manager.js';
 import { listAllPosts } from '../utils/web-posts.js';
 import { reconstructPostContent, describeReconstructFailure, type StoredPostRow } from '../utils/post-content.js';
-import { publishApprovedPost } from '../utils/publishing-pipeline.js';
+import { publishApprovedPost, isMCPError, extractMCPErrorMessage } from '../utils/publishing-pipeline.js';
 import { formatForFarcaster, formatForTwitter } from '../utils/content-formatter.js';
 
 const ACTOR_ID = 'republish-social-orphans';
@@ -517,13 +517,18 @@ async function run(): Promise<void> {
       try {
         // preserve_status so a retrospective flag does not pull a live post out
         // of PUBLISHED and out of every "published" filter downstream.
-        await callTool('web', 'web_flag_for_md_review', {
+        const flagRes = await callTool('web', 'web_flag_for_md_review', {
           post_id: entry.post_id,
           reason: `social_orphan:stale_${entry.content_type.toLowerCase()}`,
-          confidence_score: 1,
+          // No confidence_score. This was 1 — a certainty nobody measured,
+          // written over the model's real number. The server now keeps the
+          // stored value when the caller has none.
           flagged_by: ACTOR_ID,
           preserve_status: true,
         });
+        // Checked BEFORE the audit row and the "flagged" line: both used to
+        // record a flag the server had rejected.
+        if (isMCPError(flagRes)) throw new Error(extractMCPErrorMessage(flagRes));
         await callTool('web', 'web_audit_append', {
           actor: 'automation',
           actor_id: ACTOR_ID,

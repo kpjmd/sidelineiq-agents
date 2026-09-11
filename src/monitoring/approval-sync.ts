@@ -1,7 +1,7 @@
-import { isServerAvailable } from '../utils/mcp-client-manager.js';
+import { callTool, isServerAvailable } from '../utils/mcp-client-manager.js';
 import { listAllPosts } from '../utils/web-posts.js';
 import { reconstructPostContent, describeReconstructFailure, type StoredPostRow } from '../utils/post-content.js';
-import { publishApprovedPost } from '../utils/publishing-pipeline.js';
+import { publishApprovedPost, isMCPError, extractMCPErrorMessage } from '../utils/publishing-pipeline.js';
 
 const DEFAULT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const STARTUP_DELAY_MS = 2 * 60 * 1000;    // 2 minutes — let MCP clients settle
@@ -28,6 +28,7 @@ let timer: NodeJS.Timeout | null = null;
 let stopped = false;
 let lastAuditLogAt = 0;
 let lastSuppressionLogAt = 0;
+let lastWithheldLogAt = 0;
 
 // Tracks post IDs published this process lifetime to prevent double-publishing
 // when social-hash writeback hasn't landed yet on a subsequent poll cycle.
@@ -51,6 +52,7 @@ export interface ApprovedPost extends StoredPostRow {
   twitter_id?: string | null;
   created_at?: string;
   slug?: string;
+  md_review_required?: unknown;
 }
 
 /**
@@ -213,6 +215,58 @@ export function selectPostsToRepublish(
   return { pending, suppressed };
 }
 
+/**
+ * PUBLISHED is not proof of approval, so a row routed to review needs an
+ * APPROVED review before this loop may cast it.
+ *
+ * This loop treats "PUBLISHED with no social hash" as "approved, and its
+ * social publish failed". Until 2026-09-11 a post routed to physician review
+ * was CREATED PUBLISHED — web_create_injury_post stripped `status` — and only a
+ * second call flipped it to PENDING_REVIEW. Had that call failed, the row
+ * would have met every condition above, and the default allowlist is DEEP_DIVE:
+ * the one type that always routes to review. It would have gone to Farcaster
+ * and X inside five minutes with no MD ever seeing it.
+ *
+ * The create now lands the row PENDING_REVIEW atomically, so this should never
+ * withhold anything. It keys on `md_review_required`, which the server has
+ * always accepted, so it still holds against an mcp that strips `status` again.
+ * Both approval paths (web_approve_injury_post, web_update_md_review) mark the
+ * md_reviews row APPROVED; live on 2026-09-11 every one of the 233
+ * required-and-PUBLISHED rows had one, so this withholds 0 of them.
+ *
+ * Runs after the newest-per-thread choice on purpose: withholding the newest
+ * post must not promote an older sibling carrying a superseded timeline.
+ */
+export function withholdUnapproved(
+  posts: ApprovedPost[],
+  approvedPostIds: ReadonlySet<string>,
+): { allowed: ApprovedPost[]; withheld: ApprovedPost[] } {
+  const allowed: ApprovedPost[] = [];
+  const withheld: ApprovedPost[] = [];
+  for (const p of posts) {
+    const id = String(p.post_id ?? p.id ?? '');
+    if (p.md_review_required === true && !approvedPostIds.has(id)) withheld.push(p);
+    else allowed.push(p);
+  }
+  return { allowed, withheld };
+}
+
+/** Post ids with an APPROVED md_reviews row; null when that cannot be read. */
+async function fetchApprovedReviewPostIds(): Promise<Set<string> | null> {
+  try {
+    const result = await callTool('web', 'web_list_md_reviews', { status: 'APPROVED' });
+    if (isMCPError(result)) throw new Error(extractMCPErrorMessage(result));
+    const text = (result as { content?: Array<{ text?: string }> })?.content?.[0]?.text;
+    const reviews = text ? (JSON.parse(text) as { reviews?: Array<{ post_id?: unknown }> }).reviews : undefined;
+    if (!Array.isArray(reviews)) throw new Error('web_list_md_reviews returned no reviews array');
+    return new Set(reviews.map((r) => String(r.post_id ?? '')).filter(Boolean));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[ApprovalSync] web_list_md_reviews failed: ${message}`);
+    return null;
+  }
+}
+
 export interface SocialReachReport {
   window_hours: number;
   published: number;
@@ -313,7 +367,7 @@ async function runApprovalSyncCycle(): Promise<void> {
 
   auditSocialReach(posts, now);
 
-  const { pending, suppressed } = selectPostsToRepublish(
+  const { pending: selected, suppressed } = selectPostsToRepublish(
     posts,
     now,
     getNotBeforeMs(),
@@ -327,6 +381,31 @@ async function runApprovalSyncCycle(): Promise<void> {
     );
   }
 
+  if (selected.length === 0) return;
+
+  // Only rows routed to review need the lookup, so the common cycle (nothing
+  // review-routed pending) makes no extra call.
+  let pending = selected;
+  if (selected.some((p) => p.md_review_required === true)) {
+    const approvedIds = await fetchApprovedReviewPostIds();
+    if (!approvedIds) {
+      // Fail closed: an unreadable review table is not permission to cast.
+      console.warn('[ApprovalSync] Cannot verify MD approval — not republishing this cycle');
+      return;
+    }
+    const { allowed, withheld } = withholdUnapproved(selected, approvedIds);
+    if (withheld.length > 0 && now - lastWithheldLogAt >= LOG_THROTTLE_MS) {
+      lastWithheldLogAt = now;
+      console.error(
+        `[ApprovalSync] WITHHELD ${withheld.length} PUBLISHED post(s) routed to MD review with no APPROVED review — not casting: ` +
+          withheld
+            .slice(0, 5)
+            .map((p) => `${p.athlete_name ?? 'unknown'} (${p.content_type ?? '?'}, ${String(p.post_id ?? p.id ?? '?')})`)
+            .join('; ')
+      );
+    }
+    pending = allowed;
+  }
   if (pending.length === 0) return;
 
   const types = pending.map((p) => String(p.content_type ?? '?')).join(', ');

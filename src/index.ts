@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import { timingSafeEqual } from 'node:crypto';
 import { initializeMCPClients, disconnectAll, getServerStatus, callTool, isServerAvailable } from './utils/mcp-client-manager.js';
-import { publishInjuryPost, publishApprovedPost } from './utils/publishing-pipeline.js';
+import { publishInjuryPost, publishApprovedPost, isMCPError, extractMCPErrorMessage } from './utils/publishing-pipeline.js';
 import { reconstructPostContent, describeReconstructFailure } from './utils/post-content.js';
 import { startPolling, stopPolling, pollSport } from './monitoring/poller.js';
 import { processInjuryEvent } from './agents/injury-intelligence/agent.js';
@@ -416,6 +416,17 @@ function extractSeedPostId(data: unknown): string | null {
   }
 }
 
+/** True only when web_create_injury_post filed the md_reviews row itself. */
+function extractSeedReviewFiled(data: unknown): boolean {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const text = (data as any)?.content?.[0]?.text;
+    return typeof text === 'string' && JSON.parse(text)?.md_review_filed === true;
+  } catch {
+    return false;
+  }
+}
+
 app.post('/seed/test-posts', async (_req, res) => {
   if (!isServerAvailable('web')) {
     res.status(503).json({ success: false, error: 'Web MCP server unavailable' });
@@ -512,19 +523,24 @@ app.post('/seed/test-posts', async (_req, res) => {
       md_review_required: true,
       md_review_confidence: 0.71,
       status: 'PENDING_REVIEW',
+      md_review_reason: 'confidence 0.71 below threshold 0.75',
     });
     results.deep_dive_id = extractSeedPostId(deepDiveData);
     console.log(`[Seed] DEEP_DIVE created: ${results.deep_dive_id}`);
 
-    // Flag the DEEP_DIVE for MD review
-    if (results.deep_dive_id) {
+    // The create files the md_reviews row itself now. Flag separately only when
+    // it says it did not (an mcp that predates md_review_filed) — flagging
+    // unconditionally would file a duplicate queue item, since flagForMdReview
+    // inserts one on every call.
+    if (results.deep_dive_id && !extractSeedReviewFiled(deepDiveData)) {
       try {
-        await callTool('web', 'web_flag_for_md_review', {
+        const flagged = await callTool('web', 'web_flag_for_md_review', {
           post_id: results.deep_dive_id,
           reason: 'confidence 0.71 below threshold 0.75',
           confidence_score: 0.71,
           flagged_by: 'seed-script',
         });
+        if (isMCPError(flagged)) throw new Error(extractMCPErrorMessage(flagged));
         console.log('[Seed] DEEP_DIVE flagged for MD review');
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

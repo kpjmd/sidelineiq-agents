@@ -1,8 +1,8 @@
 {
   "_recorded_from": "tools/list on the sidelineiq-mcp-servers web MCP server",
-  "_recorded_at": "2026-09-10",
-  "_note": "The web_create_injury_post entry, lifted verbatim out of a real JSON-RPC tools/list response (61 tools; only this one is kept). NEVER hand-author this file \u2014 the point of the contract test is that it reflects what the SERVER accepts, and a hand-written copy would just re-encode what the agent already believes.\nRe-record it in any mcp PR that touches this tool's schema:\n  curl -sS -X POST \"$WEB_MCP_URL\" \\\n    -H \"Authorization: Bearer $MCP_AUTH_SECRET\" \\\n    -H \"Content-Type: application/json\" \\\n    -H \"Accept: application/json, text/event-stream\" \\\n    -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}' \\\n    | sed -n 's/^data: //p'\nthen take result.tools[] where name == web_create_injury_post.",
-  "_recorded_against": "sidelineiq-mcp-servers @ fix/persist-md-review-confidence, run locally (tools/list touches no database). The PRODUCTION instance still advertises 17 properties and no md_review_confidence until that branch deploys \u2014 re-recording against production before the deploy makes the contract test fail, which is the intended direction.",
+  "_recorded_at": "2026-09-11",
+  "_note": "The web_create_injury_post entry, lifted verbatim out of a real JSON-RPC tools/list response (61 tools; only this one is kept). NEVER hand-author this file — the point of the contract test is that it reflects what the SERVER accepts, and a hand-written copy would just re-encode what the agent already believes.\nRe-record it in any mcp PR that touches this tool's schema:\n  curl -sS -X POST \"$WEB_MCP_URL\" \\\n    -H \"Authorization: Bearer $MCP_AUTH_SECRET\" \\\n    -H \"Content-Type: application/json\" \\\n    -H \"Accept: application/json, text/event-stream\" \\\n    -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}' \\\n    | sed -n 's/^data: //p'\nthen take result.tools[] where name == web_create_injury_post.",
+  "_recorded_against": "PRODUCTION (sidelineiq-mcp-servers-production.up.railway.app), after mcp #28 merged and deployed. 20 properties, including `status` and `md_review_reason`. Byte-identical to the copy recorded from that PR branch locally before it merged, which is the check that the deploy carries the code the PR showed.",
   "tool": {
     "name": "web_create_injury_post",
     "description": "Create a new injury post in the SidelineIQ database for display on the web frontend. Stores full clinical content, platform publish status, and metadata. Auto-generates a URL slug.",
@@ -72,18 +72,18 @@
             "min_weeks": {
               "type": "integer",
               "minimum": 0,
-              "description": "Lower bound of the return-to-play window, in weeks counted as a TOTAL from injury_date \u2014 or from the surgery date when there was one \u2014 NOT the time remaining from today. These bounds do not shrink as the athlete rehabs: an ACL reconstruction is ~39 weeks whether surgery was last week or nine months ago. Remaining time is derived for display and never stored."
+              "description": "Lower bound of the return-to-play window, in weeks counted as a TOTAL from injury_date — or from the surgery date when there was one — NOT the time remaining from today. These bounds do not shrink as the athlete rehabs: an ACL reconstruction is ~39 weeks whether surgery was last week or nine months ago. Remaining time is derived for display and never stored."
             },
             "max_weeks": {
               "type": "integer",
               "minimum": 0,
-              "description": "Upper bound of the same TOTAL window from injury_date. Same clock as min_weeks, and a DIFFERENT clock from team_timeline_weeks, which is weeks remaining as of the report date \u2014 the two are only comparable after adding elapsed time to the team's figure."
+              "description": "Upper bound of the same TOTAL window from injury_date. Same clock as min_weeks, and a DIFFERENT clock from team_timeline_weeks, which is weeks remaining as of the report date — the two are only comparable after adding elapsed time to the team's figure."
             },
             "probability_week_2": {
               "type": "number",
               "minimum": 0,
               "maximum": 1,
-              "description": "Probability from 0 to 1 that the athlete has returned to play by week 2 counted from injury_date, on the same TOTAL clock as min_weeks/max_weeks. A genuine 0 is meaningful and must be sent rather than omitted \u2014 a complete tendon rupture really does have no chance of return at week 2."
+              "description": "Probability from 0 to 1 that the athlete has returned to play by week 2 counted from injury_date, on the same TOTAL clock as min_weeks/max_weeks. A genuine 0 is meaningful and must be sent rather than omitted — a complete tendon rupture really does have no chance of return at week 2."
             },
             "probability_week_4": {
               "type": "number",
@@ -137,26 +137,39 @@
           "type": "number",
           "minimum": 0,
           "maximum": 1,
-          "description": "How sure the agent is of the POST'S FACTS, 0 to 1: whether the diagnosis is confirmed rather than inferred from mechanism, whether the athlete, team and side are unambiguous, and whether the sources agree. This is a DIFFERENT judgement from return_to_play_estimate.confidence, which scores the literature behind the timeline; the two will usually be different numbers and neither may be copied into the other. A low value routes the post to physician review before it publishes. Send it on EVERY create, including posts that publish with no review \u2014 a NULL here cannot be told apart from never having been scored."
+          "description": "How sure the agent is of the POST'S FACTS, 0 to 1: whether the diagnosis is confirmed rather than inferred from mechanism, whether the athlete, team and side are unambiguous, and whether the sources agree. This is a DIFFERENT judgement from return_to_play_estimate.confidence, which scores the literature behind the timeline; the two will usually be different numbers and neither may be copied into the other. A low value routes the post to physician review before it publishes. Send it on EVERY create, including posts that publish with no review — a NULL here cannot be told apart from never having been scored."
         },
         "parent_post_id": {
           "type": "string",
           "format": "uuid",
-          "description": "Parent BREAKING post ID \u2014 set on TRACKING updates"
+          "description": "Parent BREAKING post ID — set on TRACKING updates"
         },
         "conflict_reason": {
           "type": "string",
-          "description": "Reason for conflict flag \u2014 set on CONFLICT_FLAG posts"
+          "description": "Reason for conflict flag — set on CONFLICT_FLAG posts"
         },
         "team_timeline_weeks": {
           "type": "integer",
           "minimum": 0,
-          "description": "Weeks REMAINING before return as of this post's report date, as the team stated it \u2014 NOT total time since the injury. This is a different clock from return_to_play_min_weeks/max_weeks, which are total from injury_date: compare the two only after adding elapsed time. Omit for game-status designations (Questionable/Out/day-to-day) and season-ending or PUP/IR statements, which are availability labels and administrative floors rather than timelines."
+          "description": "Weeks REMAINING before return as of this post's report date, as the team stated it — NOT total time since the injury. This is a different clock from return_to_play_min_weeks/max_weeks, which are total from injury_date: compare the two only after adding elapsed time. Omit for game-status designations (Questionable/Out/day-to-day) and season-ending or PUP/IR statements, which are availability labels and administrative floors rather than timelines."
         },
         "injury_date": {
           "type": "string",
           "format": "date",
           "description": "ISO 8601 date (YYYY-MM-DD) when the injury or surgery originally occurred"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "PUBLISHED",
+            "PENDING_REVIEW"
+          ],
+          "description": "PENDING_REVIEW for a post routed to physician review — it is created non-public and never appears in PUBLISHED listings until approved. Omit (or PUBLISHED) for a post that publishes now. Retired statuses cannot be created."
+        },
+        "md_review_reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why the post needs physician review. With status PENDING_REVIEW, the review-queue item is filed in the SAME write as the post, and the result's md_review_filed is true; no separate web_flag_for_md_review call is needed. Without it, a PENDING_REVIEW post is created with no queue item and md_review_filed is false."
         }
       },
       "required": [

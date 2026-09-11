@@ -284,7 +284,19 @@ describe('formatForWeb', () => {
       // stripped by web_create_injury_post's zod object and never stored.
       md_review_confidence: 0.92,
       status: 'PUBLISHED',
+      md_review_required: false,
     });
+  });
+
+  it('carries the review question on the review path, and only there', () => {
+    const pending = formatForWeb(makeContent(), 'PENDING_REVIEW', 'severity is SEVERE');
+    expect(pending).toMatchObject({
+      status: 'PENDING_REVIEW',
+      md_review_required: true,
+      md_review_reason: 'severity is SEVERE',
+    });
+    // A reason with no review status is not a review question.
+    expect(formatForWeb(makeContent(), 'PUBLISHED', 'stray')).not.toHaveProperty('md_review_reason');
   });
 
   it('emits the post-level confidence under the column name, distinct from the RTP one', () => {

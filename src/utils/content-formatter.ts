@@ -591,8 +591,10 @@ export function formatForTwitter(content: InjuryPostContent, postUrl?: string): 
 
 export function formatForWeb(
   content: InjuryPostContent,
-  status: 'PUBLISHED' | 'PENDING_REVIEW' = 'PUBLISHED'
+  status: 'PUBLISHED' | 'PENDING_REVIEW' = 'PUBLISHED',
+  reviewReason?: string
 ): Record<string, unknown> {
+  const pending = status === 'PENDING_REVIEW';
   return {
     athlete_name: content.athlete_name,
     sport: content.sport,
@@ -615,11 +617,17 @@ export function formatForWeb(
     // auto-publish path. rtp_confidence survived only because it rides nested
     // inside return_to_play_estimate, which IS in the schema.
     md_review_confidence: content.confidence,
-    // `status` is ALSO stripped, and that one is deliberate: the review path
-    // relies on the row landing at the column default (PUBLISHED) and
-    // flagForMdReview flipping it to PENDING_REVIEW afterwards. Accepting it
-    // server-side would change behaviour. tests/web-create-post-contract.test.ts
-    // names it as the one permitted exception so every OTHER unaccepted key fails.
+    // `status` was ALSO stripped, for months, and the review path leaned on it:
+    // the row landed at the DDL default PUBLISHED and a second call,
+    // web_flag_for_md_review, flipped it. Had that call failed, a post routed to
+    // physician review would have been live on the site and eligible for
+    // ApprovalSync's re-cast to social. The server now declares `status` and
+    // `md_review_reason` and files the md_reviews row in the SAME statement as
+    // the post, echoing `md_review_filed`. `md_review_required` was always
+    // declared and never sent; sending it means a review-routed row describes
+    // itself from the first write.
     status,
+    md_review_required: pending,
+    ...(pending && reviewReason && { md_review_reason: reviewReason }),
   };
 }

@@ -627,12 +627,68 @@ unknown keys and returns success**, so it was discarded silently. The emitted
 key must be the COLUMN name. `rtp_confidence` survived only because it rides
 NESTED inside `return_to_play_estimate`, which is in the schema.
 
-`status` is stripped the same way and that one is DELIBERATE: the review path
-relies on the row landing at the DDL default `PUBLISHED` and `flagForMdReview`
-flipping it to `PENDING_REVIEW` afterwards. `tests/web-create-post-contract.test.ts`
-names it as the one permitted exception, checked against a RECORDED `tools/list`
-response, so every other unaccepted key fails. The four `/seed` payloads in
-index.ts call the tool directly and are covered by the same test.
+`status` was stripped the same way, and the review path leaned on it: the row
+landed at the DDL default `PUBLISHED` and a SECOND call, `flagForMdReview`,
+flipped it and filed the md_reviews row. See "A review-routed post is born
+PENDING_REVIEW" — that is no longer how it works, and
+`tests/web-create-post-contract.test.ts` now permits NO unaccepted key, checked
+against a RECORDED `tools/list` response. The four `/seed` payloads in index.ts
+call the tool directly and are covered by the same test.
+
+### A review-routed post is born PENDING_REVIEW
+
+Had that second call ever failed, a post routed to physician review would have
+sat `PUBLISHED`: on the homepage, `/api/feed` and the sitemap, invisible to the
+MD queue (which is driven ONLY by md_reviews rows) — and in ApprovalSync's
+sweep, which treats "PUBLISHED with no social hash" as "approved, social failed"
+and whose default allowlist is DEEP_DIVE, the one type that ALWAYS routes to
+review. It would have been cast to Farcaster and X inside five minutes with no
+MD ever seeing it. Live census 2026-09-11: it had not happened (0 of 233
+routings). The fix is argued from consequence, not frequency.
+
+- **mcp `web_create_injury_post` declares `status` (PUBLISHED | PENDING_REVIEW
+  only) and `md_review_reason`,** and `createPost` is one data-modifying CTE: the
+  post and its md_reviews row commit together, and the result echoes
+  `md_review_filed`. A PENDING_REVIEW create WITHOUT a reason is accepted on
+  purpose (it is what a pre-change agent sends mid-deploy; it lands non-public).
+- **`formatForWeb` sends `status`, `md_review_required` and `md_review_reason`.**
+  `md_review_required` was always declared and never sent.
+- **The pipeline makes no flag call when `md_review_filed === true`.** Anything
+  else falls back to `web_flag_for_md_review` and logs
+  `[Pipeline] REVIEW NOT FILED ON CREATE`; a failed fallback logs
+  `[Pipeline] MD REVIEW FLAG FAILED`, returns `review_flag_failed`, and counts as
+  `review_unfiled=` in the poll summary. **Every old/new mix of the two repos ends
+  in the same row state**, so deploy order is a safety property, not a convention.
+- **ApprovalSync withholds a `md_review_required` row with no APPROVED review**
+  (`withholdUnapproved`, after the newest-per-thread choice, fail-closed on an
+  unreadable review table, log `[ApprovalSync] WITHHELD`). PUBLISHED is not proof
+  of approval. It keys on `md_review_required`, which survives an mcp that
+  strips `status` again. Both approval paths mark md_reviews APPROVED; it
+  withheld 0 of 233 live rows when shipped.
+
+Re-verify with `src/scripts/review-routing-audit.ts` (read-only). The numbers
+that must be zero: PUBLISHED + required + no APPROVED review (excluding the
+repair scripts' retrospective flags), PENDING_REVIEW with no md_reviews row,
+PENDING_REVIEW not required, confidences outside [0,1], and — with `--since` —
+review-routed rows NOT filed atomically. That last one is a positive proof:
+both tables' `created_at` DEFAULT NOW(), which is fixed per statement, so a
+review filed by the CTE has EXACTLY the post's timestamp and one filed by a
+separate call is ~20ms later. Run it with a `--since` before the agents deploy
+and it fails on every row — that is the check working.
+
+`md-confidence-dryrun.ts` Section E (not-required rows must be PUBLISHED) is
+now the check that this touched ONLY the review path.
+
+### web_flag_for_md_review keeps a confidence it was not given
+
+`confidence_score` is optional and COALESCEs onto the stored value. Since every
+create persists the model's number, the repair scripts' hard-coded sentinels
+(`legacy-fact-sweep` 0.5, `fix-injury-laterality` 0.5,
+`republish-social-orphans` 1) overwrote the only record of it — and wrote a
+fabricated value into the 183 historical NULLs, which must stay NULL. They pass
+nothing now. **Never pass a placeholder confidence to this tool.** Migration 022
+adds `CHECK (… BETWEEN 0 AND 1)` on both confidence columns, because above 1 is
+the fail-OPEN direction (`confidence < threshold` is false).
 
 Two traps for anyone testing near this. The mcp suite's
 `getTool(server, name).handler(args, {})` calls the RAW callback — zod runs in
@@ -1007,6 +1063,10 @@ thread is eligible. The division of labour: **this loop recovers a publish that
 failed minutes-to-hours ago; anything older is an editorial decision and belongs
 to `src/scripts/republish-social-orphans.ts` under human review, not a cron.**
 
+**PUBLISHED is not proof of approval.** A row with `md_review_required=true` is
+re-cast only if it has an APPROVED md_reviews row — see "A review-routed post is
+born PENDING_REVIEW".
+
 `publishApprovedPost` handles every content type — never assume DEEP_DIVE when
 reconstructing a row. Use `reconstructPostContent` (`src/utils/post-content.ts`),
 which fails closed on an unrecognized or missing `content_type` rather than
@@ -1083,6 +1143,27 @@ This repo connects to sidelineiq-mcp-servers via HTTP:
 
 If an MCP server is unavailable, log a warning and continue
 with available servers. Never crash the polling loop.
+
+### An unknown key is a rejected call, not a dropped field
+
+Every mcp tool's zod input used to be a plain `z.object`, which STRIPS keys it
+does not declare and returns success — while `tools/list` advertised
+`additionalProperties: false` the whole time. That mismatch is the bug class
+behind `md_review_confidence` (discarded on 183 rows) and `status` (see "A
+review-routed post is born PENDING_REVIEW"). mcp now applies `.strict()` to
+every tool, deep (`MCP_UNKNOWN_KEYS=strict|strip`, default `strict`, set in the
+mcp service — `strip` restores the old behaviour without a deploy).
+
+The consequence to remember: **a key the server does not declare now fails the
+WHOLE call**, where it used to cost one field. A rejection is a normal VALUE
+with `isError`, never a throw, and several callers here do not check isError
+(`web_set_social_state`, most `web_audit_append`). So `callTool` logs
+`[MCP] INPUT REJECTED <server>.<tool>: …` for every caller at once
+(`inputRejectionMessage`, mcp-client-manager.ts). That line must never appear;
+grep for it after any change to a payload. The audit before strict shipped
+(2026-09-11, all 123 agents call sites + all 33 frontend ones) found the
+undeclared keys were `status` (now declared) and `fix-injury-laterality.ts:360`'s
+`entity_id`, a call that was already rejected for a missing `post_id`.
 
 ## Sports Injury Intelligence Skill
 

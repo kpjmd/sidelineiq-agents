@@ -85,6 +85,23 @@ export async function initializeMCPClients(): Promise<void> {
   console.log(`[MCP] Initialization complete. Connected servers: ${connected.join(', ') || 'none'}`);
 }
 
+/**
+ * The server's own input-validation failure, or null for anything else.
+ *
+ * A schema rejection comes back as a normal VALUE (`isError: true`, text
+ * "MCP error -32602: Input validation error: …"), never a throw, and several
+ * callers do not check isError at all. While the server STRIPPED unknown keys
+ * that mistake cost one field; once it rejects them it costs the whole write,
+ * silently. Logging here, once, covers every caller — including the ones that
+ * never look. It changes nothing about the returned value.
+ */
+export function inputRejectionMessage(result: unknown): string | null {
+  const r = result as { isError?: boolean; content?: Array<{ text?: unknown }> } | null;
+  if (r?.isError !== true) return null;
+  const text = r.content?.[0]?.text;
+  return typeof text === 'string' && text.includes('Input validation error') ? text : null;
+}
+
 export async function callTool(
   server: MCPServerName,
   toolName: string,
@@ -97,6 +114,10 @@ export async function callTool(
 
   try {
     const result = await client.callTool({ name: toolName, arguments: params });
+    const rejection = inputRejectionMessage(result);
+    if (rejection !== null) {
+      console.error(`[MCP] INPUT REJECTED ${server}.${toolName}: ${rejection.slice(0, 500)}`);
+    }
     return result;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
