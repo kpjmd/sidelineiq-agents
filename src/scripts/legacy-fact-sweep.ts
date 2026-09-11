@@ -32,6 +32,7 @@ import {
 } from '../agents/injury-intelligence/fact-validator.js';
 import type { RawInjuryEvent, SportKey } from '../types.js';
 import { isRetiredPostStatus } from '../utils/web-posts.js';
+import { isMCPError, extractMCPErrorMessage } from '../utils/publishing-pipeline.js';
 
 interface InjuryPost {
   id: string;
@@ -213,10 +214,13 @@ async function sweep(dryRun: boolean): Promise<void> {
         const codes = [hardCodes, softCodes].filter(Boolean).join(',');
         if (codes) {
           if (!dryRun) {
-            await callTool('web', 'web_flag_for_md_review', {
+            const flagRes = await callTool('web', 'web_flag_for_md_review', {
               post_id: post.id,
               reason: `legacy_sweep:${codes}`,
-              confidence_score: 0.5,
+              // No confidence_score: this sweep has no number of its own, and
+              // the server now COALESCEs onto the stored one. The 0.5 that used
+              // to sit here overwrote the model's real score — and wrote a
+              // sentinel into historical NULLs, which must stay NULL.
               flagged_by: 'legacy-fact-sweep',
               // Retrospective flag on an already-published post — don't flip
               // status to PENDING_REVIEW, which would pull the post out of
@@ -224,6 +228,10 @@ async function sweep(dryRun: boolean): Promise<void> {
               // post-run SQL cleanup the first time around.
               preserve_status: true,
             });
+            // A rejected call resolves as a value. Counting it as flagged is
+            // how a sweep reports success for work it never did; throwing lands
+            // it in the per-post catch below as an `error` row.
+            if (isMCPError(flagRes)) throw new Error(`flag rejected: ${extractMCPErrorMessage(flagRes)}`);
           }
           flagged++;
           report.push({

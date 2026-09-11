@@ -44,6 +44,7 @@ import { writeFile } from 'node:fs/promises';
 import { initializeMCPClients, callTool, disconnectAll } from '../utils/mcp-client-manager.js';
 import type { SportKey } from '../types.js';
 import { isRetiredPostStatus } from '../utils/web-posts.js';
+import { isMCPError, extractMCPErrorMessage } from '../utils/publishing-pipeline.js';
 
 interface InjuryPost {
   id: string;
@@ -94,7 +95,10 @@ const PAGE_SIZE = 50;
 // the problem or the data genuinely isn't there.
 async function fetchPostsForAthlete(athleteName: string, sport: SportKey): Promise<InjuryPost[]> {
   const filtered = unwrap<ListPostsResp>(
-    await callTool('web', 'web_list_posts', { athlete_name: athleteName, sport, limit: 200 }),
+    // 50 is the schema max. This was 200, which the server rejects outright —
+    // and unwrap() ignores isError, so every run silently fell back to the full
+    // scan below and blamed the filter.
+    await callTool('web', 'web_list_posts', { athlete_name: athleteName, sport, limit: 50 }),
   );
   if (filtered?.posts && filtered.posts.length > 0) {
     // Corrections written to a retired row are corrections nobody will read.
@@ -308,13 +312,15 @@ async function run(): Promise<void> {
           after: { [opts.bodyPart + '_side']: opts.to },
           payload: { reason: 'laterality_correction', player_id: resolveRes.player.player_id },
         });
-        await callTool('web', 'web_flag_for_md_review', {
+        const flagRes = await callTool('web', 'web_flag_for_md_review', {
           post_id: post.id,
           reason: `laterality_correction:${opts.from}_to_${opts.to}`,
-          confidence_score: 0.5,
+          // No confidence_score — see legacy-fact-sweep.ts. The server keeps
+          // the stored value when none is given.
           flagged_by: 'fix-injury-laterality',
           preserve_status: true,
         });
+        if (isMCPError(flagRes)) throw new Error(`flag rejected: ${extractMCPErrorMessage(flagRes)}`);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.warn(`[fix-laterality] post-correction bookkeeping failed for post=${post.id}: ${message}`);
