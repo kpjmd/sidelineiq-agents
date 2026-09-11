@@ -1,0 +1,21 @@
+{
+  "_recorded": "2026-09-11 against sidelineiq-mcp-servers production (public /mcp endpoint, SDK 1.27.1). Recorded, never hand-authored. rejected = web_list_posts {limit:200} (schema max 50): the shape McpServer.validateToolInput produces. toolError = web_get_post for a nonexistent uuid: a handler-level error that is NOT an input rejection.",
+  "rejected": {
+    "content": [
+      {
+        "type": "text",
+        "text": "MCP error -32602: Input validation error: Invalid arguments for tool web_list_posts: [\n  {\n    \"code\": \"too_big\",\n    \"maximum\": 50,\n    \"type\": \"number\",\n    \"inclusive\": true,\n    \"exact\": false,\n    \"message\": \"Number must be less than or equal to 50\",\n    \"path\": [\n      \"limit\"\n    ]\n  }\n]"
+      }
+    ],
+    "isError": true
+  },
+  "toolError": {
+    "content": [
+      {
+        "type": "text",
+        "text": "Error: Post 00000000-0000-4000-8000-000000000000 not found. Verify the post_id is correct. Use web_list_posts to find valid post IDs."
+      }
+    ],
+    "isError": true
+  }
+}
