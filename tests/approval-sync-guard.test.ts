@@ -8,6 +8,7 @@ vi.mock('../src/utils/mcp-client-manager.js', () => ({
 import { callTool, isServerAvailable } from '../src/utils/mcp-client-manager.js';
 import {
   selectPostsToRepublish,
+  withholdUnapproved,
   getSocialReachReport,
   type ApprovedPost,
 } from '../src/monitoring/approval-sync.js';
@@ -260,6 +261,48 @@ describe('selectPostsToRepublish — one per thread', () => {
       'older',
       'newer',
     ]);
+  });
+});
+
+/**
+ * PUBLISHED is not proof of approval. A review-routed post used to be CREATED
+ * PUBLISHED and flipped by a second call; had that call failed, the row met
+ * every condition selectPostsToRepublish checks — and the default allowlist is
+ * DEEP_DIVE, the one type that always routes to review.
+ */
+describe('withholdUnapproved — a review-routed post needs an APPROVED review', () => {
+  it('withholds a required post with no APPROVED review', () => {
+    const p = post({ post_id: 'flag-failed', md_review_required: true });
+    const { allowed, withheld } = withholdUnapproved([p], new Set());
+    expect(allowed).toEqual([]);
+    expect(withheld).toEqual([p]);
+  });
+
+  it('lets an approved one through', () => {
+    const p = post({ post_id: 'approved', md_review_required: true });
+    const { allowed, withheld } = withholdUnapproved([p], new Set(['approved']));
+    expect(allowed).toEqual([p]);
+    expect(withheld).toEqual([]);
+  });
+
+  it('never consults approval for a post that was not routed to review', () => {
+    // The auto-publish path: required=false, no review row exists by design.
+    const p = post({ post_id: 'auto', md_review_required: false });
+    expect(withholdUnapproved([p], new Set()).allowed).toEqual([p]);
+  });
+
+  it('matches on post_id or id, whichever the row carries', () => {
+    const p = post({ post_id: undefined, id: 'by-id', md_review_required: true });
+    expect(withholdUnapproved([p], new Set(['by-id'])).allowed).toEqual([p]);
+  });
+
+  it('runs after the newest-per-thread choice, so a withheld post does not promote an older sibling', () => {
+    const older = post({ post_id: 'older', parent_post_id: 'root', created_at: new Date(NOW - 3 * HOUR).toISOString() });
+    const newest = post({ post_id: 'newest', parent_post_id: 'root', md_review_required: true, created_at: new Date(NOW - 1 * HOUR).toISOString() });
+    const { pending } = selectPostsToRepublish([older, newest], NOW, null);
+    const { allowed, withheld } = withholdUnapproved(pending, new Set());
+    expect(withheld.map((p) => p.post_id)).toEqual(['newest']);
+    expect(allowed).toEqual([]);
   });
 });
 
