@@ -610,7 +610,10 @@ their tool-schema descriptions distinct — when the RTP one had no description
 at all, the model emitted the same number into both. That applies to BOTH
 schemas: `emit_injury_post` in agent.ts and `web_create_injury_post` in
 mcp-servers, whose `returnToPlaySchema` had no descriptions at all until
-2026-09-10. 102 of 314 stored rows still carry the two confidences byte-identical.
+2026-09-10. The rubric WORKED: byte-identical confidences were 100/263 (38.0%)
+before PR #30 merged (2026-08-18T01:32:10Z) and 2/61 (3.3%) after. Quote the
+post-rubric rate, never the whole-table one — 102/324 is mostly the defect, and
+`md-confidence-dryrun.ts` section F once compared new posts against it.
 Posts pending review are stored in database with status PENDING_REVIEW.
 They do NOT publish to Farcaster or Twitter until approved.
 
