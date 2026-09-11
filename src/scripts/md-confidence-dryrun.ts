@@ -23,6 +23,8 @@
  *   --since <ISO>        score the acceptance window too (sections C, D2, F)
  *   --compare <manifest> diff against an earlier run's manifest (section G)
  *   --manifest <path>    where to write this run's manifest (always written)
+ *   --baseline-from <ISO> floor of section F's comparison window
+ *                        (default CONFIDENCE_RUBRIC_SINCE, PR #30's merge)
  *   --limit <n>          smoke test against the newest n rows
  *
  * The numbers that must be zero:
@@ -37,6 +39,7 @@
 import 'dotenv/config';
 import { writeFileSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { initializeMCPClients, disconnectAll, isServerAvailable } from '../utils/mcp-client-manager.js';
 import { listAllPosts } from '../utils/web-posts.js';
 import { reconstructPostContent, type StoredPostRow } from '../utils/post-content.js';
@@ -244,7 +247,60 @@ function sectionE(inWindow: PostRow[], since: string | null): void {
 }
 
 // ── F. Is the number meaningful, or merely non-NULL? ──────────────────
-function sectionF(inWindow: PostRow[], all: PostRow[], since: string | null): void {
+/**
+ * PR #30's merge — when emit_injury_post's two confidence fields got distinct
+ * descriptions and the model stopped copying one number into both.
+ *
+ * Section F's baseline has to start HERE. Comparing against the whole
+ * pre-window corpus compared new rows against the defect PR #30 fixed: across
+ * the 507-row corpus, byte-identical confidences are 100/263 (38.0%) before this
+ * instant and 2/61 (3.3%) after. The first acceptance run printed "in-window 1/2
+ * vs baseline 31.5%", and a reader could only conclude things were in line with
+ * history — when the history that line summarised was mostly the bug.
+ */
+export const CONFIDENCE_RUBRIC_SINCE = '2026-08-18T01:32:10Z';
+
+/** Rows created in `[fromMs, toMs)` — lower bound inclusive, upper exclusive. */
+export function rowsCreatedBetween<T extends { created_at: string }>(
+  rows: readonly T[],
+  fromMs: number,
+  toMs: number,
+): T[] {
+  return rows.filter((r) => {
+    const t = Date.parse(r.created_at);
+    // An unparseable timestamp belongs to no window. Silently counting it in
+    // one would make the comparison depend on which way NaN falls.
+    return Number.isFinite(t) && t >= fromMs && t < toMs;
+  });
+}
+
+/**
+ * PR #30's symptom: the two confidences byte-identical, which is what a model
+ * does when it cannot tell two fields apart. Only rows carrying BOTH numbers
+ * are in the denominator — before 2026-09-10 auto-published rows stored no
+ * md_review_confidence at all, and counting them would dilute the rate.
+ */
+export function identicalConfidenceShare(
+  rows: readonly StoredPostRow[],
+): { same: number; withBoth: number } {
+  let same = 0;
+  let withBoth = 0;
+  for (const r of rows) {
+    const a = num(r.md_review_confidence);
+    const b = num(r.rtp_confidence);
+    if (a === null || b === null) continue;
+    withBoth++;
+    if (a === b) same++;
+  }
+  return { same, withBoth };
+}
+
+function sectionF(
+  inWindow: PostRow[],
+  all: PostRow[],
+  since: string | null,
+  baselineFrom: string,
+): void {
   console.log('\n── F. Distribution (reported, not gated) ──\n');
   if (!since) {
     console.log('  SKIP  no --since given.');
@@ -260,24 +316,26 @@ function sectionF(inWindow: PostRow[], all: PostRow[], since: string | null): vo
   const [modal, modalN] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
   report('modal value', `${modal} (${modalN}/${vals.length}, ${((modalN / vals.length) * 100).toFixed(1)}%)`);
 
-  // PR #30's symptom: an unanchored numeric field collapsing onto one value
-  // while the two confidences come back byte-identical. Non-NULL is not the
-  // same as meaningful.
-  const sameAsRtp = (rs: PostRow[]): number =>
-    rs.filter((r) => {
-      const a = num(r.md_review_confidence);
-      const b = num(r.rtp_confidence);
-      return a !== null && b !== null && a === b;
-    }).length;
-  const withVal = (rs: PostRow[]): number =>
-    rs.filter((r) => !isNull(r.md_review_confidence) && !isNull(r.rtp_confidence)).length;
+  const sinceMs = Date.parse(since);
+  const fromMs = Date.parse(baselineFrom);
+  const baseline = rowsCreatedBetween(all, fromMs, sinceMs);
+  const history = rowsCreatedBetween(all, -Infinity, fromMs);
 
-  const before = all.filter((r) => !inWindow.includes(r));
-  const pct = (n: number, d: number): string => (d === 0 ? 'n/a' : `${((n / d) * 100).toFixed(1)}%`);
+  const pct = ({ same, withBoth }: { same: number; withBoth: number }): string =>
+    `${same}/${withBoth} (${withBoth === 0 ? 'n/a' : `${((same / withBoth) * 100).toFixed(1)}%`})`;
+  const day = (iso: string): string => iso.slice(0, 10);
+
+  // Non-NULL is not the same as meaningful. The in-window share is judged
+  // against the baseline only; the pre-rubric line is there so the drop PR #30
+  // produced stays visible, never as the comparison.
   report(
     'md_review_confidence === rtp_confidence',
-    `in-window ${sameAsRtp(inWindow)}/${withVal(inWindow)} (${pct(sameAsRtp(inWindow), withVal(inWindow))})` +
-      ` | baseline ${sameAsRtp(before)}/${withVal(before)} (${pct(sameAsRtp(before), withVal(before))})`,
+    `in-window ${pct(identicalConfidenceShare(inWindow))}` +
+      ` | baseline [${day(baselineFrom)} → ${day(since)}) ${pct(identicalConfidenceShare(baseline))}`,
+  );
+  report(
+    `  for context: before ${day(baselineFrom)} (the defect PR #30 fixed)`,
+    pct(identicalConfidenceShare(history)),
   );
 }
 
@@ -381,6 +439,21 @@ async function main(): Promise<void> {
   }
   const inWindow = since ? rows.filter((r) => Date.parse(r.created_at) >= sinceMs) : [];
 
+  const baselineFrom = flag('--baseline-from') ?? CONFIDENCE_RUBRIC_SINCE;
+  const baselineFromMs = Date.parse(baselineFrom);
+  if (!Number.isFinite(baselineFromMs)) {
+    console.error(`[dryrun] FAIL: --baseline-from ${baselineFrom} is not a parseable date.`);
+    process.exitCode = 1;
+    return;
+  }
+  // An inverted window is an empty baseline that prints "0/0 (n/a)" and looks
+  // like an answer.
+  if (since && baselineFromMs >= sinceMs) {
+    console.error(`[dryrun] FAIL: --baseline-from ${baselineFrom} is not before --since ${since}.`);
+    process.exitCode = 1;
+    return;
+  }
+
   console.log(
     `\n═══ md-confidence dry run (today=${today}, corpus=${rows.length} from ${pages} page(s)) ═══`,
   );
@@ -390,7 +463,7 @@ async function main(): Promise<void> {
   sectionC(inWindow, since);
   sectionD(rows);
   sectionE(inWindow, since);
-  sectionF(inWindow, rows, since);
+  sectionF(inWindow, rows, since, baselineFrom);
 
   const manifest = buildManifest(rows);
   sectionG(manifest, flag('--compare'));
@@ -410,11 +483,14 @@ async function main(): Promise<void> {
   }
 }
 
-main()
-  .catch((err) => {
-    console.error(`[dryrun] fatal: ${err instanceof Error ? err.stack : String(err)}`);
-    process.exitCode = 1;
-  })
-  .finally(() => {
-    void disconnectAll().catch(() => {});
-  });
+// Only run when invoked directly, so the tests can import the pure parts.
+if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {
+  main()
+    .catch((err) => {
+      console.error(`[dryrun] fatal: ${err instanceof Error ? err.stack : String(err)}`);
+      process.exitCode = 1;
+    })
+    .finally(() => {
+      void disconnectAll().catch(() => {});
+    });
+}
