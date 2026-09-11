@@ -226,18 +226,21 @@ function sectionD(rows: PostRow[]): void {
   report('flagged rows whose reason carries no percentage (forced-review paths)', noPct);
 }
 
-// ── E. status stays stripped ──────────────────────────────────────────
+// ── E. an auto-published row is PUBLISHED ─────────────────────────────
 function sectionE(inWindow: PostRow[], since: string | null): void {
-  console.log('\n── E. `status` stays stripped (tripwire) ──\n');
+  console.log('\n── E. not-required rows land PUBLISHED (tripwire) ──\n');
   if (!since) {
     console.log('  SKIP  no --since given.');
     return;
   }
-  // formatForWeb also sends `status`, which web_create_injury_post also strips —
-  // deliberately, because the review path relies on the row landing at the
-  // column default (PUBLISHED) and flagForMdReview flipping it afterwards. If
-  // someone "completes" the fix by declaring status server-side, that sequence
-  // changes and it shows up here.
+  // This was written when web_create_injury_post still stripped `status`, as a
+  // tripwire for the day someone declared it. That day was 2026-09-11 (mcp
+  // fix/review-status-on-create): the server now honours status and the agent
+  // sends md_review_required alongside it, so a review-routed row is born
+  // PENDING_REVIEW and required. The invariant this checks did not change — a
+  // row nobody routed to review must still be PUBLISHED — and it is now the
+  // check that the status change touched ONLY the review path. The review side
+  // of the same change is src/scripts/review-routing-audit.ts.
   const odd = inWindow.filter((r) => !required(r) && r.status !== 'PUBLISHED');
   mustBeZero(
     'in-window not-required rows whose status is not PUBLISHED',

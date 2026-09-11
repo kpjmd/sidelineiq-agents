@@ -54,6 +54,13 @@ export interface PublishResult {
    * publish. See findSupersededPending in publishing-pipeline.ts.
    */
   superseded_post_ids?: string[];
+  /**
+   * Set on the review path only when the post row exists but NO md_reviews row
+   * was filed for it — neither by the create itself nor by the fallback flag
+   * call. The post is non-public only if the server honoured PENDING_REVIEW;
+   * either way the MD queue cannot see it. See publishInjuryPost.
+   */
+  review_flag_failed?: boolean;
 }
 
 export interface ServerStatusMap {

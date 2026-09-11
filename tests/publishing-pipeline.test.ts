@@ -87,12 +87,12 @@ describe('publishInjuryPost', () => {
     expect(result.reason).toContain('confidence');
     expect(result.post_id).toBe('post-abc-123');
 
-    const callArgs = mockCallTool.mock.calls.map((c) => `${c[0]}.${c[1]}`);
-    expect(callArgs).not.toContain('farcaster.farcaster_publish_cast');
-    expect(callArgs).not.toContain('twitter.twitter_publish_tweet');
-
-    expect(mockCallTool).toHaveBeenCalledWith('web', 'web_create_injury_post', expect.objectContaining({ status: 'PENDING_REVIEW' }));
-    expect(mockCallTool).toHaveBeenCalledWith('web', 'web_flag_for_md_review', expect.any(Object));
+    // No social call of ANY kind. Checking only *_publish_cast / *_publish_tweet
+    // (as this used to) could not see a BREAKING post, which publishes via the
+    // *_thread tools.
+    const servers = mockCallTool.mock.calls.map((c) => c[0]);
+    expect(servers).not.toContain('farcaster');
+    expect(servers).not.toContain('twitter');
   });
 
   it('routes to MD review when severity is SEVERE', async () => {
@@ -194,6 +194,125 @@ describe('publishInjuryPost', () => {
       },
       update_reason: 'Social platform hash writeback',
     });
+  });
+});
+
+/**
+ * The review path used to be two calls: create (whose `status` the server
+ * stripped, so the row landed PUBLISHED) then web_flag_for_md_review to flip it.
+ * The old assertion here — that `status: 'PENDING_REVIEW'` was PASSED to the
+ * create — was true and meaningless: it checked the half the server discarded.
+ *
+ * The create now carries the review question and the server files the
+ * md_reviews row in the same statement, echoing `md_review_filed`. These pin
+ * both directions: no second call when it filed, a loud fallback when it did not.
+ */
+describe('publishInjuryPost — review filed on create', () => {
+  /** Shape of mcp web_create_injury_post's toolSuccess payload (tools.ts). */
+  const createResponse = (payload: Record<string, unknown>) => ({
+    content: [{ type: 'text', text: JSON.stringify({ post_id: 'post-rev-1', slug: 's', created_at: 't', ...payload }) }],
+  });
+
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  function respondWith(create: unknown, flag: unknown = { content: [{ type: 'text', text: '{}' }] }) {
+    mockCallTool.mockImplementation(async (_server, tool) => {
+      if (tool === 'web_list_posts') return [];
+      if (tool === 'web_create_injury_post') return create;
+      if (tool === 'web_flag_for_md_review') {
+        if (flag instanceof Error) throw flag;
+        return flag;
+      }
+      return { content: [{ type: 'text', text: 'ok' }] };
+    });
+  }
+  const toolsCalled = () => mockCallTool.mock.calls.map((c) => c[1]);
+  const createArgs = () =>
+    mockCallTool.mock.calls.find((c) => c[1] === 'web_create_injury_post')![2] as Record<string, unknown>;
+
+  it('sends the review question WITH the create', async () => {
+    respondWith(createResponse({ status: 'PENDING_REVIEW', md_review_filed: true }));
+    const result = await publishInjuryPost(makeContent({ confidence: 0.6 }));
+
+    expect(createArgs()).toMatchObject({
+      status: 'PENDING_REVIEW',
+      md_review_required: true,
+      md_review_reason: result.reason,
+      md_review_confidence: 0.6,
+    });
+  });
+
+  it('makes no flag call when the create filed the review', async () => {
+    respondWith(createResponse({ status: 'PENDING_REVIEW', md_review_filed: true }));
+    const result = await publishInjuryPost(makeContent({ confidence: 0.6 }));
+
+    expect(result.status).toBe('pending_review');
+    expect(result.post_id).toBe('post-rev-1');
+    // Pre-fix the pipeline ALWAYS made this second call.
+    expect(toolsCalled()).not.toContain('web_flag_for_md_review');
+    expect(result.review_flag_failed).toBeUndefined();
+    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('REVIEW NOT FILED'));
+  });
+
+  it('falls back to the flag call when the create did not say it filed', async () => {
+    // An mcp that predates md_review_filed: status stripped, field absent.
+    respondWith(createResponse({ status: 'PUBLISHED' }));
+    const result = await publishInjuryPost(makeContent({ confidence: 0.6 }));
+
+    expect(mockCallTool).toHaveBeenCalledWith('web', 'web_flag_for_md_review', {
+      post_id: 'post-rev-1',
+      reason: result.reason,
+      confidence_score: 0.6,
+      flagged_by: 'injury-intelligence-agent',
+    });
+    expect(result.review_flag_failed).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('REVIEW NOT FILED ON CREATE'));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('status=PUBLISHED'));
+  });
+
+  it('treats anything but a literal true as not filed', async () => {
+    for (const filed of ['true', 1, null]) {
+      mockCallTool.mockClear();
+      respondWith(createResponse({ status: 'PENDING_REVIEW', md_review_filed: filed }));
+      await publishInjuryPost(makeContent({ confidence: 0.6 }));
+      expect(toolsCalled()).toContain('web_flag_for_md_review');
+    }
+  });
+
+  it('reports review_flag_failed when the fallback flag is rejected', async () => {
+    respondWith(
+      createResponse({ status: 'PUBLISHED' }),
+      { isError: true, content: [{ type: 'text', text: 'Error: Post post-rev-1 not found.' }] },
+    );
+    const result = await publishInjuryPost(makeContent({ confidence: 0.6 }));
+
+    expect(result.status).toBe('pending_review');
+    expect(result.review_flag_failed).toBe(true);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('MD REVIEW FLAG FAILED'));
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('post=post-rev-1'));
+  });
+
+  it('reports review_flag_failed when the fallback flag throws', async () => {
+    respondWith(createResponse({ status: 'PUBLISHED' }), new Error('socket hang up'));
+    const result = await publishInjuryPost(makeContent({ confidence: 0.6 }));
+    expect(result.review_flag_failed).toBe(true);
+  });
+
+  it('an auto-published create carries no review question', async () => {
+    respondWith(createResponse({ status: 'PUBLISHED' }));
+    await publishInjuryPost(makeContent());
+    const args = createArgs();
+    expect(args.status).toBe('PUBLISHED');
+    expect(args.md_review_required).toBe(false);
+    expect(args).not.toHaveProperty('md_review_reason');
+    expect(toolsCalled()).not.toContain('web_flag_for_md_review');
   });
 });
 

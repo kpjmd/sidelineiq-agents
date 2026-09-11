@@ -36,15 +36,17 @@ const accepted = new Set(
 );
 
 /**
- * `status` is the ONE key we send that web_create_injury_post has never accepted,
- * and leaving it that way is deliberate: the review path relies on the row
- * landing at the column default (PUBLISHED) and flagForMdReview flipping it to
- * PENDING_REVIEW afterwards. Making the server accept it would change behaviour,
- * so it is a named exception rather than a fix.
+ * Empty, and it should stay empty. `status` sat here from 2026-09-10 to
+ * 2026-09-11 as the one key we sent that the tool stripped — "deliberately",
+ * because the review path relied on the row landing PUBLISHED and a second
+ * call flipping it. That reliance was the bug: had the flip ever failed, a post
+ * routed to physician review was live, and eligible for ApprovalSync's re-cast
+ * to social. The server now declares `status` and `md_review_reason` and files
+ * the review row in the same statement.
  *
- * Any OTHER unaccepted key is the md_review_confidence bug happening again.
+ * Any unaccepted key is the md_review_confidence bug happening again.
  */
-const KNOWN_UNACCEPTED = new Set(['status']);
+const KNOWN_UNACCEPTED = new Set<string>();
 
 /** Every optional column formatForWeb branches on. */
 const OPTIONAL_KEYS = [
@@ -77,7 +79,10 @@ function emittedKeys(): Set<string> {
         : {}),
     };
     for (const status of ['PUBLISHED', 'PENDING_REVIEW'] as const) {
-      for (const k of Object.keys(formatForWeb(withSource, status))) keys.add(k);
+      // The review path passes its reason; without it md_review_reason is
+      // never emitted and the subset check could not see it.
+      const reason = status === 'PENDING_REVIEW' ? 'confidence 0.62 below threshold 0.7' : undefined;
+      for (const k of Object.keys(formatForWeb(withSource, status, reason))) keys.add(k);
     }
   }
   return keys;
@@ -113,10 +118,28 @@ describe('formatForWeb against the recorded web_create_injury_post schema', () =
     expect(out).not.toHaveProperty('confidence');
   });
 
-  it('keeps the status exception honest', () => {
-    // If `status` is ever added to the schema, this stale exception fails rather
-    // than quietly widening the allowlist forever.
+  it('keeps the exception list honest', () => {
+    // A key that the schema now accepts must leave the exception list rather
+    // than quietly widening the allowlist forever. (This is the test that fired
+    // when `status` was declared.)
     expect([...KNOWN_UNACCEPTED].filter((k) => accepted.has(k))).toEqual([]);
+  });
+
+  it('sends the review question in keys the tool accepts', () => {
+    // Guards the fixture as much as the code: re-recording tools/list against
+    // an mcp that predates the change would drop these from `accepted`, and the
+    // subset check above would then fail on them — the intended direction.
+    for (const k of ['status', 'md_review_reason', 'md_review_required']) {
+      expect(accepted.has(k), `${k} accepted`).toBe(true);
+      expect(emittedKeys().has(k), `${k} emitted`).toBe(true);
+    }
+  });
+
+  it('declares only the two statuses a create may produce', () => {
+    const status = (schemaFixture as unknown as {
+      tool: { inputSchema: { properties: { status: { enum: string[] } } } };
+    }).tool.inputSchema.properties.status;
+    expect(status.enum).toEqual(['PUBLISHED', 'PENDING_REVIEW']);
   });
 
   it('exercises every optional branch, so the subset check is not vacuous', () => {

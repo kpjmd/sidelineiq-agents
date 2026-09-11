@@ -502,14 +502,15 @@ async function publishToTwitter(content: InjuryPostContent): Promise<PlatformRes
 
 async function publishToWeb(
   content: InjuryPostContent,
-  status: 'PUBLISHED' | 'PENDING_REVIEW'
+  status: 'PUBLISHED' | 'PENDING_REVIEW',
+  reviewReason?: string
 ): Promise<PlatformResult> {
   if (!isServerAvailable('web')) {
     return { platform: 'web', success: false, error: 'Web MCP server unavailable' };
   }
 
   try {
-    const webContent = formatForWeb(content, status);
+    const webContent = formatForWeb(content, status, reviewReason);
     const data = await callTool('web', 'web_create_injury_post', webContent);
     if (isMCPError(data)) {
       throw new Error(extractMCPErrorMessage(data));
@@ -582,6 +583,21 @@ function extractWebPostSlug(data: unknown): string | null {
   const payload = extractTextPayload(data);
   const slug = payload?.slug;
   return typeof slug === 'string' ? slug : null;
+}
+
+/**
+ * What web_create_injury_post says it did with the review question: the row's
+ * status, and whether the md_reviews row was filed in the same statement.
+ * `filed` is true ONLY on a literal `true` — an mcp that predates the field
+ * omits it, and that must read as "not filed", which sends the caller to the
+ * flag call instead of leaving the post with no queue item.
+ */
+function extractReviewFiling(data: unknown): { status: string | null; filed: boolean } {
+  const payload = extractTextPayload(data);
+  return {
+    status: typeof payload?.status === 'string' ? payload.status : null,
+    filed: payload?.md_review_filed === true,
+  };
 }
 
 /**
@@ -931,25 +947,46 @@ export async function publishInjuryPost(
 
     console.log(`[Pipeline] Routing to MD review: ${context} — ${review.reason}`);
 
-    const webResult = await publishToWeb(content, 'PENDING_REVIEW');
+    // The create carries the review question: the server lands the row
+    // PENDING_REVIEW and files its md_reviews row in the same statement. Before
+    // that, `status` was stripped, the row landed PUBLISHED, and everything
+    // rested on the flag call below succeeding.
+    const webResult = await publishToWeb(content, 'PENDING_REVIEW', review.reason);
     const platformResults = [webResult];
 
-    // Flag for MD review if web post succeeded
     const reviewPostId = webResult.success ? extractWebPostId(webResult.data) : null;
+    let reviewFlagFailed = false;
     if (reviewPostId) {
-      try {
-        const flagged = await callTool('web', 'web_flag_for_md_review', {
-          post_id: reviewPostId,
-          reason: review.reason,
-          confidence_score: content.confidence,
-          flagged_by: 'injury-intelligence-agent',
-        });
-        // Tool-level failures resolve as a value, not a throw — without this the
-        // post sits in PENDING_REVIEW with no review row and nothing says so.
-        if (isMCPError(flagged)) throw new Error(extractMCPErrorMessage(flagged));
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.error(`[Pipeline] Failed to flag for MD review: ${message}`);
+      const filing = extractReviewFiling(webResult.data);
+      if (!filing.filed) {
+        // An mcp that predates md_review_filed, a future strip of `status`, or a
+        // reason-less create. Fall back to the separate flag call, which flips
+        // the status and files the row. Loud, because if this ever fires with a
+        // current mcp the atomic create has regressed.
+        console.warn(
+          `[Pipeline] REVIEW NOT FILED ON CREATE ${context} post=${reviewPostId} ` +
+            `status=${filing.status ?? 'unknown'} at ${new Date().toISOString()} — falling back to web_flag_for_md_review`,
+        );
+        try {
+          const flagged = await callTool('web', 'web_flag_for_md_review', {
+            post_id: reviewPostId,
+            reason: review.reason,
+            confidence_score: content.confidence,
+            flagged_by: 'injury-intelligence-agent',
+          });
+          // Tool-level failures resolve as a value, not a throw.
+          if (isMCPError(flagged)) throw new Error(extractMCPErrorMessage(flagged));
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          reviewFlagFailed = true;
+          // The row exists and no MD queue item points at it. If the create's
+          // status was also stripped it is PUBLISHED — on the site, and only
+          // ApprovalSync's md_review_required guard keeps it off social.
+          console.error(
+            `[Pipeline] MD REVIEW FLAG FAILED ${context} post=${reviewPostId} ` +
+              `status=${filing.status ?? 'unknown'} at ${new Date().toISOString()}: ${message}`,
+          );
+        }
       }
     }
 
@@ -959,6 +996,7 @@ export async function publishInjuryPost(
       // The poller needs this to run entity maintenance — a PENDING_REVIEW post
       // is a real row in the web DB, so it anchors a thread just like a published one.
       ...(reviewPostId && { post_id: reviewPostId }),
+      ...(reviewFlagFailed && { review_flag_failed: true }),
       platform_results: platformResults,
     };
   }

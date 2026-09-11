@@ -404,6 +404,10 @@ interface PollSummary {
   duplicates: number;
   published: number;
   pending_review: number;
+  /** Review routings whose post row exists but no md_reviews row was filed —
+   *  neither by the create nor by the fallback flag call. Must be 0; the MD
+   *  queue cannot see these. See publishInjuryPost's review branch. */
+  review_unfiled: number;
   /** Review routings suppressed because an equivalent item was already queued.
    *  Kept out of `skipped` on purpose — this is the observable that says the
    *  MD-queue duplication fix is doing something. */
@@ -1275,6 +1279,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
     duplicates: 0,
     published: 0,
     pending_review: 0,
+    review_unfiled: 0,
     review_suppressed: 0,
     rejection_suppressed: 0,
     superseded: 0,
@@ -1938,6 +1943,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
       else if (result.reason === 'rejected_recently') summary.rejection_suppressed++;
       else summary.skipped++;
       summary.superseded += result.superseded_post_ids?.length ?? 0;
+      if (result.review_flag_failed) summary.review_unfiled++;
 
       // Each outcome spends its OWN lane. A review-queue row is real output and
       // is still budgeted, but it is not audience-facing and must not consume a
@@ -1982,7 +1988,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
   }
 
   console.log(
-    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} date_carry_review=${summary.date_carryover_review} date_carry_annot=${summary.date_carryover_annotated} date_settled=${summary.date_resolution_skipped} date_write_fail=${summary.thread_date_write_failed} date_yr_diverge=${summary.date_year_divergence} tl_anchor_review=${summary.timeline_anchor_review} tl_anchor_annot=${summary.timeline_anchor_annotated} dropped_concussion=${summary.dropped_concussion} name_drift=${summary.athlete_name_drift} reanchored=${summary.athlete_reanchored} drift_spelling=${summary.athlete_drift_spelling} surname_ref=${summary.athlete_surname_ref} ct_drift=${summary.content_type_drift} dropped_fact=${summary.dropped_fact_validation} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} would_promote=${summary.would_promote_from_defer} expired=${summary.expired_from_defer} defer_q=${summary.defer_queue_size} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} review_supp=${summary.review_suppressed} reject_supp=${summary.rejection_suppressed} superseded=${summary.superseded} skipped=${summary.skipped} capped=${summary.capped} source_err=${summary.source_errors} classifier_err=${summary.classifier_errors} errors=${summary.errors}`
+    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} date_carry_review=${summary.date_carryover_review} date_carry_annot=${summary.date_carryover_annotated} date_settled=${summary.date_resolution_skipped} date_write_fail=${summary.thread_date_write_failed} date_yr_diverge=${summary.date_year_divergence} tl_anchor_review=${summary.timeline_anchor_review} tl_anchor_annot=${summary.timeline_anchor_annotated} dropped_concussion=${summary.dropped_concussion} name_drift=${summary.athlete_name_drift} reanchored=${summary.athlete_reanchored} drift_spelling=${summary.athlete_drift_spelling} surname_ref=${summary.athlete_surname_ref} ct_drift=${summary.content_type_drift} dropped_fact=${summary.dropped_fact_validation} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} would_promote=${summary.would_promote_from_defer} expired=${summary.expired_from_defer} defer_q=${summary.defer_queue_size} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} review_unfiled=${summary.review_unfiled} review_supp=${summary.review_suppressed} reject_supp=${summary.rejection_suppressed} superseded=${summary.superseded} skipped=${summary.skipped} capped=${summary.capped} source_err=${summary.source_errors} classifier_err=${summary.classifier_errors} errors=${summary.errors}`
   );
   return summary;
 }
