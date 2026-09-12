@@ -20,8 +20,10 @@ function sleep(ms: number): Promise<void> {
 // all" for free — including the content types this loop never republishes.
 const AUDIT_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
 // A post is PUBLISHED to web before the social calls fire, so a row seconds old
-// with no hash is mid-flight, not failed. Only count posts past that window.
-const AUDIT_GRACE_MS = 10 * 60 * 1000;       // 10 minutes
+// with no hash is mid-flight, not failed. Both the audit and the republish
+// selector below need this: one to avoid reporting a false outage, the other to
+// avoid casting a post twice. Matches republish-social-orphans.ts's GRACE_MS.
+const IN_FLIGHT_GRACE_MS = 10 * 60 * 1000;   // 10 minutes
 const LOG_THROTTLE_MS = 60 * 60 * 1000;      // 1 hour — cycles run every 5 min
 
 let timer: NodeJS.Timeout | null = null;
@@ -51,6 +53,10 @@ export interface ApprovedPost extends StoredPostRow {
   farcaster_hash?: string | null;
   twitter_id?: string | null;
   created_at?: string;
+  /** Bumped by every transition into the hashless-PUBLISHED state — see
+   *  lastTouchedMs. Present on the wire (web_list_posts is SELECT *) but was
+   *  never declared here, so nothing could read it. */
+  updated_at?: string;
   slug?: string;
   md_review_required?: unknown;
 }
@@ -78,6 +84,61 @@ function getNotBeforeMs(): number | null {
 }
 
 /**
+ * When this row last changed state, as the best available stand-in for "when it
+ * became a hashless PUBLISHED row".
+ *
+ * There is no `published_at` column on injury_posts — the only timestamps are
+ * created_at, updated_at, retired_at, corrected_at and injury_date. The two
+ * candidates fail differently:
+ *
+ * `created_at` is when the post was FILED. A review-routed post is filed
+ * PENDING_REVIEW and may be approved hours or days later, so a created_at floor
+ * does not protect the approve path at all — which is the path with the LONGER
+ * in-flight window, since the frontend flips the status and only then calls
+ * agents.
+ *
+ * `updated_at` is set explicitly in SQL by every writer (there is no trigger),
+ * including both transitions into PUBLISHED: web_approve_injury_post and
+ * web_update_md_review. On the rows this loop targets it therefore reads as
+ * "the last time this row changed state". Measured live on 2026-09-11 over 35
+ * approved-and-hashed rows, updated_at was at or after md_reviews.reviewed_at
+ * in 35 of 35.
+ *
+ * So: prefer updated_at, fall back to created_at, and take the later of the two
+ * so a malformed or absent updated_at can only make the gate MORE cautious.
+ */
+function lastTouchedMs(p: ApprovedPost): number {
+  const created = p.created_at ? new Date(p.created_at).getTime() : NaN;
+  const updated = p.updated_at ? new Date(p.updated_at).getTime() : NaN;
+  if (Number.isFinite(updated) && Number.isFinite(created)) return Math.max(updated, created);
+  if (Number.isFinite(updated)) return updated;
+  return created;
+}
+
+/**
+ * True while the row is young enough that its social calls may still be running.
+ *
+ * The web post is created BEFORE the social calls and the hashes are written
+ * back AFTER, so "PUBLISHED with no hash" is ambiguous for the length of that
+ * window: it means either "the publish failed" or "the publish is in progress".
+ * Casting on the second reading posts to the live accounts twice.
+ *
+ * Measured live, the window is sub-second — median 0.4s on the auto path
+ * (updated_at - created_at) and 0.8s on the approve path (updated_at -
+ * reviewed_at), max 1.1s across 54 rows. The 10-minute floor is not calibration,
+ * it is headroom: callTool has no timeout and no retry, so a hung MCP call has
+ * no upper bound at all.
+ *
+ * A row with no usable timestamp is treated as in-flight. It cannot be aged, and
+ * the safe failure here is declining to cast.
+ */
+function isInFlight(p: ApprovedPost, now: number): boolean {
+  const touched = lastTouchedMs(p);
+  if (!Number.isFinite(touched)) return true;
+  return now - touched < IN_FLIGHT_GRACE_MS;
+}
+
+/**
  * Reports PUBLISHED posts that never reached a social platform.
  *
  * Deliberately broader than the republish filter above: every content type, not
@@ -90,8 +151,10 @@ function auditSocialReach(posts: ApprovedPost[], now: number): void {
     if ((p.status ?? '').toUpperCase() !== 'PUBLISHED') return false;
     if (p.farcaster_hash || p.twitter_id) return false;
     if (!p.created_at) return false;
-    const age = now - new Date(p.created_at).getTime();
-    return age > AUDIT_GRACE_MS && age < AUDIT_WINDOW_MS;
+    // Grace keys on the last state change; the window keys on filing time, which
+    // is what "published in the last 24h" means to a reader of the log line.
+    if (isInFlight(p, now)) return false;
+    return now - new Date(p.created_at).getTime() < AUDIT_WINDOW_MS;
   });
 
   if (unreached.length === 0) return;
@@ -110,6 +173,10 @@ function auditSocialReach(posts: ApprovedPost[], now: number): void {
 export interface RepublishSelection {
   pending: ApprovedPost[];
   suppressed: number;
+  /** Rows held back because their social calls may still be running. Counted
+   *  separately from `suppressed`, which is the editorial backlog cutoff — these
+   *  are not suppressed, they are simply not decidable yet. */
+  inFlight: number;
 }
 
 /**
@@ -156,6 +223,12 @@ function threadKey(p: ApprovedPost): string {
  * Decides which posts this loop may re-cast. Pure and exported because it is
  * the highest-consequence logic in the file: get it wrong and a backlog of
  * stale injury news goes out to the real accounts all at once.
+ *
+ * Note the two age bounds, which answer different questions. The per-type
+ * ceiling (MAX_AGE_BY_TYPE) asks "is this still worth posting?" and is
+ * editorial. The in-flight floor asks "has this finished publishing?" and is a
+ * correctness guard — without it a cycle landing inside the publish window
+ * casts a post that is in the middle of casting itself.
  */
 export function selectPostsToRepublish(
   posts: ApprovedPost[],
@@ -208,11 +281,20 @@ export function selectPostsToRepublish(
     }
   }
 
-  const pending = [...newestPerThread.values()].sort(
+  // The in-flight check runs AFTER the newest-per-thread choice, for the same
+  // reason withholdUnapproved does: holding back the newest post must not
+  // promote an older hashless sibling in its place. That sibling is on the same
+  // thread and therefore carries a superseded timeline — casting it because the
+  // current post is still publishing would be worse than the duplicate this
+  // guard exists to prevent.
+  const settled = [...newestPerThread.values()].filter((p) => !isInFlight(p, now));
+  const inFlight = newestPerThread.size - settled.length;
+
+  const pending = settled.sort(
     (a, b) => new Date(a.created_at ?? 0).getTime() - new Date(b.created_at ?? 0).getTime()
   );
 
-  return { pending, suppressed };
+  return { pending, suppressed, inFlight };
 }
 
 /**
@@ -311,9 +393,9 @@ export async function getSocialReachReport(windowHours = 24): Promise<SocialReac
   const inWindow = posts.filter((p) => {
     if ((p.status ?? '').toUpperCase() !== 'PUBLISHED') return false;
     if (!p.created_at) return false;
-    const age = now - new Date(p.created_at).getTime();
-    // Same grace period as the loop, so the endpoint and the log line agree.
-    return age > AUDIT_GRACE_MS && age < windowMs;
+    // Same grace as the loop, so the endpoint and the log line agree.
+    if (isInFlight(p, now)) return false;
+    return now - new Date(p.created_at).getTime() < windowMs;
   });
 
   const missing = inWindow
@@ -367,12 +449,21 @@ async function runApprovalSyncCycle(): Promise<void> {
 
   auditSocialReach(posts, now);
 
-  const { pending: selected, suppressed } = selectPostsToRepublish(
+  const { pending: selected, suppressed, inFlight } = selectPostsToRepublish(
     posts,
     now,
     getNotBeforeMs(),
     processedIds
   );
+
+  // Unthrottled: this is rare (the publish window is sub-second in practice) and
+  // it is the one line that explains why a post you just approved was not cast
+  // this cycle. It will be on the next one.
+  if (inFlight > 0) {
+    console.log(
+      `[ApprovalSync] ${inFlight} post(s) changed state inside the ${IN_FLIGHT_GRACE_MS / 60000}-minute in-flight grace — still publishing, not re-casting this cycle`
+    );
+  }
 
   if (suppressed > 0 && now - lastSuppressionLogAt >= LOG_THROTTLE_MS) {
     lastSuppressionLogAt = now;
