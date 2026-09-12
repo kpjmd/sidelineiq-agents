@@ -306,6 +306,129 @@ describe('withholdUnapproved — a review-routed post needs an APPROVED review',
   });
 });
 
+/**
+ * The in-flight grace on the CAST path.
+ *
+ * ApprovalSync treats "PUBLISHED with no social hash" as "approved, and its
+ * social publish failed". But the web row is written BEFORE the social calls and
+ * the hashes are written back AFTER, so for the length of that window the same
+ * row also means "publishing right now". The file's own auditSocialReach has had
+ * a 10-minute floor for exactly this reason since it was written; the selector
+ * that actually casts never got one. processedIds does not help: it is
+ * in-memory and only covers this loop's own publishes, not the pipeline's and
+ * not the approve route's.
+ *
+ * Measured live 2026-09-11: the window is sub-second (median 0.4s auto, 0.8s
+ * approve, max 1.1s over 54 rows), and there were zero hashless PUBLISHED rows
+ * inside the 7-day lookback. So this changes no live decision today. It is
+ * argued from consequence: a double cast to the real Farcaster and X accounts
+ * with no MD in the loop.
+ */
+describe('selectPostsToRepublish — the in-flight grace', () => {
+  const MINUTE = 60 * 1000;
+
+  it('holds back an auto-published row that was created seconds ago', () => {
+    // The auto path never bumps updated_at when both socials fail, so
+    // created_at is all there is — and here it is young.
+    const posts = [post({ post_id: 'mid-publish', created_at: new Date(NOW - 30 * 1000).toISOString() })];
+
+    expect(selectPostsToRepublish(posts, NOW, null).pending).toEqual([]);
+  });
+
+  /**
+   * The case created_at alone cannot catch, and the reason the clock is
+   * updated_at. A review-routed post is FILED hours or days before it is
+   * approved, so its created_at is old the moment it becomes eligible — while
+   * its social calls have only just started.
+   */
+  it('holds back a row approved seconds ago but filed hours ago', () => {
+    const posts = [
+      post({
+        post_id: 'just-approved',
+        created_at: new Date(NOW - 3 * HOUR).toISOString(),
+        updated_at: new Date(NOW - 30 * 1000).toISOString(),
+      }),
+    ];
+
+    expect(selectPostsToRepublish(posts, NOW, null).pending).toEqual([]);
+  });
+
+  it('lets a row through once the grace has passed', () => {
+    const posts = [
+      post({
+        post_id: 'genuinely-failed',
+        created_at: new Date(NOW - 3 * HOUR).toISOString(),
+        updated_at: new Date(NOW - 11 * MINUTE).toISOString(),
+      }),
+    ];
+
+    expect(selectPostsToRepublish(posts, NOW, null).pending.map((p) => p.post_id)).toEqual([
+      'genuinely-failed',
+    ]);
+  });
+
+  /**
+   * Placement, not just presence. The filter runs AFTER the newest-per-thread
+   * collapse for the same reason withholdUnapproved does: holding back the
+   * newest post must not promote an older sibling on the same thread, which by
+   * construction carries a superseded timeline. A filter placed BEFORE the
+   * collapse would return the sibling here.
+   */
+  it('does not promote an older sibling when the newest post is in flight', () => {
+    const posts = [
+      post({
+        post_id: 'older-sibling',
+        parent_post_id: 'thread-1',
+        created_at: new Date(NOW - 2 * HOUR).toISOString(),
+      }),
+      post({
+        post_id: 'newest-in-flight',
+        parent_post_id: 'thread-1',
+        created_at: new Date(NOW - 30 * 1000).toISOString(),
+      }),
+    ];
+
+    expect(selectPostsToRepublish(posts, NOW, null).pending).toEqual([]);
+  });
+
+  it('counts in-flight rows separately from the backlog cutoff', () => {
+    const posts = [
+      post({ post_id: 'in-flight', created_at: new Date(NOW - 30 * 1000).toISOString() }),
+      post({ post_id: 'settled', created_at: new Date(NOW - 2 * HOUR).toISOString() }),
+    ];
+
+    const result = selectPostsToRepublish(posts, NOW, null);
+
+    expect(result.inFlight).toBe(1);
+    // suppressed is the editorial cutoff and must not absorb this count — an
+    // in-flight row is not suppressed, it is not decidable yet.
+    expect(result.suppressed).toBe(0);
+    expect(result.pending.map((p) => p.post_id)).toEqual(['settled']);
+  });
+
+  /** A row that cannot be aged cannot be judged, and the safe answer is not to cast. */
+  it('treats an unusable timestamp as in flight', () => {
+    const posts = [post({ post_id: 'bad-clock', created_at: 'not a date' })];
+
+    expect(selectPostsToRepublish(posts, NOW, null).pending).toEqual([]);
+  });
+
+  /** A malformed updated_at must make the gate more cautious, never less. */
+  it('falls back to created_at when updated_at is unparseable', () => {
+    const posts = [
+      post({
+        post_id: 'bad-updated',
+        created_at: new Date(NOW - 2 * HOUR).toISOString(),
+        updated_at: 'not a date',
+      }),
+    ];
+
+    expect(selectPostsToRepublish(posts, NOW, null).pending.map((p) => p.post_id)).toEqual([
+      'bad-updated',
+    ]);
+  });
+});
+
 describe('getSocialReachReport', () => {
   // getSocialReachReport reads Date.now(), and the fixtures above are pinned to
   // NOW. Without a fake clock these assertions decay as real time moves past
@@ -360,6 +483,25 @@ describe('getSocialReachReport', () => {
     // with no hash is in flight, not failed.
     mockCallTool.mockResolvedValue(
       listResponse([post({ post_id: 'in-flight', created_at: new Date(NOW).toISOString() })])
+    );
+
+    const report = await getSocialReachReport(24);
+
+    expect(report.missing_social).toBe(0);
+    expect(report.published).toBe(0);
+  });
+
+  it('ignores a post approved seconds ago, however long it sat in the queue', async () => {
+    // Same blind spot as the cast path: created_at is filing time, so a post
+    // approved moments ago looks hours old and would be reported as an outage.
+    mockCallTool.mockResolvedValue(
+      listResponse([
+        post({
+          post_id: 'just-approved',
+          created_at: new Date(NOW - 3 * HOUR).toISOString(),
+          updated_at: new Date(NOW - 30 * 1000).toISOString(),
+        }),
+      ])
     );
 
     const report = await getSocialReachReport(24);
