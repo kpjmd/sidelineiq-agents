@@ -852,6 +852,17 @@ projection that was never valid pollutes the accuracy number the platform is
 judged on — and it is excluded from matching, from the accuracy view, and from
 every `listThreads` call the dashboard makes.
 
+**Nothing ages an ACTIVE entity out** — no sweeper, no TTL, no cron — so a
+thread whose event died downstream stays ACTIVE forever and keeps absorbing
+later reports about that athlete inside the 21-day matching window.
+`src/scripts/void-thread.ts` retracts ONE by id with a reason you write by hand;
+it refuses any thread carrying a canonical post, an `injury_updates` row, an
+audit row, a date, a projection or an accuracy record. Do not reach for
+`close-backfill-shells.ts` instead: its eligibility predicate requires
+`first_reported_at` inside the 2026-05-31 `BACKFILL_WINDOW` and its default
+`void_reason` names that script, so borrowing it writes a false sentence into an
+immutable audit row.
+
 ### Body parts that are also English words
 
 `back`, `head`, `hand` and `neck` need a positive anatomical signal in the
@@ -864,6 +875,20 @@ coach said…" put `head` in SPINAL_PARTS next to a stated side, raising
 
 Parts are returned in TEXT ORDER, not `BODY_PARTS` declaration order —
 `parts[0]` is the primary body part and it keys entity matching.
+
+A wrong side on the ENTITY is correctable now, and was not before.
+`laterality`/`body_part`/`injury_type` on `injury_entities` were INSERT-only, and
+`fix-injury-laterality.ts --fix-entity` had been calling `web_apply_correction`
+with `{entity_id, field:'laterality'}` — a tool that targets `injury_posts`,
+requires `post_id`, and does not carry `laterality` in its field enum. Rejected
+on three counts every time, never `isError`-checked, so entity laterality had
+never once been corrected. mcp `web_thread_correct_laterality` is the real call
+shape; it refuses a VOID thread, writes nothing when the side already matches,
+and deliberately leaves `last_updated_at` alone because that column drives
+`web_find_matching_entity`'s 21-day window and a correction is not new injury
+activity. Scoped to laterality alone: changing `body_part` or `injury_type` in
+place re-points which past reports should have matched the thread. Live census
+2026-09-11: 0 of 88 ACTIVE threads disagree with their canonical post.
 
 Prefer the source's own fielded data: `RawInjuryEvent.injury_details`
 (ESPN's `{type, location, detail, side}`) beats re-scraping the prose that
@@ -1001,6 +1026,40 @@ nor a `twitter_id`. Three ways to read it:
   different fixes: `SOCIAL PUBLISH FAILED` (reached nobody),
   `SOCIAL HASH UNPARSEABLE` (it IS live, only the DB link is lost), and
   `Failed to write social hashes` (writeback rejected).
+
+### A hashless PUBLISHED row is ambiguous for as long as the publish runs
+
+The same signal that says "this post reached nobody" also says "this post is
+publishing right now" — the web row is written BEFORE the social calls and the
+hashes AFTER. `auditSocialReach` has had a 10-minute floor for that reason since
+it was written. `selectPostsToRepublish`, which actually CASTS, had none, and
+`processedIds` does not cover the gap: it is in-memory and holds only this
+loop's own publishes, not the pipeline's and not the approve route's.
+
+**The clock is `max(updated_at, created_at)`, not `created_at`.** There is no
+`published_at` column. `created_at` is when the post was FILED, and a
+review-routed post is filed PENDING_REVIEW hours or days before approval — so a
+`created_at` floor does not protect the approve path at all, which is the path
+with the LONGER window (the frontend flips the status, then calls agents).
+`updated_at` is set explicitly in SQL by every writer, including both
+transitions into PUBLISHED (`web_approve_injury_post`, `web_update_md_review`),
+so on these rows it reads as "when this row last changed state". Live: 35 of 35
+approved-and-hashed rows had `updated_at >= md_reviews.reviewed_at`. Taking the
+max means a malformed `updated_at` can only make the gate MORE cautious, and a
+row with no usable timestamp is treated as in-flight.
+
+**The filter runs AFTER the newest-per-thread choice**, for the same reason
+`withholdUnapproved` does: holding back the newest post must not promote an
+older sibling on the same thread, which by construction carries a superseded
+timeline. Counted as `inFlight`, separately from `suppressed` — an in-flight row
+is not suppressed, it is not decidable yet.
+
+Measured live 2026-09-11: the window is sub-second (median 0.4s auto, 0.8s
+approve, max 1.1s over 54 rows) and there were zero hashless PUBLISHED rows in
+the 7-day lookback, so this changes no live decision today. It is argued from
+consequence: a double cast to the real accounts with no MD in the loop.
+`callTool` has no timeout and no retry, so the pathological case has no upper
+bound at all — the 10 minutes is headroom, not calibration.
 
 ### web_get_social_state returns an envelope, not the value
 
