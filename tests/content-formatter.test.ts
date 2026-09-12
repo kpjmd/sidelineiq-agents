@@ -59,28 +59,28 @@ describe('formatForFarcaster', () => {
     });
   });
 
-  it('appends OrthoIQ referral on final DEEP_DIVE cast only', () => {
+  it('appends AequOs referral on final DEEP_DIVE cast only', () => {
     const result = formatForFarcaster(makeContent({ content_type: 'DEEP_DIVE' }));
     const lastCast = result[result.length - 1];
-    expect(lastCast).toContain('OrthoIQ');
+    expect(lastCast).toContain('AequOs');
 
-    // No other cast should have OrthoIQ
+    // No other cast should have AequOs
     for (let i = 0; i < result.length - 1; i++) {
-      expect(result[i]).not.toContain('OrthoIQ');
+      expect(result[i]).not.toContain('AequOs');
     }
   });
 
-  it('does NOT append OrthoIQ referral on BREAKING', () => {
+  it('does NOT append AequOs referral on BREAKING', () => {
     const result = formatForFarcaster(makeContent({ content_type: 'BREAKING' }));
     result.forEach((cast) => {
-      expect(cast).not.toContain('OrthoIQ');
+      expect(cast).not.toContain('AequOs');
     });
   });
 
-  it('does NOT append OrthoIQ referral on TRACKING', () => {
+  it('does NOT append AequOs referral on TRACKING', () => {
     const result = formatForFarcaster(makeContent({ content_type: 'TRACKING' }));
     result.forEach((cast) => {
-      expect(cast).not.toContain('OrthoIQ');
+      expect(cast).not.toContain('AequOs');
     });
   });
 });
@@ -167,7 +167,7 @@ describe('formatForTwitter', () => {
 
   it('preserves OTM signature on DEEP_DIVE final tweet when postUrl is present', () => {
     // Regression: raw-length truncation was clipping OTM_SIGNATURE into
-    // "Physicia..." because the post URL + OrthoIQ URL consumed ~220 chars of
+    // "Physicia..." because the post URL + AequOs URL consumed ~220 chars of
     // raw string before Twitter's t.co shortening. The final cast should now
     // be gauged against Twitter's effective length (URLs = 23 chars each).
     const longPostUrl =
@@ -227,18 +227,18 @@ describe('formatForTwitter — long-form (Premium, 25K chars)', () => {
     expect(result).toHaveLength(1);
     expect(result[0]).toContain('🔬 DEEP DIVE:');
     expect(result[0]).toContain('Physician-founded.');
-    expect(result[0]).not.toContain('OrthoIQ');
+    expect(result[0]).not.toContain('AequOs');
   });
 
-  it('DEEP_DIVE with postUrl returns 2-post thread; post2 has OrthoIQ CTA, post1 does not', () => {
+  it('DEEP_DIVE with postUrl returns 2-post thread; post2 has AequOs CTA, post1 does not', () => {
     const result = formatForTwitter(
       makeContent({ content_type: 'DEEP_DIVE' }),
       'https://sidelineiq.vercel.app/post/test-slug'
     );
     expect(result).toHaveLength(2);
     expect(result[0]).toContain('🔬 DEEP DIVE:');
-    expect(result[0]).not.toContain('OrthoIQ');
-    expect(result[1]).toContain('OrthoIQ');
+    expect(result[0]).not.toContain('AequOs');
+    expect(result[1]).toContain('AequOs');
     expect(result[1]).toContain('sidelineiq.vercel.app');
   });
 

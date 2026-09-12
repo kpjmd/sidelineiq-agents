@@ -20,7 +20,7 @@
 //                         These are flagged into the MD queue instead, with
 //                         preserve_status so the live post stays PUBLISHED.
 //   • Renders the exact casts and tweets for every candidate WITHOUT publishing,
-//     and asserts the OrthoIQ CTA appears on no non-DEEP_DIVE post.
+//     and asserts the AequOs CTA appears on no non-DEEP_DIVE post.
 //   • Publishing requires naming the post ids explicitly. The script cannot
 //     decide to post something you did not read.
 //
@@ -61,10 +61,9 @@ import { initializeMCPClients, callTool, disconnectAll } from '../utils/mcp-clie
 import { listAllPosts } from '../utils/web-posts.js';
 import { reconstructPostContent, describeReconstructFailure, type StoredPostRow } from '../utils/post-content.js';
 import { publishApprovedPost, isMCPError, extractMCPErrorMessage } from '../utils/publishing-pipeline.js';
-import { formatForFarcaster, formatForTwitter } from '../utils/content-formatter.js';
+import { formatForFarcaster, formatForTwitter, REFERRAL_CTA_MARKER } from '../utils/content-formatter.js';
 
 const ACTOR_ID = 'republish-social-orphans';
-const CTA_MARKER = 'orthoiq.com';
 const DEFAULT_SINCE = '2026-08-09T00:00:00Z';
 /** A row minutes old is mid-publish, not failed. Matches the audit's grace. */
 const GRACE_MS = 10 * 60 * 1000;
@@ -119,7 +118,7 @@ interface ReportRow {
   newer_live_post_id: string;
   n_casts: string;
   n_tweets: string;
-  contains_orthoiq_cta: string;
+  contains_referral_cta: string;
   farcaster_hash_after: string;
   twitter_id_after: string;
 }
@@ -435,7 +434,7 @@ async function run(): Promise<void> {
       newer_live_post_id: verdict.newer_live_post_id,
       n_casts: '',
       n_tweets: '',
-      contains_orthoiq_cta: '',
+      contains_referral_cta: '',
       farcaster_hash_after: '',
       twitter_id_after: '',
     };
@@ -462,7 +461,7 @@ async function run(): Promise<void> {
     // Render without publishing — the strongest thing a dry run can offer.
     const casts = formatForFarcaster(content, postUrl);
     const tweets = formatForTwitter(content, postUrl);
-    const hasCta = [...casts, ...tweets].join('\n').toLowerCase().includes(CTA_MARKER);
+    const hasCta = [...casts, ...tweets].join('\n').toLowerCase().includes(REFERRAL_CTA_MARKER);
     if (hasCta && content.content_type !== 'DEEP_DIVE') ctaViolations++;
 
     previews.push(
@@ -481,7 +480,7 @@ async function run(): Promise<void> {
       reason: opts.postIds.has(id) ? 'named on the command line' : 'eligible — not named for this run',
       n_casts: String(casts.length),
       n_tweets: String(tweets.length),
-      contains_orthoiq_cta: String(hasCta),
+      contains_referral_cta: String(hasCta),
     });
   }
 
@@ -643,7 +642,7 @@ async function run(): Promise<void> {
     // Should be unreachable — reconstructPostContent carries the real type and
     // only the DEEP_DIVE builders emit the CTA. If it fires, stop.
     console.error(
-      `\n[republish] ✗ ${ctaViolations} non-DEEP_DIVE candidate(s) rendered an OrthoIQ referral link. ` +
+      `\n[republish] ✗ ${ctaViolations} non-DEEP_DIVE candidate(s) rendered an AequOs referral link. ` +
         'Do not publish. Investigate content-formatter dispatch.',
     );
     process.exitCode = 1;

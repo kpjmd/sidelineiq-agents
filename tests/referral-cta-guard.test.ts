@@ -1,11 +1,11 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { formatForFarcaster, formatForTwitter } from '../src/utils/content-formatter.js';
+import { formatForFarcaster, formatForTwitter, REFERRAL_CTA_MARKER } from '../src/utils/content-formatter.js';
 import { reconstructPostContent } from '../src/utils/post-content.js';
 import type { ContentType, InjuryPostContent } from '../src/types.js';
 
 /**
- * The OrthoIQ referral link may appear on DEEP_DIVE content and nowhere else —
- * never on BREAKING or TRACKING (CLAUDE.md, "OrthoIQ Reference Rule").
+ * The AequOs referral link may appear on DEEP_DIVE content and nowhere else —
+ * never on BREAKING or TRACKING (CLAUDE.md, "AequOs Reference Rule").
  *
  * The formatters have always honoured that, because the CTA lives inside the
  * DEEP_DIVE builders. The way it leaks is a lie about content_type upstream:
@@ -15,7 +15,10 @@ import type { ContentType, InjuryPostContent } from '../src/types.js';
  * lie" from a code-reading argument into a checked property.
  */
 
-const CTA_MARKER = 'orthoiq.com';
+// Taken from the formatter, never hardcoded. This file used to search for
+// 'orthoiq.com' while production emitted orthoiq.io, so the guard below only held
+// when the env matched the literal.
+const CTA_MARKER = REFERRAL_CTA_MARKER;
 const NON_DEEP_DIVE: ContentType[] = ['BREAKING', 'TRACKING', 'CONFLICT_FLAG'];
 
 function makeContent(overrides: Partial<InjuryPostContent> = {}): InjuryPostContent {
@@ -48,7 +51,7 @@ function joined(parts: string[]): string {
   return parts.join('\n').toLowerCase();
 }
 
-describe('OrthoIQ CTA — DEEP_DIVE only', () => {
+describe('AequOs CTA — DEEP_DIVE only', () => {
   const originalLimit = process.env.TWITTER_CHAR_LIMIT;
 
   afterEach(() => {
@@ -180,5 +183,33 @@ describe('reconstructPostContent', () => {
     expect(joined(formatForFarcaster(content!, url))).not.toContain(CTA_MARKER);
     process.env.TWITTER_CHAR_LIMIT = '25000';
     expect(joined(formatForTwitter(content!, url))).not.toContain(CTA_MARKER);
+  });
+});
+
+describe('AequOs rebrand', () => {
+  const ALL: ContentType[] = ['DEEP_DIVE', ...NON_DEEP_DIVE];
+
+  it('derives the CTA marker from a URL that is not an OrthoIQ domain', () => {
+    expect(CTA_MARKER).not.toBe('');
+    expect(CTA_MARKER).not.toContain('orthoiq');
+  });
+
+  it.each(ALL)('never renders the retired OrthoIQ name or domain on %s', (content_type) => {
+    const content = makeContent({ content_type });
+    const text = joined([
+      ...formatForFarcaster(content, 'https://sidelineiq.example/post/x'),
+      ...formatForTwitter(content, 'https://sidelineiq.example/post/x'),
+    ]);
+    expect(text).not.toContain('orthoiq');
+  });
+
+  it('still renders the referral on DEEP_DIVE, so the check above is not vacuous', () => {
+    const content = makeContent({ content_type: 'DEEP_DIVE' });
+    const text = joined([
+      ...formatForFarcaster(content, 'https://sidelineiq.example/post/x'),
+      ...formatForTwitter(content, 'https://sidelineiq.example/post/x'),
+    ]);
+    expect(text).toContain(CTA_MARKER);
+    expect(text).toContain('aequos');
   });
 });

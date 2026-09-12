@@ -203,7 +203,7 @@ app.post('/admin/approve/:post_id', async (req, res) => {
 
   // Shared with ApprovalSync — these were two hand-maintained copies that had
   // already diverged on content_type, which is the field that decides whether
-  // an OrthoIQ referral link gets appended.
+  // an AequOs referral link gets appended.
   const { content, reason } = reconstructPostContent(post);
 
   if (!content) {

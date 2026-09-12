@@ -11,7 +11,7 @@ import type { ContentType, InjuryPostContent, InjurySeverity } from '../types.js
  * bug the moment that filter widened.
  *
  * It matters because content_type is not a label — it picks the formatter, and
- * the OrthoIQ referral CTA is emitted only by the DEEP_DIVE builders. Calling a
+ * the AequOs referral CTA is emitted only by the DEEP_DIVE builders. Calling a
  * BREAKING post a DEEP_DIVE reformats it as a thread and appends a referral
  * link to breaking injury news, which CLAUDE.md forbids outright.
  *

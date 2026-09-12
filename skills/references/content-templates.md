@@ -481,7 +481,7 @@ This content is for informational purposes only and does not
 constitute medical advice.*
 
 *SidelineIQ is founded by a board-certified orthopedic surgeon.
-[OrthoIQ link — for personalized musculoskeletal consultation]*
+[AequOs link — for personalized musculoskeletal consultation]*
 ```
 
 **Tone note on the signature:** The signature is not a disclaimer — it is a credibility statement. "AI-generated analysis. Physician-founded." is a differentiator, not an apology. OTM owns both halves of that identity.
