@@ -27,14 +27,16 @@
 //     not pull it out of "PUBLISHED only" views — same pattern as the legacy
 //     sweep).
 //   • Entity-level laterality correction (the injury_entities row itself) is
-//     reported but NOT attempted unless --fix-entity is passed — there's no
-//     precedent in this codebase for correcting an entity field via MCP, so
-//     this is an explicit opt-in until verified against the live server.
+//     reported always and applied only behind --fix-entity, via
+//     web_thread_correct_laterality. It stays opt-in because it changes a
+//     dedup key, not because the call shape is unknown — it was, until
+//     2026-09-11, and every previous run of this path silently failed. See
+//     the block comment above the call.
 //
 // Usage:
 //   npx tsx src/scripts/fix-injury-laterality.ts --dry-run
 //   npx tsx src/scripts/fix-injury-laterality.ts                 # live: posts only
-//   npx tsx src/scripts/fix-injury-laterality.ts --fix-entity    # also attempt entity correction
+//   npx tsx src/scripts/fix-injury-laterality.ts --fix-entity    # also correct the entity
 //
 // Optional overrides:
 //   --athlete="Jalen Brunson" --sport=NBA --body-part=wrist --from=RIGHT --to=LEFT
@@ -330,10 +332,20 @@ async function run(): Promise<void> {
 
   // Entity-level laterality is separate from the post text and needs its own
   // correction so future entity matching / thread-context anchoring (see
-  // agent.ts InjuryThreadContext) carries the right value forward. There's no
-  // established call shape for this in the codebase (web_apply_correction has
-  // only ever been called with a post_id target) — report it either way, and
-  // only attempt a live call behind the explicit --fix-entity flag.
+  // agent.ts InjuryThreadContext) carries the right value forward.
+  //
+  // This path never once worked. It called web_apply_correction with
+  // `{entity_id, field:'laterality'}` — a tool that targets injury_posts,
+  // requires post_id, and whose field enum is
+  // team|injury_type|injury_severity|team_timeline_weeks. Undeclared on three
+  // counts, so the server rejected it every time; the call did not throw
+  // (an MCP rejection is a normal VALUE carrying isError) and nothing here
+  // checked, so it logged "correction call sent" and moved on.
+  //
+  // web_thread_correct_laterality (mcp, 2026-09-11) is the real call shape.
+  // It stays behind --fix-entity because laterality is half the
+  // (player_id, body_part, laterality) dedup key, so correcting it changes
+  // which future reports match this thread — worth a deliberate keystroke.
   //
   // DEEP_DIVE posts are topic-level (educational content about an injury
   // type across multiple athletes) and are not linked to a per-athlete
@@ -362,19 +374,50 @@ async function run(): Promise<void> {
           : 'NOT corrected automatically (pass --fix-entity on a live run, or correct manually)'),
     );
     if (opts.fixEntity && !opts.dryRun) {
-      try {
-        await callTool('web', 'web_apply_correction', {
-          entity_id: entityRes.entity.id,
-          field: 'laterality',
-          new_value: opts.to,
-          note: `entity laterality corrected from ${opts.from} to ${opts.to} (fix-injury-laterality script)`,
-        });
-        console.log(`[fix-laterality] entity ${entityRes.entity.id} laterality correction call sent — verify result manually`);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.error(
-          `[fix-laterality] entity correction call failed for entity=${entityRes.entity.id}: ${message} — correct manually`,
+      // Only correct a thread this run is actually about. A stored side that is
+      // neither the wrong one we are replacing nor UNSPECIFIED means
+      // web_get_entity_for_post resolved a DIFFERENT injury for this athlete,
+      // and overwriting it would invent an error rather than fix one.
+      const stored = (entityRes.entity.laterality ?? 'UNSPECIFIED').toUpperCase();
+      if (stored !== opts.from && stored !== 'UNSPECIFIED') {
+        console.warn(
+          `[fix-laterality] entity ${entityRes.entity.id} stores laterality=${stored}, which is neither ${opts.from} nor UNSPECIFIED — ` +
+            'this is not the thread this run is correcting. Skipping the entity write; investigate by hand.',
         );
+      } else {
+        try {
+          const res = await callTool('web', 'web_thread_correct_laterality', {
+            entity_id: entityRes.entity.id,
+            laterality: opts.to,
+            corrected_by: 'fix-injury-laterality',
+            actor: 'automation',
+            reason: `${opts.bodyPart} side corrected from ${opts.from} to ${opts.to} (fix-injury-laterality script, player_id=${resolveRes.player.player_id})`,
+          });
+          // An MCP rejection is a normal value carrying isError, never a throw.
+          // Not checking it is exactly how this path failed silently for two
+          // months.
+          if (isMCPError(res)) throw new Error(extractMCPErrorMessage(res));
+          const body = unwrap<{
+            entity: { id: string; laterality?: string };
+            changed: boolean;
+            previous_laterality: string;
+          }>(res);
+          if (body?.entity?.laterality !== opts.to) {
+            throw new Error(
+              `server returned laterality=${body?.entity?.laterality ?? 'nothing'}, expected ${opts.to}`,
+            );
+          }
+          console.log(
+            body.changed
+              ? `[fix-laterality] entity ${entityRes.entity.id} laterality ${body.previous_laterality} → ${body.entity.laterality}`
+              : `[fix-laterality] entity ${entityRes.entity.id} already stored ${opts.to} — no write needed`,
+          );
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(
+            `[fix-laterality] entity correction FAILED for entity=${entityRes.entity.id}: ${message} — correct manually`,
+          );
+        }
       }
     }
   } else if (correctedPostIds.size > 0) {
