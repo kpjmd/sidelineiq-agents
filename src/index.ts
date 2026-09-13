@@ -10,6 +10,7 @@ import { startDeepDiveScheduler, stopDeepDiveScheduler } from './monitoring/deep
 import { startMentionMonitor, stopMentionMonitor } from './agents/social/mention-monitor-loop.js';
 import { startApprovalSync, stopApprovalSync, getSocialReachReport } from './monitoring/approval-sync.js';
 import { startRosterSync, stopRosterSync, syncAllRosters } from './monitoring/roster-sync.js';
+import { startMetricsSnapshot, stopMetricsSnapshot, takeMetricsSnapshot } from './monitoring/metrics-snapshot.js';
 import {
   computePromotionScore,
   prominenceForTier,
@@ -261,6 +262,26 @@ app.get('/admin/social-health', async (req, res) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[SocialHealth] Report failed: ${message}`);
+    res.status(503).json({ ok: false, error: message });
+  }
+});
+
+/**
+ * Manual trigger for the daily baseline snapshot (metrics-snapshot.ts).
+ * Upserts on (metric, day), so running it again the same day only refreshes the
+ * reading. ok:false whenever any platform failed — a partial snapshot is not a
+ * clean one, and the failed platform has NO row for today rather than a 0.
+ *
+ * Gated by requireAdminSecret via app.use('/admin', …).
+ *   curl -X POST -H "Authorization: Bearer $AGENTS_API_SECRET" .../admin/metrics-snapshot
+ */
+app.post('/admin/metrics-snapshot', async (_req, res) => {
+  try {
+    const summary = await takeMetricsSnapshot();
+    res.status(summary.failed === 0 ? 200 : 503).json({ ok: summary.failed === 0, ...summary });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[Metrics] Manual snapshot failed: ${message}`);
     res.status(503).json({ ok: false, error: message });
   }
 });
@@ -656,6 +677,12 @@ async function start(): Promise<void> {
   } else {
     console.log('[Server] APPROVAL_SYNC_ENABLED=false — approval sync not started');
   }
+
+  if (process.env.METRICS_SNAPSHOT_ENABLED !== 'false') {
+    startMetricsSnapshot();
+  } else {
+    console.log('[Server] METRICS_SNAPSHOT_ENABLED=false — metrics snapshot not started');
+  }
 }
 
 function shutdown(): void {
@@ -665,6 +692,7 @@ function shutdown(): void {
   stopMentionMonitor();
   stopApprovalSync();
   stopRosterSync();
+  stopMetricsSnapshot();
   disconnectAll()
     .then(() => process.exit(0))
     .catch(() => process.exit(1));

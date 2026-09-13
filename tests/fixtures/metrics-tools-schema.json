@@ -1,0 +1,202 @@
+{
+  "_recorded_from": "tools/list on the sidelineiq-mcp-servers web, farcaster and twitter MCP servers",
+  "_recorded_at": "2026-09-13",
+  "_recorded_against": "LOCAL mcp branch feat/metrics-baseline (migration 024), served over an in-memory transport under MCP_UNKNOWN_KEYS=strict, before merge. Re-record against production after the mcp deploy; a local recording from origin/main has previously matched production byte-for-byte.",
+  "_note": "The six baseline-instrumentation tool entries, lifted verbatim from real tools/list responses. NEVER hand-author this file: the contract test checks that every key the agents SEND is a key the server ACCEPTS, and a hand-written copy would only re-encode what the agent already believes. Inputs are .strict(), so an undeclared key fails the whole call.",
+  "tools": {
+    "web_record_metric_snapshot": {
+      "name": "web_record_metric_snapshot",
+      "description": "Record one baseline metric reading (follower count, monthly uniques) for a UTC day. Upserts on (metric, day): the latest reading of a day wins. Call ONLY with a value actually read \u2014 a failed read must record nothing, never 0.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "metric": {
+            "type": "string",
+            "enum": [
+              "x_followers",
+              "farcaster_followers",
+              "web_monthly_uniques",
+              "web_monthly_pageviews"
+            ],
+            "description": "Which series this reading belongs to"
+          },
+          "value": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The reading itself. Never a placeholder: if the count could not be read, do not call this tool."
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "neynar",
+              "x_api",
+              "manual"
+            ],
+            "description": "Where the number came from: neynar / x_api for automated reads, manual for a value typed in by a person"
+          },
+          "day": {
+            "type": "string",
+            "format": "date",
+            "description": "UTC calendar day 'YYYY-MM-DD' the reading is for. Omit for today."
+          },
+          "detail": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Optional context stored beside the value, e.g. the account username and following count"
+          }
+        },
+        "required": [
+          "metric",
+          "value",
+          "source"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    "web_list_metric_snapshots": {
+      "name": "web_list_metric_snapshots",
+      "description": "List baseline metric readings, ordered by metric then day. A day with no row means no reading was taken or the read failed \u2014 never zero.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "metric": {
+            "type": "string",
+            "enum": [
+              "x_followers",
+              "farcaster_followers",
+              "web_monthly_uniques",
+              "web_monthly_pageviews"
+            ],
+            "description": "Restrict to one series"
+          },
+          "since": {
+            "type": "string",
+            "format": "date",
+            "description": "Earliest UTC day to include, 'YYYY-MM-DD'"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    "web_increment_cta_click": {
+      "name": "web_increment_cta_click",
+      "description": "Count one click on an AequOs link from a post page. Aggregate only \u2014 stores the day, post slug and which link, nothing about the visitor. Counts only when the slug belongs to a PUBLISHED post; returns counted=false otherwise.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "post_slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "description": "The injury post slug the click came from"
+          },
+          "link": {
+            "type": "string",
+            "enum": [
+              "cta",
+              "byline"
+            ],
+            "description": "cta = the 'Get Clinical Guidance' referral button; byline = the AequOs attribution link"
+          }
+        },
+        "required": [
+          "post_slug",
+          "link"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    "web_list_cta_clicks": {
+      "name": "web_list_cta_clicks",
+      "description": "List daily AequOs link click counts from post pages, with totals by link and by post.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "since": {
+            "type": "string",
+            "format": "date",
+            "description": "Earliest UTC day to include, 'YYYY-MM-DD'"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    "farcaster_get_profile_stats": {
+      "name": "farcaster_get_profile_stats",
+      "description": "Read the SidelineIQ Farcaster account's own follower and following counts via Neynar /user/bulk, for the FID in SIDELINEIQ_FARCASTER_FID. Used by the daily baseline metrics snapshot. Fails with an error rather than returning 0 when the counts cannot be read.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    "twitter_get_profile_stats": {
+      "name": "twitter_get_profile_stats",
+      "description": "Read the authenticated SidelineIQ X account's own follower, following and post counts (GET /2/users/me). Used by the daily baseline metrics snapshot. Fails with an error rather than returning 0 when the counts cannot be read.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    }
+  }
+}
