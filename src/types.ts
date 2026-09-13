@@ -4,6 +4,15 @@ export type ContentType = 'BREAKING' | 'TRACKING' | 'DEEP_DIVE' | 'CONFLICT_FLAG
 
 export type InjurySeverity = 'MINOR' | 'MODERATE' | 'SEVERE' | 'UNKNOWN';
 
+/**
+ * What a post is ABOUT (mcp migration 023, injury_posts.subject_kind). Recorded
+ * by the code that PRODUCED the post, never inferred from its prose: only the
+ * trending-type DEEP_DIVE scheduler writes INJURY_TYPE; the athlete news path
+ * writes ATHLETE. The commercial AequOs CTA requires DEEP_DIVE + INJURY_TYPE —
+ * see carriesReferralCta in content-formatter.ts.
+ */
+export type SubjectKind = 'INJURY_TYPE' | 'ATHLETE';
+
 export interface ReturnToPlayEstimate {
   min_weeks: number;
   max_weeks: number;
@@ -29,6 +38,8 @@ export interface InjuryPostContent {
   team_timeline_weeks?: number;
   parent_post_id?: string;
   injury_date?: string;
+  /** Absent (or null, from a pre-023 row) means not recorded, and never carries the CTA. */
+  subject_kind?: SubjectKind | null;
   // Internal review triggers raised during processing (e.g.
   // 'rtp_monotonicity_violation'). When non-empty, the publishing pipeline
   // routes the post to MD review regardless of confidence/severity. Never

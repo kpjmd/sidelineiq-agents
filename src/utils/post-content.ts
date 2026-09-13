@@ -15,6 +15,13 @@ import type { ContentType, InjuryPostContent, InjurySeverity } from '../types.js
  * BREAKING post a DEEP_DIVE reformats it as a thread and appends a referral
  * link to breaking injury news, which CLAUDE.md forbids outright.
  *
+ * subject_kind is the other half of that decision (carriesReferralCta): the CTA
+ * needs DEEP_DIVE AND INJURY_TYPE. Every DEEP_DIVE routes to MD review, so the
+ * approval republish — which rebuilds from this row — is the path that actually
+ * casts them, and the one place the field has to survive. An unrecognized value
+ * reconstructs as null rather than failing: the post still publishes, without
+ * the CTA.
+ *
  * The field names below are the REAL injury_posts columns (see
  * sidelineiq-mcp-servers/src/shared/migrations/001_injury_posts.sql). Both
  * earlier copies read `return_to_play_probability_week_*`, `return_to_play_confidence`
@@ -77,6 +84,8 @@ export interface StoredPostRow {
    */
   injury_date?: unknown;
   parent_post_id?: unknown;
+  /** mcp migration 023. NULL on every row written before it. */
+  subject_kind?: unknown;
   // Real injury_posts columns. Note the asymmetric naming — the week columns are
   // return_to_play_*, the probabilities are rtp_*. That is the schema, not a typo.
   return_to_play_min_weeks?: unknown;
@@ -205,6 +214,8 @@ export function reconstructPostContent(row: StoredPostRow): ReconstructResult {
         ? { injury_date: row.injury_date.slice(0, 10) }
         : {}),
       ...(row.parent_post_id ? { parent_post_id: String(row.parent_post_id) } : {}),
+      subject_kind:
+        row.subject_kind === 'INJURY_TYPE' || row.subject_kind === 'ATHLETE' ? row.subject_kind : null,
     },
   };
 }

@@ -623,6 +623,9 @@ Follow SKILL.md exactly. Emit your final answer via the emit_injury_post tool.`;
       ...(teamTimelineWeeks !== undefined && { team_timeline_weeks: teamTimelineWeeks }),
       ...(parentPostId && { parent_post_id: parentPostId }),
       ...(injuryDate && { injury_date: injuryDate }),
+      // One named athlete's injury, whatever content_type ends up on it —
+      // including a DEEP_DIVE forced onto this path by /test/deep-dive.
+      subject_kind: 'ATHLETE',
       ...(reviewFlags.length > 0 && { md_review_flags: reviewFlags }),
     };
 
@@ -698,6 +701,8 @@ Write an in-depth clinical breakdown of "${input.injury_type}" as it affects ${i
 
 For the post structure fields (athlete_name, team), use "${primaryAthlete}" and "${primaryTeam}" as the primary reference. The clinical_summary should cover the injury type broadly, referencing the affected athletes where relevant.
 
+The headline must lead with the injury type, not an athlete's name — for example "Hamstring Strains Are Clustering in the NBA — What the Biology Means", not "${primaryAthlete}'s Injury Explained".
+
 Emit your final answer via the emit_injury_post tool with content_type: DEEP_DIVE.`;
 
     const anthropic = getClient();
@@ -761,6 +766,10 @@ Emit your final answer via the emit_injury_post tool with content_type: DEEP_DIV
       clinical_summary: String(toolInput.clinical_summary ?? ''),
       return_to_play: validatedRTP,
       confidence: Number.isFinite(Number(toolInput.confidence)) ? Number(toolInput.confidence) : 0,
+      // The only producer of injury-type-led content, and therefore the only
+      // one that may carry the commercial CTA. athlete_name above is just the
+      // first of several athletes and does not make this post about them.
+      subject_kind: 'INJURY_TYPE',
       ...(reviewFlags.length > 0 && { md_review_flags: reviewFlags }),
     };
 

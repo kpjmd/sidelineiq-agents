@@ -462,7 +462,11 @@ async function run(): Promise<void> {
     const casts = formatForFarcaster(content, postUrl);
     const tweets = formatForTwitter(content, postUrl);
     const hasCta = [...casts, ...tweets].join('\n').toLowerCase().includes(REFERRAL_CTA_MARKER);
-    if (hasCta && content.content_type !== 'DEEP_DIVE') ctaViolations++;
+    // The adjacency rule, read off the RAW row rather than through
+    // carriesReferralCta, so this audit cannot agree with a broken predicate.
+    const ctaPermitted =
+      String(row.content_type ?? '').toUpperCase() === 'DEEP_DIVE' && row.subject_kind === 'INJURY_TYPE';
+    if (hasCta && !ctaPermitted) ctaViolations++;
 
     previews.push(
       [
@@ -640,10 +644,11 @@ async function run(): Promise<void> {
 
   if (ctaViolations > 0) {
     // Should be unreachable — reconstructPostContent carries the real type and
-    // only the DEEP_DIVE builders emit the CTA. If it fires, stop.
+    // subject_kind, and only carriesReferralCta lets a builder emit the CTA.
     console.error(
-      `\n[republish] ✗ ${ctaViolations} non-DEEP_DIVE candidate(s) rendered an AequOs referral link. ` +
-        'Do not publish. Investigate content-formatter dispatch.',
+      `\n[republish] ✗ ${ctaViolations} candidate(s) rendered an AequOs referral link without being an ` +
+        'injury-type-led DEEP_DIVE (content_type DEEP_DIVE + subject_kind INJURY_TYPE). ' +
+        'Do not publish. Investigate carriesReferralCta and content-formatter dispatch.',
     );
     process.exitCode = 1;
   }

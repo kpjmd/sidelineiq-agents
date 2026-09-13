@@ -1,8 +1,8 @@
 {
   "_recorded_from": "tools/list on the sidelineiq-mcp-servers web MCP server",
-  "_recorded_at": "2026-09-11",
-  "_note": "The web_create_injury_post entry, lifted verbatim out of a real JSON-RPC tools/list response (61 tools; only this one is kept). NEVER hand-author this file — the point of the contract test is that it reflects what the SERVER accepts, and a hand-written copy would just re-encode what the agent already believes.\nRe-record it in any mcp PR that touches this tool's schema:\n  curl -sS -X POST \"$WEB_MCP_URL\" \\\n    -H \"Authorization: Bearer $MCP_AUTH_SECRET\" \\\n    -H \"Content-Type: application/json\" \\\n    -H \"Accept: application/json, text/event-stream\" \\\n    -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}' \\\n    | sed -n 's/^data: //p'\nthen take result.tools[] where name == web_create_injury_post.",
-  "_recorded_against": "PRODUCTION (sidelineiq-mcp-servers-production.up.railway.app), after mcp #28 merged and deployed. 20 properties, including `status` and `md_review_reason`. Byte-identical to the copy recorded from that PR branch locally before it merged, which is the check that the deploy carries the code the PR showed.",
+  "_recorded_at": "2026-09-13",
+  "_note": "The web_create_injury_post entry, lifted verbatim out of a real JSON-RPC tools/list response (62 tools; only this one is kept). NEVER hand-author this file — the point of the contract test is that it reflects what the SERVER accepts, and a hand-written copy would just re-encode what the agent already believes.\nRe-record it in any mcp PR that touches this tool's schema:\n  curl -sS -X POST \"$WEB_MCP_URL\" \\\n    -H \"Authorization: Bearer $MCP_AUTH_SECRET\" \\\n    -H \"Content-Type: application/json\" \\\n    -H \"Accept: application/json, text/event-stream\" \\\n    -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}' \\\n    | sed -n 's/^data: //p'\nthen take result.tools[] where name == web_create_injury_post.",
+  "_recorded_against": "PRODUCTION (sidelineiq-mcp-servers-production.up.railway.app), after mcp #32 merged and deployed (migration 023 applied first). 21 properties, adding `subject_kind`. Byte-identical to the copy recorded from that PR branch served locally before it merged, which is the check that the deploy carries the code the PR showed.",
   "tool": {
     "name": "web_create_injury_post",
     "description": "Create a new injury post in the SidelineIQ database for display on the web frontend. Stores full clinical content, platform publish status, and metadata. Auto-generates a URL slug.",
@@ -170,6 +170,14 @@
           "type": "string",
           "minLength": 1,
           "description": "Why the post needs physician review. With status PENDING_REVIEW, the review-queue item is filed in the SAME write as the post, and the result's md_review_filed is true; no separate web_flag_for_md_review call is needed. Without it, a PENDING_REVIEW post is created with no queue item and md_review_filed is false."
+        },
+        "subject_kind": {
+          "type": "string",
+          "enum": [
+            "INJURY_TYPE",
+            "ATHLETE"
+          ],
+          "description": "What the post is ABOUT, recorded by the code that produced it — never inferred from the headline. INJURY_TYPE: an educational analysis of an injury type across several athletes (the trending-type DEEP_DIVE scheduler). ATHLETE: one named athlete's injury (every news-driven post, including a DEEP_DIVE forced onto a single athlete). The commercial referral CTA is shown ONLY on DEEP_DIVE posts marked INJURY_TYPE. Omitted is stored as NULL and treated as not injury-type-led."
         }
       },
       "required": [

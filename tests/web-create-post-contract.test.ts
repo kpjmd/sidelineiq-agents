@@ -55,6 +55,7 @@ const OPTIONAL_KEYS = [
   'team_timeline_weeks',
   'parent_post_id',
   'injury_date',
+  'subject_kind',
 ] as const;
 
 /**
@@ -78,11 +79,17 @@ function emittedKeys(): Set<string> {
         ? { source_url: row.source_url }
         : {}),
     };
-    for (const status of ['PUBLISHED', 'PENDING_REVIEW'] as const) {
-      // The review path passes its reason; without it md_review_reason is
-      // never emitted and the subset check could not see it.
-      const reason = status === 'PENDING_REVIEW' ? 'confidence 0.62 below threshold 0.7' : undefined;
-      for (const k of Object.keys(formatForWeb(withSource, status, reason))) keys.add(k);
+    // subject_kind (mcp migration 023) is set by the PRODUCER — processDeepDive
+    // or processInjuryEvent — and every recorded row predates it, so it
+    // reconstructs as null and formatForWeb omits it. Emit the rows once as each
+    // producer would, or the subset check never sees the key the live path sends.
+    for (const subject_kind of [withSource.subject_kind, 'INJURY_TYPE', 'ATHLETE'] as const) {
+      for (const status of ['PUBLISHED', 'PENDING_REVIEW'] as const) {
+        // The review path passes its reason; without it md_review_reason is
+        // never emitted and the subset check could not see it.
+        const reason = status === 'PENDING_REVIEW' ? 'confidence 0.62 below threshold 0.7' : undefined;
+        for (const k of Object.keys(formatForWeb({ ...withSource, subject_kind }, status, reason))) keys.add(k);
+      }
     }
   }
   return keys;
@@ -132,6 +139,25 @@ describe('formatForWeb against the recorded web_create_injury_post schema', () =
     for (const k of ['status', 'md_review_reason', 'md_review_required']) {
       expect(accepted.has(k), `${k} accepted`).toBe(true);
       expect(emittedKeys().has(k), `${k} emitted`).toBe(true);
+    }
+  });
+
+  it('sends subject_kind only as a value the enum accepts, and omits it when unrecorded', () => {
+    const declared = (schemaFixture as unknown as {
+      tool: { inputSchema: { properties: { subject_kind?: { enum: string[] } } } };
+    }).tool.inputSchema.properties.subject_kind;
+    // Guards the fixture: a recording from an mcp without migration 023's tool
+    // change would lose this, and the subset check above would then fail.
+    expect(declared?.enum).toEqual(['INJURY_TYPE', 'ATHLETE']);
+
+    const { content } = reconstructPostContent((rowFixture as unknown as RowFixture).rows[0]);
+    for (const kind of ['INJURY_TYPE', 'ATHLETE'] as const) {
+      expect(formatForWeb({ ...content!, subject_kind: kind }).subject_kind).toBe(kind);
+    }
+    // null is not in the enum and inputs are strict: sending it would fail the
+    // WHOLE create, not just the field.
+    for (const kind of [null, undefined]) {
+      expect(formatForWeb({ ...content!, subject_kind: kind })).not.toHaveProperty('subject_kind');
     }
   });
 

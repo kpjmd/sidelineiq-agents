@@ -34,6 +34,42 @@ export const REFERRAL_CTA_MARKER = (() => {
   }
 })();
 
+/**
+ * The CTA adjacency rule (monetization plan, Phase 0.2): the commercial CTA
+ * appears ONLY on a DEEP_DIVE that is about an injury TYPE. Never on BREAKING,
+ * TRACKING or CONFLICT_FLAG, and never on a DEEP_DIVE about one named athlete —
+ * a non-patient's medical situation beside "get a personalized consultation"
+ * reads as advertising under a physician byline.
+ *
+ * subject_kind is recorded by the producer (see SubjectKind in types.ts).
+ * Anything but INJURY_TYPE — ATHLETE, null from a pre-023 row, absent, or an
+ * unrecognized value — carries no CTA. That is the fail-closed direction: a
+ * missing CTA costs a click; a wrong one cannot be unposted.
+ *
+ * The frontend applies the same predicate to the web page
+ * (lib/referral-cta.ts). Audits must NOT call this — they read the raw row, so
+ * the check stays independent of the thing it checks.
+ */
+export function carriesReferralCta(
+  content: Pick<InjuryPostContent, 'content_type' | 'subject_kind'>,
+): boolean {
+  return content.content_type === 'DEEP_DIVE' && content.subject_kind === 'INJURY_TYPE';
+}
+
+/**
+ * DEEP_DIVE post 1's second line. An injury-type-led post opens on the topic;
+ * "Athlete (Team) — injury" would frame it as that athlete's story, which is
+ * the adjacency the rule above exists to avoid. Athlete-led DEEP_DIVEs keep the
+ * athlete line. (skills/references/content-templates.md still shows
+ * "[PLAYER] — [INJURY TYPE]" for every DEEP_DIVE; that template is physician-
+ * reviewed and flagged for update rather than edited here.)
+ */
+function deepDiveSubjectLine(content: InjuryPostContent): string {
+  return content.subject_kind === 'INJURY_TYPE'
+    ? `${content.injury_type} | Severity: ${content.injury_severity}`
+    : `${content.athlete_name} (${content.team}) — ${content.injury_type} | Severity: ${content.injury_severity}`;
+}
+
 const AEQUOS_CTA = `\n\nDealing with a similar injury? Get a personalized consultation at AequOs. ${AEQUOS_REFERRAL_URL}`;
 const OTM_SIGNATURE = '— OrthoTriage Master | AI-generated analysis. Physician-founded.';
 
@@ -302,7 +338,7 @@ function buildDeepDiveThread(
 
   // Cast 1: headline + injury overview
   casts.push(truncateWithEllipsis(
-    `🔬 DEEP DIVE: ${content.headline}\n\n${content.athlete_name} (${content.team}) — ${content.injury_type} | Severity: ${content.injury_severity}`,
+    `🔬 DEEP DIVE: ${content.headline}\n\n${deepDiveSubjectLine(content)}`,
     charLimit
   ));
 
@@ -319,12 +355,15 @@ function buildDeepDiveThread(
     charLimit
   ));
 
-  // Final cast: web link (drives traffic) + AequOs CTA + OTM signature.
+  // Final cast: web link (drives traffic) + AequOs CTA + OTM signature. The CTA
+  // only when carriesReferralCta — an athlete-led DEEP_DIVE ends on the link.
+  // A final cast with neither link nor CTA is still the signature cast.
   // On Twitter this cast contains up to two URLs; the t.co shortener makes the
   // rendered length ~45 chars shorter than raw. Using raw-length truncation
   // here would clip OTM_SIGNATURE even though the actual tweet fits 280 chars.
   const webLine = postUrl ? `Full clinical breakdown → ${postUrl}\n\n` : '';
-  const finalText = `${webLine}${AEQUOS_CTA.trim()}\n\n${OTM_SIGNATURE}`;
+  const ctaLine = carriesReferralCta(content) ? `${AEQUOS_CTA.trim()}\n\n` : '';
+  const finalText = `${webLine}${ctaLine}${OTM_SIGNATURE}`;
   const effectiveLen = platform === 'twitter' ? twitterEffectiveLength(finalText) : finalText.length;
   casts.push(effectiveLen <= charLimit ? finalText : truncateWithEllipsis(finalText, charLimit));
 
@@ -491,8 +530,8 @@ function buildLongFormBreakingOrTracking(content: InjuryPostContent): string[] {
 /**
  * Long-form DEEP_DIVE — 1 or 2 posts.
  * Post 1: full clinical content + RTP + signature.
- * Post 2 (only when postUrl provided): web link + AequOs CTA.
- * AequOs CTA appears on final post only, per CLAUDE.md rule.
+ * Post 2 (only when postUrl provided): web link, + AequOs CTA when
+ * carriesReferralCta. The CTA appears on the final post only.
  */
 function buildLongFormDeepDive(content: InjuryPostContent, postUrl?: string): string[] {
   const rtp = content.return_to_play;
@@ -500,7 +539,7 @@ function buildLongFormDeepDive(content: InjuryPostContent, postUrl?: string): st
   const post1 = [
     `🔬 DEEP DIVE: ${content.headline}`,
     '',
-    `${content.athlete_name} (${content.team}) — ${content.injury_type} | Severity: ${content.injury_severity}`,
+    deepDiveSubjectLine(content),
     '',
     stripMarkdown(content.clinical_summary),
     '',
@@ -512,11 +551,9 @@ function buildLongFormDeepDive(content: InjuryPostContent, postUrl?: string): st
 
   if (!postUrl) return [post1];
 
-  const post2 = [
-    `Full clinical breakdown → ${postUrl}`,
-    '',
-    AEQUOS_CTA.trim(),
-  ].join('\n');
+  const post2 = carriesReferralCta(content)
+    ? [`Full clinical breakdown → ${postUrl}`, '', AEQUOS_CTA.trim()].join('\n')
+    : `Full clinical breakdown → ${postUrl}`;
 
   return [post1, post2];
 }
@@ -631,6 +668,11 @@ export function formatForWeb(
     ...(content.team_timeline_weeks !== undefined && { team_timeline_weeks: content.team_timeline_weeks }),
     ...(content.parent_post_id !== undefined && { parent_post_id: content.parent_post_id }),
     ...(content.injury_date !== undefined && { injury_date: content.injury_date }),
+    // Column name, and only a real value: web_create_injury_post's enum rejects
+    // null, and strict inputs fail the WHOLE create on a bad key.
+    ...((content.subject_kind === 'INJURY_TYPE' || content.subject_kind === 'ATHLETE') && {
+      subject_kind: content.subject_kind,
+    }),
     // The key must be the COLUMN name. This was `confidence`, which
     // web_create_injury_post's zod object does not declare — and z.object strips
     // unknown keys and returns success, so the model's post-level confidence was
