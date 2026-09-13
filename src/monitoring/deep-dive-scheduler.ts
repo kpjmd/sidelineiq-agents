@@ -1,38 +1,39 @@
 import { isServerAvailable } from '../utils/mcp-client-manager.js';
-import { isRetiredPostStatus, listAllPosts } from '../utils/web-posts.js';
+import { listAllPosts } from '../utils/web-posts.js';
 import { processDeepDive } from '../agents/injury-intelligence/agent.js';
 import { publishInjuryPost } from '../utils/publishing-pipeline.js';
-import type { SportKey } from '../types.js';
+import {
+  DEEP_DIVE_COOLDOWN_MS,
+  DEEP_DIVE_LOOKBACK_MS,
+  selectDeepDiveCandidate,
+  type CandidatePost,
+  type DeepDiveCandidate,
+} from './deep-dive-candidates.js';
 
 // Default: 3 days — keeps DEEP_DIVE premium (~8/month, ~100/year)
 const DEFAULT_INTERVAL_MS = 3 * 24 * 60 * 60 * 1000;
 const DEFAULT_MIN_COUNT = 2;
-// Lookback window for finding trending injury types — wider than interval so
-// multiple injury types accumulate enough count even when one is in cooldown.
-const LOOKBACK_MS = 5 * 24 * 60 * 60 * 1000;
-// Cooldown: don't repeat a DEEP_DIVE for the same injury type within 7 days
-const INJURY_TYPE_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 // Delay first run after boot so MCP clients are settled
 const STARTUP_DELAY_MS = 5 * 60 * 1000;
 
 let timer: NodeJS.Timeout | null = null;
 let stopped = false;
 
-// In-memory cooldown: injury_type key → timestamp of last DEEP_DIVE generation.
+// In-memory cooldown: canonical injury key → timestamp of last DEEP_DIVE generation.
 // Belt-and-suspenders guard for cases where web_list_posts doesn't return
 // PENDING_REVIEW posts (so the DB-side cooldown check can't see them).
 // Persists for the life of the server process.
 const generatedAt = new Map<string, number>();
 
-function isInMemoryCooldown(injuryTypeKey: string): boolean {
-  const last = generatedAt.get(injuryTypeKey);
+function isInMemoryCooldown(canonicalKey: string): boolean {
+  const last = generatedAt.get(canonicalKey);
   if (last === undefined) return false;
-  return Date.now() - last < INJURY_TYPE_COOLDOWN_MS;
+  return Date.now() - last < DEEP_DIVE_COOLDOWN_MS;
 }
 
-function recordGenerated(injuryTypeKey: string): void {
-  generatedAt.set(injuryTypeKey, Date.now());
-  console.log(`[DeepDive] In-memory cooldown set for "${injuryTypeKey}" (${INJURY_TYPE_COOLDOWN_MS / 86400000}d)`);
+function recordGenerated(canonicalKey: string): void {
+  generatedAt.set(canonicalKey, Date.now());
+  console.log(`[DeepDive] In-memory cooldown set for "${canonicalKey}" (${DEEP_DIVE_COOLDOWN_MS / 86400000}d)`);
 }
 
 function getIntervalMs(): number {
@@ -49,32 +50,14 @@ function getMinCount(): number {
   return Number.isFinite(n) && n >= 1 ? n : DEFAULT_MIN_COUNT;
 }
 
-interface RecentPost {
-  status?: string;
-  injury_type?: string;
-  sport?: string;
-  athlete_name?: string;
-  team?: string;
-  created_at?: string;
-  content_type?: string;
-}
-
-interface InjuryAggregate {
-  injury_type: string;
-  count: number;
-  sport: SportKey;
-  athletes: string[];
-  teams: string[];
-}
-
 /**
- * Queries recent posts and finds the highest-frequency injury type
- * that meets the minimum count threshold and hasn't had a DEEP_DIVE
- * published for it within the cooldown window.
+ * Finds this cycle's DEEP_DIVE candidate. The selection rules live in
+ * deep-dive-candidates.ts (pure, tested, and replayed by
+ * src/scripts/deep-dive-starvation-dryrun.ts); this only fetches the window.
  *
  * Returns null if no qualifying injury type is found.
  */
-async function findTopInjuryType(): Promise<InjuryAggregate | null> {
+async function findTopInjuryType(): Promise<DeepDiveCandidate | null> {
   if (!isServerAvailable('web')) {
     console.warn('[DeepDive] Web MCP unavailable — skipping cycle');
     return null;
@@ -82,19 +65,17 @@ async function findTopInjuryType(): Promise<InjuryAggregate | null> {
 
   const now = Date.now();
 
-  // Both consumers below are windowed; scan to the wider of the two. Unpaged,
-  // this saw only the newest 20 rows, so a busy week of BREAKING posts could
-  // push every DEEP_DIVE out of view and defeat the cooldown check entirely.
-  // No status filter: frequency analysis counts pending posts too — an
-  // unapproved post is still a report that came in. Retired rows are the
-  // exception and are dropped below: a rejected story is one we decided not to
-  // tell, and counting it toward "this injury type is hot" would manufacture a
-  // DEEP_DIVE out of content the MD binned.
-  let posts: RecentPost[];
+  // Scan to the wider of the two windows the selection reads. Unpaged, this saw
+  // only the newest 20 rows, so a busy week of BREAKING posts could push every
+  // DEEP_DIVE out of view and defeat the cooldown check entirely. No status
+  // filter server-side: frequency analysis counts pending posts too — an
+  // unapproved post is still a report that came in. Retired rows are dropped in
+  // selectDeepDiveCandidate.
+  let posts: CandidatePost[];
   try {
-    ({ posts } = await listAllPosts<RecentPost>(
+    ({ posts } = await listAllPosts<CandidatePost>(
       {},
-      { stopWhenOlderThan: now - Math.max(LOOKBACK_MS, INJURY_TYPE_COOLDOWN_MS) },
+      { stopWhenOlderThan: now - Math.max(DEEP_DIVE_LOOKBACK_MS, DEEP_DIVE_COOLDOWN_MS) },
     ));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -102,71 +83,11 @@ async function findTopInjuryType(): Promise<InjuryAggregate | null> {
     return null;
   }
 
-  // Split into recent BREAKING/TRACKING/CONFLICT_FLAG posts (for frequency analysis)
-  // and recent DEEP_DIVE posts (for cooldown check)
-  const recentEvents = posts.filter((p) => {
-    if (!p.created_at || !p.injury_type) return false;
-    if (isRetiredPostStatus(p.status)) return false;
-    if (p.content_type === 'DEEP_DIVE') return false;
-    return now - new Date(p.created_at).getTime() < LOOKBACK_MS;
+  return selectDeepDiveCandidate(posts, {
+    now,
+    minCount: getMinCount(),
+    isInMemoryCooldown,
   });
-
-  const recentDeepDives = posts.filter((p) => {
-    if (!p.created_at || !p.injury_type) return false;
-    // A rejected DEEP_DIVE never ran, so it must not hold the 7-day cooldown
-    // against the replacement.
-    if (isRetiredPostStatus(p.status)) return false;
-    if (p.content_type !== 'DEEP_DIVE') return false;
-    return now - new Date(p.created_at).getTime() < INJURY_TYPE_COOLDOWN_MS;
-  });
-
-  const recentDeepDiveTypes = new Set(
-    recentDeepDives
-      .map((p) => p.injury_type?.toLowerCase().trim())
-      .filter(Boolean) as string[]
-  );
-
-  // Aggregate recent events by normalized injury_type
-  const counts = new Map<string, { count: number; sports: string[]; athletes: string[]; teams: string[] }>();
-  for (const post of recentEvents) {
-    const key = post.injury_type!.toLowerCase().trim();
-    const existing = counts.get(key) ?? { count: 0, sports: [], athletes: [], teams: [] };
-    existing.count++;
-    if (post.sport) existing.sports.push(post.sport);
-    if (post.athlete_name) existing.athletes.push(post.athlete_name);
-    if (post.team) existing.teams.push(post.team);
-    counts.set(key, existing);
-  }
-
-  const minCount = getMinCount();
-
-  // Sort by count descending, pick highest that passes both cooldown checks:
-  //   1. DB-side: no DEEP_DIVE for this type in web_list_posts within 7 days
-  //   2. In-memory: not generated during this process lifetime within 7 days
-  const sorted = [...counts.entries()]
-    .filter(([key, data]) =>
-      data.count >= minCount &&
-      !recentDeepDiveTypes.has(key) &&
-      !isInMemoryCooldown(key)
-    )
-    .sort(([, a], [, b]) => b.count - a.count);
-
-  if (sorted.length === 0) return null;
-
-  const [injuryTypeKey, data] = sorted[0];
-
-  // Determine most common sport for this injury type
-  const sportCounts = new Map<string, number>();
-  data.sports.forEach((s) => sportCounts.set(s, (sportCounts.get(s) ?? 0) + 1));
-  const topSport = [...sportCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'NFL';
-
-  return {
-    injury_type: injuryTypeKey,
-    count: data.count,
-    sport: topSport as SportKey,
-    athletes: [...new Set(data.athletes)],
-    teams: [...new Set(data.teams)],
-  };
 }
 
 async function runDeepDiveCycle(): Promise<void> {
@@ -179,7 +100,7 @@ async function runDeepDiveCycle(): Promise<void> {
   }
 
   console.log(
-    `[DeepDive] Top injury type: "${aggregate.injury_type}" (${aggregate.count} occurrences, sport: ${aggregate.sport}) — generating DEEP_DIVE`
+    `[DeepDive] Top injury type: "${aggregate.injury_type}" [key=${aggregate.canonical_key}] (${aggregate.count} athletes, sport: ${aggregate.sport}) — generating DEEP_DIVE`
   );
 
   const post = await processDeepDive(aggregate);
@@ -193,7 +114,7 @@ async function runDeepDiveCycle(): Promise<void> {
 
   // Record in-memory cooldown regardless of publish status (pending_review counts)
   if (result.status === 'published' || result.status === 'pending_review') {
-    recordGenerated(aggregate.injury_type.toLowerCase().trim());
+    recordGenerated(aggregate.canonical_key);
   }
 }
 
@@ -221,7 +142,10 @@ async function runAndReschedule(intervalMs: number): Promise<void> {
  * Env vars:
  *   DEEP_DIVE_ENABLED         — set to 'false' to disable (default: enabled)
  *   DEEP_DIVE_INTERVAL_MS     — interval between cycles (default: 259200000 = 3 days)
- *   DEEP_DIVE_MIN_INJURY_COUNT — minimum occurrences to trigger (default: 3)
+ *   DEEP_DIVE_MIN_INJURY_COUNT — minimum DISTINCT ATHLETES sharing a canonical
+ *                                injury key (default: 2; production sets 3).
+ *                                Not a post count: the agent prints it as
+ *                                "N cases", so one athlete's follow-ups are one.
  *
  * First run is delayed by 5 minutes to let MCP clients settle on boot.
  */
