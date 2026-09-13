@@ -19,7 +19,12 @@
  *
  * Numbers that must be ZERO (section C):
  *   Z1  renders containing the CTA whose row is not DEEP_DIVE + INJURY_TYPE
- *   Z2  injury-type-led DEEP_DIVEs whose post 1 frames an athlete ("Name (Team)")
+ *   Z2  injury-type-led DEEP_DIVEs whose post 1 FRAMING block — the headline and
+ *       subject line, before the body — reads "Name (Team)". Not the whole post:
+ *       long-form X puts the entire clinical_summary in post 1, and a type-led
+ *       summary names its athletes as context ("Four ACL tears … — Teddye
+ *       Buchanan (Baltimore Ravens), Mykel Williams …"), which the rule allows.
+ *       The first post-backfill run failed Z2 on exactly that, on both rows.
  *   Z3  injury-type-led DEEP_DIVEs that rendered NO CTA — the rule over-suppressing
  *   Z4  rows whose subject_kind is outside {NULL, INJURY_TYPE, ATHLETE}
  *   Z5  INJURY_TYPE on a non-DEEP_DIVE row — only the DEEP_DIVE scheduler writes it
@@ -63,6 +68,11 @@ function typeLedRaw(row: Row): boolean {
   return String(row.content_type ?? '').toUpperCase() === 'DEEP_DIVE' && row.subject_kind === 'INJURY_TYPE';
 }
 
+/** Headline block + subject line: everything before the body starts. */
+function framingBlock(post: string): string {
+  return post.split('\n\n').slice(0, 2).join('\n\n');
+}
+
 /** Farcaster, 280-char X and long-form X — the three live render paths. */
 function renderAll(content: InjuryPostContent, postUrl: string): { text: string; firstPosts: string[] } {
   const saved = process.env.TWITTER_CHAR_LIMIT;
@@ -74,7 +84,7 @@ function renderAll(content: InjuryPostContent, postUrl: string): { text: string;
     const xLong = formatForTwitter(content, postUrl);
     return {
       text: [...fc, ...xShort, ...xLong].join('\n').toLowerCase(),
-      firstPosts: [fc[0] ?? '', xShort[0] ?? '', xLong[0] ?? ''],
+      firstPosts: [fc[0] ?? '', xShort[0] ?? '', xLong[0] ?? ''].map(framingBlock),
     };
   } finally {
     if (saved === undefined) delete process.env.TWITTER_CHAR_LIMIT;
@@ -175,7 +185,7 @@ async function main(): Promise<void> {
       );
     }
     mustBeZero('Z1 CTA rendered on a row that is not DEEP_DIVE + INJURY_TYPE', z1);
-    mustBeZero('Z2 injury-type-led DEEP_DIVE whose post 1 frames an athlete', z2);
+    mustBeZero('Z2 injury-type-led DEEP_DIVE whose post 1 framing names "Athlete (Team)"', z2);
     mustBeZero('Z3 injury-type-led DEEP_DIVE that rendered no CTA', z3);
     mustBeZero('Z4 subject_kind outside {NULL, INJURY_TYPE, ATHLETE}', z4);
     mustBeZero('Z5 INJURY_TYPE on a non-DEEP_DIVE row', z5);
