@@ -15,7 +15,7 @@
   - [x] 3–5 cast DEEP_DIVE threads
   - [x] 5-tweet / single-cast CONFLICT_FLAG format
   - [x] Markdown stripping for social posts
-  - [x] OrthoIQ referral link on DEEP_DIVE final cast only
+  - [x] AequOs (formerly OrthoIQ) referral link on DEEP_DIVE final cast only
 - [x] Publishing Pipeline (publishing-pipeline.ts)
   - [x] Deduplication check (24h window)
   - [x] MD review routing (confidence < threshold OR severity SEVERE)

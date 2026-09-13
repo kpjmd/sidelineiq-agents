@@ -12,8 +12,29 @@ const TWITTER_LONG_FORM = TWITTER_CHAR_LIMIT > 500;
 const TWITTER_TCO_LENGTH = 23;
 const URL_REGEX = /https?:\/\/\S+/g;
 
-const ORTHOIQ_REFERRAL_URL = process.env.ORTHOIQ_REFERRAL_URL || 'https://orthoiq.com?ref=sidelineiq';
-const ORTHOIQ_CTA = `\n\nDealing with a similar injury? Get a personalized consultation at OrthoIQ. ${ORTHOIQ_REFERRAL_URL}`;
+// AequOs (formerly OrthoIQ) is the only referral destination. It points at
+// aequos.io directly, not through the orthoiq.io redirect. The legacy
+// ORTHOIQ_REFERRAL_URL is deliberately NOT read: production set it to orthoiq.io
+// and the code default was orthoiq.com, a domain that never existed.
+export const AEQUOS_REFERRAL_URL = process.env.AEQUOS_REFERRAL_URL || 'https://aequos.io?ref=sidelineiq';
+
+/**
+ * The host every referral CTA contains. Anything auditing where the CTA appears
+ * must use this, never a hardcoded domain: republish-social-orphans and its test
+ * both searched for 'orthoiq.com' while production emitted orthoiq.io, so the
+ * DEEP_DIVE-only guard could only pass when run against a local .env.
+ */
+export const REFERRAL_CTA_MARKER = (() => {
+  try {
+    return new URL(AEQUOS_REFERRAL_URL).host.toLowerCase();
+  } catch {
+    // A malformed env value must not crash the publisher at import. The raw
+    // string is still contained in every CTA, so the audit still works.
+    return AEQUOS_REFERRAL_URL.toLowerCase();
+  }
+})();
+
+const AEQUOS_CTA = `\n\nDealing with a similar injury? Get a personalized consultation at AequOs. ${AEQUOS_REFERRAL_URL}`;
 const OTM_SIGNATURE = '— OrthoTriage Master | AI-generated analysis. Physician-founded.';
 
 /**
@@ -298,12 +319,12 @@ function buildDeepDiveThread(
     charLimit
   ));
 
-  // Final cast: web link (drives traffic) + OrthoIQ CTA + OTM signature.
+  // Final cast: web link (drives traffic) + AequOs CTA + OTM signature.
   // On Twitter this cast contains up to two URLs; the t.co shortener makes the
   // rendered length ~45 chars shorter than raw. Using raw-length truncation
   // here would clip OTM_SIGNATURE even though the actual tweet fits 280 chars.
   const webLine = postUrl ? `Full clinical breakdown → ${postUrl}\n\n` : '';
-  const finalText = `${webLine}${ORTHOIQ_CTA.trim()}\n\n${OTM_SIGNATURE}`;
+  const finalText = `${webLine}${AEQUOS_CTA.trim()}\n\n${OTM_SIGNATURE}`;
   const effectiveLen = platform === 'twitter' ? twitterEffectiveLength(finalText) : finalText.length;
   casts.push(effectiveLen <= charLimit ? finalText : truncateWithEllipsis(finalText, charLimit));
 
@@ -470,8 +491,8 @@ function buildLongFormBreakingOrTracking(content: InjuryPostContent): string[] {
 /**
  * Long-form DEEP_DIVE — 1 or 2 posts.
  * Post 1: full clinical content + RTP + signature.
- * Post 2 (only when postUrl provided): web link + OrthoIQ CTA.
- * OrthoIQ CTA appears on final post only, per CLAUDE.md rule.
+ * Post 2 (only when postUrl provided): web link + AequOs CTA.
+ * AequOs CTA appears on final post only, per CLAUDE.md rule.
  */
 function buildLongFormDeepDive(content: InjuryPostContent, postUrl?: string): string[] {
   const rtp = content.return_to_play;
@@ -494,7 +515,7 @@ function buildLongFormDeepDive(content: InjuryPostContent, postUrl?: string): st
   const post2 = [
     `Full clinical breakdown → ${postUrl}`,
     '',
-    ORTHOIQ_CTA.trim(),
+    AEQUOS_CTA.trim(),
   ].join('\n');
 
   return [post1, post2];

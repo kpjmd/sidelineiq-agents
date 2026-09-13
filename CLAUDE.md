@@ -7,7 +7,7 @@ injury intelligence platform. It contains the Injury Intelligence Agent
 that monitors sports injury news, generates clinical breakdowns, and
 publishes content across platforms via MCP servers.
 
-SidelineIQ is an independent platform from OrthoIQ. They share a
+SidelineIQ is an independent platform from AequOs (formerly OrthoIQ). They share a
 founder (board-certified orthopedic surgeon) but are separate codebases,
 separate Railway deployments, and separate brands.
 
@@ -586,8 +586,8 @@ zero are anchored fresh injuries (elapsed < 2w) whose verdict moves with the
 anchor, rows flipping no-conflict → conflict, and conflict verdicts with no
 anchor. Bosa flipping to no-conflict is the fix working.
 
-### OrthoIQ Reference Rule
-Append OrthoIQ referral link ONLY on DEEP_DIVE content type,
+### AequOs Reference Rule
+Append the AequOs referral link ONLY on DEEP_DIVE content type,
 on the final post/cast only. Never on BREAKING or TRACKING.
 
 ### MD Review Routing
@@ -1129,7 +1129,7 @@ born PENDING_REVIEW".
 `publishApprovedPost` handles every content type — never assume DEEP_DIVE when
 reconstructing a row. Use `reconstructPostContent` (`src/utils/post-content.ts`),
 which fails closed on an unrecognized or missing `content_type` rather than
-defaulting: `content_type` picks the formatter, and the OrthoIQ CTA is emitted
+defaulting: `content_type` picks the formatter, and the AequOs CTA is emitted
 only by the DEEP_DIVE builders, so guessing wrong puts a referral link on
 breaking injury news.
 
