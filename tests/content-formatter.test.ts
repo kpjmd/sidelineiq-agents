@@ -60,7 +60,7 @@ describe('formatForFarcaster', () => {
   });
 
   it('appends AequOs referral on final DEEP_DIVE cast only', () => {
-    const result = formatForFarcaster(makeContent({ content_type: 'DEEP_DIVE' }));
+    const result = formatForFarcaster(makeContent({ content_type: 'DEEP_DIVE', subject_kind: 'INJURY_TYPE' }));
     const lastCast = result[result.length - 1];
     expect(lastCast).toContain('AequOs');
 
@@ -232,7 +232,7 @@ describe('formatForTwitter — long-form (Premium, 25K chars)', () => {
 
   it('DEEP_DIVE with postUrl returns 2-post thread; post2 has AequOs CTA, post1 does not', () => {
     const result = formatForTwitter(
-      makeContent({ content_type: 'DEEP_DIVE' }),
+      makeContent({ content_type: 'DEEP_DIVE', subject_kind: 'INJURY_TYPE' }),
       'https://sidelineiq.vercel.app/post/test-slug'
     );
     expect(result).toHaveLength(2);

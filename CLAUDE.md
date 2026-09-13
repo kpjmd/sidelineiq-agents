@@ -587,8 +587,34 @@ anchor, rows flipping no-conflict → conflict, and conflict verdicts with no
 anchor. Bosa flipping to no-conflict is the fix working.
 
 ### AequOs Reference Rule
-Append the AequOs referral link ONLY on DEEP_DIVE content type,
-on the final post/cast only. Never on BREAKING or TRACKING.
+The commercial AequOs CTA appears ONLY when `content_type = 'DEEP_DIVE'`
+**and** `subject_kind = 'INJURY_TYPE'`, on the final post/cast only, and on the
+web page only then. Never on BREAKING, TRACKING or CONFLICT_FLAG, and never on
+a DEEP_DIVE about one named athlete: a non-patient's medical situation beside
+"get a personalized consultation" reads as advertising under a physician byline.
+`carriesReferralCta` (content-formatter.ts) is the one predicate; the frontend's
+`showsReferralCta` is its copy.
+
+`subject_kind` (mcp migration 023) is recorded by the PRODUCER, never inferred
+from prose: `processDeepDive` (the trending-type scheduler) writes `INJURY_TYPE`,
+`processInjuryEvent` writes `ATHLETE` — including the DEEP_DIVE that
+`/test/deep-dive` forces onto a single athlete. NULL (every pre-023 row), ATHLETE
+and any unknown value carry no CTA; that is the fail-closed direction.
+Reconstruction maps an unknown value to null rather than failing, so the post
+still publishes. `formatForWeb` omits a null: it is not in the tool's enum, and
+strict inputs fail the WHOLE create.
+
+A type-led DEEP_DIVE's post 1 opens on the topic, not `Athlete (Team) — …`, and
+its prompt asks for a topic-led headline. `skills/references/content-templates.md`
+still shows `DEEP DIVE: [PLAYER] — [INJURY TYPE]`; it is physician-reviewed and
+flagged for update, not edited. SKILL.md §4.6's "referral on BREAKING for common
+recreational injuries" contradicts this rule and is also flagged.
+
+Audits read the RAW row, never `carriesReferralCta`, so they cannot agree with a
+broken predicate. Re-verify with `src/scripts/cta-adjacency-dryrun.ts`
+(`--after-backfill` once existing DEEP_DIVEs are tagged); the numbers that must be
+zero are a CTA on any row that is not DEEP_DIVE + INJURY_TYPE, a type-led post 1
+framing an athlete, and a type-led DEEP_DIVE with no CTA.
 
 ### MD Review Routing
 Route to review queue when:
