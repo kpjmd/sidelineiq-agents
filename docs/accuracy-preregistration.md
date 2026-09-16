@@ -123,3 +123,45 @@ is avoidable for free by wording.
   a physician with `return_source = 'md'` — which a machine may not overwrite.
 - Verified before it ran by `src/scripts/return-detect-dryrun.ts`, whose gated
   numbers must all be zero.
+
+
+---
+
+## Observation after the first cohort — 2026-09-16
+
+**No definition above has changed.** This section records what the first live
+sweep looked like, dated, so that any later amendment is a deliberate act with a
+visible before and after rather than a quiet edit after seeing the data.
+
+The detector's first `on` cycle closed **24 threads**. Every one of them:
+
+- returned on **2026-09-09, 09-10 or 09-13 — Week 1 of the 2026 NFL season** (21 of
+  the 24 on a single date); and
+- was injured **before the season opener** (`injury_date` range 2025-09-21 to
+  2026-08-27).
+
+**For an athlete injured in the offseason or preseason, the first regular-season
+game is a floor the CALENDAR imposes, not a date the recovery produced.** Sione
+Vaki carried a 0–2 week window from an August 3 injury and "returned" on
+September 13; he was in all likelihood available weeks earlier, with no
+regular-season game to be available for. The metric, on this cohort, is largely
+measuring whether the OTM window happened to contain Week 1.
+
+The first reading is therefore **`within_range` 6 of 12 scoreable** (12 more
+closes were `no_projection`), median signed error +12 days over n=12, range −76
+to +175. **It is not a verdict on anything.** The publication bar is n ≥ 30 and
+the G1 kill switch is evaluated at n ≥ 30; this is n = 12, drawn from a cohort
+whose return dates were censored by the schedule.
+
+**The open question, to be decided BEFORE n reaches 30 and before any number is
+published:** should a return whose date equals the athlete's first regular-season
+game of a season that began after `injury_date` be marked unscoreable — a
+censored observation — rather than scored? There is a real argument for it (the
+observation carries no information about recovery) and a real argument against
+(it discards the offseason cohort entirely, and "available for the first game
+that mattered" is a defensible clinical claim). Either way the decision belongs
+in this file, dated, before the number exists — not after.
+
+The honest expectation is that this resolves itself as the season runs: an
+injury that occurs AND resolves in-season returns on a date the recovery
+actually chose. Those are the rows that carry signal.
