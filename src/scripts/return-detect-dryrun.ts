@@ -197,11 +197,17 @@ async function main(): Promise<void> {
   console.log('\n─── D. Injected HTTP failures ───');
   const realFetch = globalThis.fetch;
   async function cycleUnder(status: number): Promise<{ closes: number; aborted: boolean }> {
-    globalThis.fetch = (async (url: string | URL) => {
-      if (String(url).includes('/gamelog')) {
+    // Forward EVERY argument. An earlier version took only the url and dropped
+    // the init, which turned the MCP POST into an unauthenticated GET — so the
+    // thread listing failed and BOTH injected cycles "aborted", for a reason
+    // that had nothing to do with ESPN. The 404 gate caught it, which is the
+    // gate working: a detector that aborts on everything is not tolerant, it is
+    // broken in the other direction.
+    globalThis.fetch = (async (...args: Parameters<typeof fetch>) => {
+      if (String(args[0]).includes('/gamelog')) {
         return { ok: false, status, json: async () => null } as unknown as Response;
       }
-      return realFetch(url as never);
+      return realFetch(...args);
     }) as typeof fetch;
     try {
       const summary = await runReturnDetectCycle(now);
