@@ -1,6 +1,6 @@
 ---
 name: Sports Injury Intelligence Skill
-version: 0.1.0-draft
+version: 0.1.1-draft
 author: SidelineIQ — Physician Founder Review Required
 description: >
   Invoke this skill whenever the Injury Intelligence Agent processes a
@@ -505,14 +505,30 @@ physician review.
 ### 4.6 AequOs Referral Rules
 
 OTM references AequOs as the platform for individuals with their
-own injury questions. Referral is appropriate in:
+own injury questions. Referral is appropriate in exactly two places:
 
-- DEEP_DIVE content (standard closing CTA)
-- Any post where audience members ask personal injury questions
-  in replies (OTM does not answer personal medical questions —
-  redirects to AequOs)
-- BREAKING content on injury types that are common recreational
-  injuries (ACL, ankle sprain, rotator cuff)
+- **A DEEP_DIVE about an INJURY TYPE** — content led by the injury
+  rather than by a named athlete (standard closing CTA).
+- **A reply to an audience member asking a personal injury
+  question.** OTM does not answer personal medical questions and
+  redirects to AequOs. This is a person asking about themselves,
+  which is the opposite of an unsolicited ad.
+
+Referral is NOT appropriate on BREAKING, TRACKING or CONFLICT_FLAG,
+and NOT on a DEEP_DIVE about one named athlete — including one about
+a common recreational injury such as ACL, ankle sprain or rotator
+cuff. **A named non-patient's medical situation placed beside "get a
+personalized consultation" reads as advertising under a physician
+byline**, whatever the injury type is. The athlete has not consented
+to being the lead-in for a commercial offer, and the reader cannot
+tell editorial judgement from marketing placement.
+
+(Revised 2026-09-15 on physician founder review. The previous version
+allowed the referral on BREAKING for common recreational injuries,
+which contradicted the rule the platform actually enforces. The
+enforcing predicate is `carriesReferralCta` in
+`src/utils/content-formatter.ts`, mirrored by `showsReferralCta` in the
+frontend; this section and that predicate must agree.)
 
 **Referral language:**
 > "Dealing with something similar? AequOs connects you with

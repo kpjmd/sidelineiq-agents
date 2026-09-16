@@ -13,6 +13,7 @@
 // every poll cycle, and this does HTTP against a host that rate-limits.
 import { getLoadedDraftBands, setDraftSnapshot } from './significance.js';
 import type { SportKey } from '../../types.js';
+import { fetchEspnJson, TransientEspnError } from '../../monitoring/sports/espn-json.js';
 
 // Draft results are immutable once a draft completes, so this TTL is not about
 // freshness — it is about self-healing and observability. A TTL of "effectively
@@ -75,15 +76,13 @@ interface InWindowPick {
   ref: string;
 }
 
-/** Distinguishes a bounded, known-empty pick from a read that failed. */
-class TransientRefError extends Error {}
-
-async function getJson(url: string): Promise<unknown> {
-  const res = await fetch(url, { headers: { Accept: 'application/json' } });
-  if (res.status === 404) return null; // Bounded: a forfeited or voided pick.
-  if (!res.ok) throw new TransientRefError(`HTTP ${res.status}`);
-  return res.json();
-}
+// The 404-is-a-row / anything-else-is-a-page split this loader depends on now
+// lives in espn-json.ts, because the return detector needs exactly the same
+// rule and a second copy would be a second place to get it wrong. The only
+// behaviour change on this path is that the fetch now carries a timeout, which
+// lands on the bad-PAGE side and therefore aborts rather than truncating.
+const TransientRefError = TransientEspnError;
+const getJson = fetchEspnJson;
 
 /** One call per class year returns every round with its picks inline. */
 async function fetchRoundPicks(

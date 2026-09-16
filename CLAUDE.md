@@ -586,6 +586,87 @@ zero are anchored fresh injuries (elapsed < 2w) whose verdict moves with the
 anchor, rows flipping no-conflict → conflict, and conflict verdicts with no
 anchor. Bosa flipping to no-conflict is the fix working.
 
+### A return is a game, not a status
+
+`src/monitoring/return-detector.ts` closes a thread RESOLVED when the athlete
+plays again. It is what makes `within_range` — the number the platform is
+eventually judged on — exist at all: `accuracy_record` is computed at close, and
+until this shipped nothing closed anything.
+
+**The signal is a stat line in a completed REGULAR-SEASON game, from ESPN's
+athlete gamelog.** An ESPN status transition to `Active` was rejected for the
+reason settled twice above: `status` is a STATE, not a DELTA, and an `Active`
+row sometimes carries a comment about a teammate. A game is an event, a reader
+can verify it, and because the gamelog lists only games with a stat line, an
+athlete who dressed and took no snaps is MISSED rather than INVENTED.
+
+**Four properties of that endpoint, all verified live 2026-09-15 and pinned by
+`tests/fixtures/espn-gamelogs.json`** (recorded, never hand-written — see the
+fixture rule above):
+- **Never iterate the flat `events` map.** PRESEASON games sit in it beside
+  regular-season ones. Walk `seasonTypes[] → categories[] → events[].eventId`.
+- **The regular-season test cannot key on `splitType`.** NFL sets it to `"2"`;
+  **NBA names its categories after MONTHS** (`"april"`, splitType `"april"`). A
+  `splitType === '2'` filter does not merely under-match for NBA, it returns
+  NOTHING — a silent "nobody ever came back" for a whole sport. Only the
+  seasonType `displayName` is shared. An unrecognised label is excluded and
+  REPORTED.
+- **`season` means different things per sport.** NFL `season=2025` is the 2025
+  season; **NBA `season=2026` is the 2025-26 season** (the ENDING year). Omitting
+  it returns only the current season.
+- **`gameDate` is UTC.** `2025-05-01T02:00Z` is an April 30 game. Everything goes
+  through `localCalendarDate` — the Pinter 08-19↔08-20 trap.
+
+**Not inside `pollSport`**: that loop carries `PublishBudgetState`, so a
+cap-exhausted cycle would skip returns, and it is feed-driven and therefore
+blind to threads that have stopped generating events — exactly the population
+that has returned.
+
+**`RETURN_DETECT_MODE=off|shadow|on`, default `shadow`.** Shadow decides and
+logs and writes nothing, including the cases that look obviously safe.
+
+**The HTTP split is the highest-stakes rule here.** A **404 is a bad ROW** (skip
+that athlete, count it); a **timeout/429/5xx is a bad PAGE** (abort the cycle,
+leave every thread ACTIVE). ESPN rate-limits by dropping a CONTIGUOUS BLOCK of
+requests, so a 429 read as "these athletes played no games" closes a run of
+threads with no return — and a close is only reversible by a human calling
+`web_thread_reopen`. `fetchEspnJson` (`src/monitoring/sports/espn-json.ts`) owns
+the split; `draft-snapshot.ts`'s private copy was lifted into it, and the shared
+version adds the repo's first HTTP timeout, which lands on the bad-PAGE side.
+
+**Emit order is the reverse of intuition.** Append the `RESOLUTION` update
+FIRST, then close. `maybeProposeReturnWatch` fires off the append path and
+`isReturnWatchWorthy` has accepted `'RESOLUTION'` since it was written with **no
+producer ever emitting one** — this is the first. Close first and the "first
+game back" Desk candidate is never proposed. Watch `[ReturnWatch]` volume after
+turning the mode up.
+
+**A too-early return is evidence about the DATE.** A stat line before
+`injury_date + RETURN_MIN_FRACTION_OF_MIN_WEEKS × min_weeks` (default 0.5) sets
+`needs_date_review` and leaves the thread ACTIVE. Closing it would freeze a wrong
+`injury_date` into an accuracy record, and the date is far likelier to be wrong
+than the athlete superhuman.
+
+`closed_by` must be the literal `'system'` — any other value stamps the audit
+actor as a physician AND exempts the call from the mcp's system-caller guards.
+Note `web_thread_correct_laterality` wants the opposite (`actor: 'automation'`
+plus a named `corrected_by`); the two adjacent tools genuinely disagree.
+
+`web_list_threads` now takes a `sport` filter and returns `espn_athlete_id`, so
+**the detector requires the mcp deployed first**: under `.strict()` an undeclared
+`sport` key fails the WHOLE call, and the cycle aborts (writing nothing) rather
+than degrading.
+
+Re-verify with `src/scripts/return-detect-dryrun.ts`. The numbers that must be
+zero are returns on or before `injury_date`, returns from a non-regular-season
+split, closes under an injected 404 **or** 503 (and the split between them),
+overwrites of an existing `actual_return_date`, closes on a non-ACTIVE thread,
+and decisions that differ across two runs.
+
+The metric definitions are pre-registered in `docs/accuracy-preregistration.md`,
+committed before the detector closed anything. Do not change them after
+publishing a number derived from them.
+
 ### AequOs Reference Rule
 The commercial AequOs CTA appears ONLY when `content_type = 'DEEP_DIVE'`
 **and** `subject_kind = 'INJURY_TYPE'`, on the final post/cast only, and on the
@@ -605,10 +686,14 @@ still publishes. `formatForWeb` omits a null: it is not in the tool's enum, and
 strict inputs fail the WHOLE create.
 
 A type-led DEEP_DIVE's post 1 opens on the topic, not `Athlete (Team) — …`, and
-its prompt asks for a topic-led headline. `skills/references/content-templates.md`
-still shows `DEEP DIVE: [PLAYER] — [INJURY TYPE]`; it is physician-reviewed and
-flagged for update, not edited. SKILL.md §4.6's "referral on BREAKING for common
-recreational injuries" contradicts this rule and is also flagged.
+its prompt asks for a topic-led headline. **Both documents that used to
+contradict this were corrected on 2026-09-15 under physician founder review, the
+only process allowed to change them.** SKILL.md §4.6 no longer permits the
+referral on BREAKING for common recreational injuries — the injury type was
+never what made the adjacency a problem, the named non-patient was — and
+`content-templates.md` now carries a `subject_kind: INJURY_TYPE` headline
+variant for each surface beside the athlete-led one, instead of showing
+`DEEP DIVE: [PLAYER] — [INJURY TYPE]` as the only shape.
 
 Audits read the RAW row, never `carriesReferralCta`, so they cannot agree with a
 broken predicate. Re-verify with `src/scripts/cta-adjacency-dryrun.ts`
