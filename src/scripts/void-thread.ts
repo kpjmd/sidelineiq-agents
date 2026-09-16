@@ -22,8 +22,17 @@
 // Usage:
 //   npx tsx src/scripts/void-thread.ts --entity-id=<uuid> --reason="..."
 //   npx tsx src/scripts/void-thread.ts --entity-id=<uuid> --reason="..." --apply --confirm
+//   npx tsx src/scripts/void-thread.ts --entity-id=<uuid> --reason="..." --allow-dated
 //
 // Dry run is the default. Both --apply and --confirm are required to write.
+//
+// --allow-dated permits an injury_date to be the ONLY remaining blocker. A date
+// is resolver work, not coverage: resolveThreadAndDates writes one BEFORE any
+// post exists, so a thread carrying a date and nothing else is a shell whose
+// event died downstream — exactly what this script is for — and refusing it
+// left the commonest shell shape unreachable. Every other blocker still stands,
+// so the flag can never reach a thread with a post, an update, an audit row, a
+// projection or an accuracy record.
 
 import 'dotenv/config';
 import { initializeMCPClients, callTool, disconnectAll } from '../utils/mcp-client-manager.js';
@@ -75,6 +84,7 @@ function parseArgs(argv: string[]) {
     closedBy: flag('closed-by') ?? DEFAULT_CLOSED_BY,
     apply: argv.includes('--apply'),
     confirm: argv.includes('--confirm'),
+    allowDated: argv.includes('--allow-dated'),
   };
 }
 
@@ -86,13 +96,23 @@ function parseArgs(argv: string[]) {
  * script trades a scoped window for a hand-written reason, so the safety has to
  * come from the thread's own emptiness instead.
  */
-function blockers(entity: Entity, updateCount: number, auditCount: number): string[] {
+export function blockers(
+  entity: Entity,
+  updateCount: number,
+  auditCount: number,
+  allowDated = false,
+): string[] {
   const out: string[] = [];
   if (entity.status !== 'ACTIVE') out.push(`status is ${entity.status}, not ACTIVE`);
   if (entity.canonical_post_id) out.push(`has a canonical post (${entity.canonical_post_id})`);
   if (updateCount > 0) out.push(`has ${updateCount} injury_updates row(s)`);
   if (auditCount > 0) out.push(`has ${auditCount} audit_log row(s)`);
-  if (entity.injury_date) out.push(`has an injury_date (${entity.injury_date})`);
+  // A date alone is resolver work, not evidence the thread covered anything —
+  // see --allow-dated above. It stays a blocker by default because a dated
+  // thread is the one a careless sweep would take.
+  if (entity.injury_date && !allowDated) {
+    out.push(`has an injury_date (${entity.injury_date}); pass --allow-dated if that is the only blocker`);
+  }
   if (entity.otm_projection != null) out.push('has an otm_projection');
   if (entity.accuracy_record != null) out.push('has an accuracy_record');
   return out;
@@ -156,7 +176,12 @@ async function run(): Promise<void> {
   console.log(`  injury_updates    = ${updates.length}`);
   console.log(`  audit_log rows    = ${auditEntries.length}`);
 
-  const stop = blockers(entity, updates.length, auditEntries.length);
+  const stop = blockers(entity, updates.length, auditEntries.length, opts.allowDated);
+  if (opts.allowDated && entity.injury_date) {
+    console.log(
+      `  [--allow-dated] injury_date ${entity.injury_date} waived; every other blocker still applies`,
+    );
+  }
   if (stop.length > 0) {
     console.error(
       `[void-thread] REFUSING to void ${entity.id} — this thread carries evidence of real coverage:\n` +
