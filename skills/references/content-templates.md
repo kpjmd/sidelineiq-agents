@@ -189,7 +189,28 @@ practice participation, game-day decision].
 
 ---
 
-**DEEP_DIVE — X Template (Always Thread)**
+**Two kinds of DEEP_DIVE, and the headline differs**
+
+A DEEP_DIVE is produced by one of two paths, and the producer records
+which in `subject_kind` — it is never inferred from the prose:
+
+- **`subject_kind: ATHLETE`** — `processInjuryEvent`, a full breakdown
+  of one named athlete's injury. Headline leads with the athlete.
+- **`subject_kind: INJURY_TYPE`** — `processDeepDive`, the trending-type
+  scheduler, an educational piece about an injury itself. Headline leads
+  with the TOPIC and names no athlete; athletes appear only as cases
+  inside the body.
+
+The distinction is not cosmetic. **The AequOs referral CTA appears only
+on the INJURY_TYPE form** (SKILL.md §4.6): a commercial ask beside a
+named non-patient's medical situation reads as advertising under a
+physician byline. A type-led post that opens `Athlete (Team) — …` has
+put an athlete back in the lead position and reintroduced exactly that
+adjacency, so the two headline shapes below are load-bearing, not style.
+
+---
+
+**DEEP_DIVE — X Template (Always Thread)** · `subject_kind: ATHLETE`
 
 ```
 Post 1 (Hook + Classification):
@@ -270,7 +291,36 @@ differentiates OTM's read from the standard beat reporter take]
 
 ---
 
-**DEEP_DIVE — Farcaster Template**
+**DEEP_DIVE — X Template** · `subject_kind: INJURY_TYPE`
+
+```
+Post 1 (Hook + Scope):
+DEEP DIVE: [INJURY TYPE]
+[1-sentence hook on why this injury is worth a full breakdown right
+now — a cluster of cases, a season pattern, a misunderstood timeline] 🧵
+(No athlete in the headline. Cases belong in the body.)
+
+Post 2 (Clinical Context):
+The injury: [tissue type], [typical grades], [anatomical region].
+[What this injury is and why it behaves the way it does — 2 sentences]
+
+Post 3 (What the Literature Says):
+Typical RTP window: [X–Y weeks] from [injury / surgery].
+[What drives the spread — grade, position, surgical vs conservative]
+
+Post 4 (Cases This Season):
+[N] cases tracked: [Athlete A], [Athlete B], [Athlete C].
+[One line on what they have in common or where they diverge]
+
+Post 5 (The Bottom Line + CTA):
+[The clinical verdict in plain language — 1-2 sentences]
+[AequOs referral — permitted here, and only here]
+Full breakdown → [web link]
+```
+
+---
+
+**DEEP_DIVE — Farcaster Template** · `subject_kind: ATHLETE`
 
 ```
 DEEP DIVE: [PLAYER] — [INJURY TYPE]
@@ -377,7 +427,59 @@ Full breakdown with MD Review → [web link]
 
 ---
 
-**DEEP_DIVE — Web Template**
+**DEEP_DIVE — Farcaster Template** · `subject_kind: INJURY_TYPE`
+
+```
+DEEP DIVE: [INJURY TYPE]
+
+[Hook — why this injury, now]
+
+THE INJURY
+[Classification: tissue type / typical grades / region]
+[What it is and why it behaves the way it does]
+
+THE LITERATURE
+Typical RTP window: [X–Y weeks] from [injury / surgery]
+[What drives the spread]
+
+THIS SEASON
+[N] cases tracked: [Athlete A], [Athlete B], [Athlete C]
+[One line on the pattern across them]
+
+THE BOTTOM LINE
+[1-2 sentences — the clinical verdict in plain language]
+
+[AequOs referral — permitted here, and only here]
+Full breakdown with MD Review → [web link]
+```
+
+---
+
+**DEEP_DIVE — Web Template** · `subject_kind: INJURY_TYPE`
+
+```markdown
+# [Injury Type]: What the Evidence Says
+*[Date] | OrthoTriage Master*
+(Topic-led. No athlete in the H1 — cases go in "This Season" below.)
+
+## The Injury
+[Tissue type, typical grades, anatomical region, mechanism]
+
+## What the Literature Says
+[RTP window with its anchor, and what drives the spread]
+
+## This Season
+[Cases tracked, with what they share or how they differ]
+
+## The Bottom Line
+[Clinical verdict in plain language]
+
+[AequOs referral block — this form only]
+```
+
+---
+
+**DEEP_DIVE — Web Template** · `subject_kind: ATHLETE`
 
 ```markdown
 # DEEP DIVE: [Player Name] — [Full Injury Classification]
@@ -651,3 +753,9 @@ Consistency builds credibility.]
 ---
 
 *Reference file drafted Session 3. Pending physician founder sign-off before deployment to `sidelineiq-agents/skills/`.*
+
+*Revised 2026-09-15 on physician founder review: added the `subject_kind:
+INJURY_TYPE` headline variants. The file previously showed only
+`DEEP DIVE: [PLAYER] — [INJURY TYPE]`, which described the athlete-led form
+alone while the trending-type scheduler was already producing topic-led posts —
+and it is the topic-led form that carries the AequOs CTA.*

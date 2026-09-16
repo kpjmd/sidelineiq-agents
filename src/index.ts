@@ -10,6 +10,11 @@ import { startDeepDiveScheduler, stopDeepDiveScheduler } from './monitoring/deep
 import { startMentionMonitor, stopMentionMonitor } from './agents/social/mention-monitor-loop.js';
 import { startApprovalSync, stopApprovalSync, getSocialReachReport } from './monitoring/approval-sync.js';
 import { startRosterSync, stopRosterSync, syncAllRosters } from './monitoring/roster-sync.js';
+import {
+  startReturnDetector,
+  stopReturnDetector,
+  runReturnDetectCycle,
+} from './monitoring/return-detector.js';
 import { startMetricsSnapshot, stopMetricsSnapshot, takeMetricsSnapshot } from './monitoring/metrics-snapshot.js';
 import {
   computePromotionScore,
@@ -282,6 +287,35 @@ app.post('/admin/metrics-snapshot', async (_req, res) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[Metrics] Manual snapshot failed: ${message}`);
+    res.status(503).json({ ok: false, error: message });
+  }
+});
+
+/**
+ * Manual trigger for the return detector (monetization plan, Phase 2).
+ *
+ * Gated by the /admin prefix. Honours RETURN_DETECT_MODE, so in the default
+ * shadow mode this reports what it WOULD close and writes nothing — which is
+ * how you read a cycle before trusting it.
+ *
+ *   curl -X POST -H "Authorization: Bearer $AGENTS_API_SECRET" .../admin/return-detect
+ */
+app.post('/admin/return-detect', async (_req, res) => {
+  try {
+    const summary = await runReturnDetectCycle();
+    // A cycle that ABORTED read a partial corpus; reporting 200 would let a
+    // caller mistake "ESPN dropped us" for "nobody returned".
+    const ok = !summary.aborted && summary.errors === 0;
+    res.status(ok ? 200 : 503).json({
+      ok,
+      // The full decision list is large and carries whole thread rows; the
+      // Railway log has it line by line.
+      ...summary,
+      decisions: summary.decisions.length,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[ReturnDetect] Manual cycle failed: ${message}`);
     res.status(503).json({ ok: false, error: message });
   }
 });
@@ -683,6 +717,14 @@ async function start(): Promise<void> {
   } else {
     console.log('[Server] METRICS_SNAPSHOT_ENABLED=false — metrics snapshot not started');
   }
+
+  // Default RETURN_DETECT_MODE is shadow, so starting it changes nothing until
+  // the mode is set explicitly.
+  if (process.env.RETURN_DETECT_ENABLED !== 'false') {
+    startReturnDetector();
+  } else {
+    console.log('[Server] RETURN_DETECT_ENABLED=false — return detector not started');
+  }
 }
 
 function shutdown(): void {
@@ -693,6 +735,7 @@ function shutdown(): void {
   stopApprovalSync();
   stopRosterSync();
   stopMetricsSnapshot();
+  stopReturnDetector();
   disconnectAll()
     .then(() => process.exit(0))
     .catch(() => process.exit(1));
