@@ -611,7 +611,7 @@ app.post('/seed/test-posts', async (_req, res) => {
       injury_type: 'MCL sprain',
       injury_severity: 'MODERATE',
       content_type: 'CONFLICT_FLAG',
-      headline: '[SEED] OTM 🚩 Haaland MCL: team says 2 weeks, OTM says 6–8',
+      headline: '[SEED] ParatrOs 🚩 Haaland MCL: team says 2 weeks, ParatrOs says 6–8',
       clinical_summary:
         'Manchester City\'s medical team has publicly projected a 2-week return timeline for Erling Haaland\'s medial knee injury. ' +
         'OTM three-axis classification of a Grade II MCL sprain with valgus mechanism yields a 6–8 week evidence-based RTP window. ' +

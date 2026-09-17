@@ -15,6 +15,7 @@ import type {
   ReturnToPlayEstimate,
   SportKey,
 } from '../../types.js';
+import { BRAND_NAME, BRAND_WINDOW_PHRASE, rebrandPersona } from '../../config/brand.js';
 
 const MODEL = 'claude-sonnet-4-6';
 
@@ -146,7 +147,8 @@ function buildSystemPrompt(core: string, rtpTables: string, sportReference: stri
     'Do NOT include internal taxonomy labels such as "Axis 1 — Tissue:", "Axis 2 — Severity:", "Axis 3 — Region:", "Evidence Tier:", "Flag: ESCALATION", or "ESCALATION —". ',
     'Do NOT mention "SKILL.md", "OTM protocol", "MD review flagged per protocol", or "per OTM protocol" — these are internal processing notes and must never appear in published content. ',
     'CONFIRMED and INFERRED may appear naturally in prose (e.g., "the ACL tear is confirmed by imaging") but must not be formatted as classification headers. ',
-    'End clinical_summary on the clinical take — never with an escalation flag, protocol note, or MD review reference.'
+    'End clinical_summary on the clinical take — never with an escalation flag, protocol note, or MD review reference. ',
+    `Published fields (headline, clinical_summary, conflict_reason) must never name "OTM" or "OrthoTriage Master" — those are internal names for the framework in the reference material. When the platform speaks, it is ${BRAND_NAME}, or simply "we".`
   );
   return sections.join('');
 }
@@ -287,8 +289,8 @@ export function detectConflict(
         : `~${teamTimelineWeeks}w remaining`;
     const direction =
       gap.status === 'shorter'
-        ? `team timeline (${anchorPhrase}) is shorter than the OTM window (${rtp.min_weeks}-${rtp.max_weeks}w total from injury)`
-        : `team timeline (${anchorPhrase}) is longer than the OTM window (${rtp.min_weeks}-${rtp.max_weeks}w total from injury)`;
+        ? `team timeline (${anchorPhrase}) is shorter than ${BRAND_WINDOW_PHRASE} (${rtp.min_weeks}-${rtp.max_weeks}w total from injury)`
+        : `team timeline (${anchorPhrase}) is longer than ${BRAND_WINDOW_PHRASE} (${rtp.min_weeks}-${rtp.max_weeks}w total from injury)`;
     return {
       conflict: true,
       reason: `Reporting conflict: ${direction}.`,
@@ -611,15 +613,15 @@ Follow SKILL.md exactly. Emit your final answer via the emit_injury_post tool.`;
       injury_type: injuryType,
       injury_severity: severity,
       content_type: contentType,
-      headline: String(input.headline ?? ''),
-      clinical_summary: String(input.clinical_summary ?? ''),
+      headline: rebrandPersona(String(input.headline ?? '')),
+      clinical_summary: rebrandPersona(String(input.clinical_summary ?? '')),
       return_to_play: validatedRTP,
       source_url: raw.source_url,
       // Fail closed: a non-finite confidence coerces to 0, which routes to MD
       // review rather than slipping past the `confidence < threshold` gate
       // (NaN < threshold is false).
       confidence: Number.isFinite(Number(input.confidence)) ? Number(input.confidence) : 0,
-      ...(conflictReason && { conflict_reason: conflictReason }),
+      ...(conflictReason && { conflict_reason: rebrandPersona(conflictReason) }),
       ...(teamTimelineWeeks !== undefined && { team_timeline_weeks: teamTimelineWeeks }),
       ...(parentPostId && { parent_post_id: parentPostId }),
       ...(injuryDate && { injury_date: injuryDate }),
@@ -762,8 +764,8 @@ Emit your final answer via the emit_injury_post tool with content_type: DEEP_DIV
       injury_type: injuryType,
       injury_severity: severity,
       content_type: 'DEEP_DIVE',
-      headline: String(toolInput.headline ?? ''),
-      clinical_summary: String(toolInput.clinical_summary ?? ''),
+      headline: rebrandPersona(String(toolInput.headline ?? '')),
+      clinical_summary: rebrandPersona(String(toolInput.clinical_summary ?? '')),
       return_to_play: validatedRTP,
       confidence: Number.isFinite(Number(toolInput.confidence)) ? Number(toolInput.confidence) : 0,
       // The only producer of injury-type-led content, and therefore the only

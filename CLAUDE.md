@@ -11,6 +11,31 @@ SidelineIQ is an independent platform from AequOs (formerly OrthoIQ). They share
 founder (board-certified orthopedic surgeon) but are separate codebases,
 separate Railway deployments, and separate brands.
 
+## The ParatrOs rename
+
+The public brand is **ParatrOs** (decided 2026-09-14; `paratros.com`). Styling is
+"ParatrOs" in text and `paratros` for domain, handle, slug and tag contexts.
+Everything an audience reads comes from `src/config/brand.ts`: the name, the
+signature (`— ParatrOs | AI-generated analysis. Physician-founded.`), the
+`ref=paratros` tag, and the "ParatrOs read" / "the ParatrOs window" labels.
+
+- **"OrthoTriage Master" is retired as a persona.** "OTM" survives only as the
+  internal name of the clinical framework in `skills/` and in code. The model
+  still echoes it into prose (154 of 498 published posts; 4 of 39 in Sept
+  2026), so `rebrandPersona` rewrites headline, clinical_summary and
+  conflict_reason at emission and again inside `stripFrameworkLabels`. A prompt
+  instruction alone is a request; that function is the guarantee.
+- **Internal identifiers are NOT renamed**: repo and package names, the MCP
+  client name, log prefixes, and above all the Railway service names — the
+  private hostnames (`sidelineiq-mcp-servers.railway.internal`) derive from
+  them, so a service rename breaks every MCP connection.
+- **The metrics series is continuous across a handle change.** Nothing is keyed
+  on a handle: X resolves `/2/users/me` (account id survives a rename) and
+  Farcaster uses the numeric FID. `metric_snapshots.detail.username` is
+  informational and simply changes value.
+- The site URL fallbacks still read `sidelineiq.vercel.app` until paratros.com
+  is attached in Vercel; that cutover is its own change.
+
 ## Platform Overview
 
 SidelineIQ monitors injury news across NFL, NBA, Premier League, and

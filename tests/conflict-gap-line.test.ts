@@ -56,7 +56,7 @@ describe('formatConflictGapLine — prints the anchored distance', () => {
       content({ team_timeline_weeks: 1, injury_date: '2025-09-21' }),
       { now: NOW },
     );
-    expect(line).toContain('inside the OTM window');
+    expect(line).toContain('inside the ParatrOs window');
     expect(line).not.toMatch(/\d+w (short of|beyond)/);
   });
 
@@ -65,7 +65,7 @@ describe('formatConflictGapLine — prints the anchored distance', () => {
       content({ team_timeline_weeks: 33, injury_date: '2026-01-11' }),
       { now: NOW },
     );
-    expect(line).toContain('14w beyond the OTM window');
+    expect(line).toContain('14w beyond the ParatrOs window');
     expect(line).toContain('team ~66w total from 2026-01-11');
     expect(line).toContain('conflict threshold met');
   });
@@ -77,7 +77,7 @@ describe('formatConflictGapLine — prints the anchored distance', () => {
       content({ team_timeline_weeks: 54, injury_date: '2026-09-02' }),
       { now: NOW },
     );
-    expect(line).toContain('beyond the OTM window');
+    expect(line).toContain('beyond the ParatrOs window');
     expect(line).not.toContain('conflict threshold met');
   });
 
