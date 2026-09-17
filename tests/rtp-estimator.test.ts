@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateRTPEstimate } from '../src/agents/injury-intelligence/rtp-estimator.js';
+import { validateRTPEstimate, carriesRtpEstimate } from '../src/agents/injury-intelligence/rtp-estimator.js';
 import type { ReturnToPlayEstimate } from '../src/types.js';
 
 function makeRTP(overrides: Partial<ReturnToPlayEstimate> = {}): ReturnToPlayEstimate {
@@ -77,5 +77,28 @@ describe('validateRTPEstimate — monotonicity routes to review (F6)', () => {
     expect(r.valid).toBe(true);
     expect(r.requiresReview).toBeFalsy();
     expect(r.warnings.some((w) => w.includes('104'))).toBe(true);
+  });
+});
+
+describe('carriesRtpEstimate (Amendment 1, A1.2)', () => {
+  it('treats the concussion no-estimate signature as no window', () => {
+    expect(carriesRtpEstimate({ min_weeks: 0, max_weeks: 0, confidence: 0 })).toBe(false);
+    expect(carriesRtpEstimate({ min_weeks: 2, max_weeks: 6, confidence: 0 })).toBe(false);
+    expect(carriesRtpEstimate({ min_weeks: 0, max_weeks: 0, confidence: 0.7 })).toBe(false);
+    expect(carriesRtpEstimate({ min_weeks: Number.NaN, max_weeks: 4, confidence: 0.7 })).toBe(false);
+  });
+
+  it('keeps a zero floor with a real ceiling', () => {
+    expect(carriesRtpEstimate({ min_weeks: 0, max_weeks: 2, confidence: 0.82 })).toBe(true);
+    expect(carriesRtpEstimate({ min_weeks: 39, max_weeks: 52, confidence: 0.88 })).toBe(true);
+  });
+
+  it('still lets validateRTPEstimate accept the concussion shape — those posts publish', () => {
+    const v = validateRTPEstimate(
+      { min_weeks: 0, max_weeks: 0, probability_week_2: 0, probability_week_4: 0, probability_week_8: 0, confidence: 0 },
+      'Concussion',
+      'UNKNOWN',
+    );
+    expect(v.valid).toBe(true);
   });
 });

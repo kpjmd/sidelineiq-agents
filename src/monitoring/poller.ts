@@ -24,6 +24,7 @@ import {
   type AnchorDivergence,
 } from '../agents/injury-intelligence/date-anchoring.js';
 import { resolveInjuryDate } from '../agents/injury-intelligence/date-resolution.js';
+import { carriesRtpEstimate } from '../agents/injury-intelligence/rtp-estimator.js';
 import type { DateConfidence } from '../agents/injury-intelligence/date-resolution.js';
 import {
   detectCarryoverSignals,
@@ -1975,7 +1976,12 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
           threadEntityId
             ? {
                 entityId: threadEntityId,
-                otmProjection: buildOtmProjection(post, dateAnchor),
+                // A concussion/systemic post's 0/0 is "no estimate", not a
+                // window; writing it would overwrite a real one with a
+                // projection no return can fall inside.
+                otmProjection: carriesRtpEstimate(post.return_to_play)
+                  ? buildOtmProjection(post, dateAnchor)
+                  : undefined,
               }
             : undefined,
         );

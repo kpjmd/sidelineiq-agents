@@ -121,3 +121,30 @@ export function validateRTPEstimate(
     warnings,
   };
 }
+
+/**
+ * Does this estimate state a return-to-play window at all?
+ *
+ * SKILL.md forbids an RTP estimate for CONCUSSION and SYSTEMIC events, and the
+ * prompt tells the model to express that as zeroed probabilities and a
+ * confidence of 0 — the weeks are required by the tool schema, so they arrive
+ * as 0/0. Those posts still publish, so nothing at emit time may reject the
+ * shape. What must not happen is treating it as a window: a 0-0 "projection"
+ * can never contain a return. Mirrors mcp `carriesEstimate`, which is what
+ * accuracy scoring actually uses (pre-registration Amendment 1, A1.2); this
+ * copy only keeps the thread's display projection honest.
+ */
+export function carriesRtpEstimate(
+  estimate: Pick<ReturnToPlayEstimate, 'min_weeks' | 'max_weeks' | 'confidence'>,
+): boolean {
+  const { min_weeks: min, max_weeks: max, confidence } = estimate;
+  return (
+    Number.isFinite(confidence) &&
+    confidence > 0 &&
+    Number.isFinite(min) &&
+    Number.isFinite(max) &&
+    min >= 0 &&
+    max >= 1 &&
+    max >= min
+  );
+}

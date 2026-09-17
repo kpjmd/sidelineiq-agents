@@ -516,8 +516,12 @@ probable/confirmed. Without that, the elapsed time a reader sees and
 
 ### A corrected date re-anchors its projection
 
-`projected_return_date` is frozen at thread open as `injury_date` + the midpoint of
-the OTM week window. When an MD corrects `injury_date`, `updateThreadDates`
+`otm_projection` is **NOT frozen at thread open**, whatever older comments say: every
+post the poller maintains an entity for rewrites it (`COALESCE(new, old)`), of any
+status, including posts a physician later rejects. It is a DISPLAY value. Accuracy
+is scored against the thread's first PUBLISHED post that carries an estimate — see
+"A return is a game, not a status". `projected_return_date` is `injury_date` + the
+midpoint of the stored OTM week window. When an MD corrects `injury_date`, `updateThreadDates`
 (mcp `client.ts`) recomputes it from the STORED weeks and writes an
 `otm_projection_reanchored` row to `audit_log`. One place, covering both the
 frontend MD edit and the poller.
@@ -661,7 +665,37 @@ Re-verify with `src/scripts/return-detect-dryrun.ts`. The numbers that must be
 zero are returns on or before `injury_date`, returns from a non-regular-season
 split, closes under an injected 404 **or** 503 (and the split between them),
 overwrites of an existing `actual_return_date`, closes on a non-ACTIVE thread,
-and decisions that differ across two runs.
+decisions that differ across two runs, closes without a schedule answer, and closes
+under an injected schedule 404 or 503. Section G previews every detector close
+re-scored under Amendment 1.
+
+**Amendment 1 (2026-09-16, n=12, nothing published)** changed three things, all
+computed in mcp `computeAccuracyRecord` and nowhere else:
+- **The scored window is the first PUBLISHED post's**, read at close
+  (`pickScoredWindow`), never `otm_projection`. `web_list_threads` returns it as
+  `scored_window`, and `decideThread`'s too-early bar reads THAT (`scoredWindowOf`)
+  so the bar and the scorer judge one window. Robinson's stored window came from a
+  rejected post; Jeanty's published 1-4w had been overwritten by an unpublished 2-8w.
+- **0/0 at `rtp_confidence` 0 is not an estimate.** It is the concussion/systemic
+  "decline to estimate" signature the prompt prescribes, and those posts publish.
+  Do NOT reject it at emit time (`validateRTPEstimate`, the tool schema) — that would
+  stop concussion posts. It is excluded at scoring (`carriesEstimate`).
+- **Calendar censoring, the interval rule.** The whole first cohort was injured
+  before the opener and returned in Week 1 — the SCHEDULE chose the date.
+  `loadCalendarCensoring` (`espn-schedule.ts`) asks the returning team's schedule
+  whether the return was its first completed regular-season game after injury_date,
+  and the close sends `return_censored`. Censored and before the window floor →
+  scored as a provable miss; censored at/after the floor → `calendar_censored`.
+  An unknown team id or unscheduled season is **HTTP 200 with an empty `events`
+  array**, not a 404, so an unanswerable schedule is `schedule_unavailable`: the
+  thread stays ACTIVE. The schedule uses the gamelog's season convention and the
+  same 404-row / 503-page split. The team is the one on the RETURN game
+  (`GamelogGame.team_id`), so a traded athlete is judged on his new calendar.
+
+Replaying the 24 first closes under it: 9 records change, all to
+`calendar_censored`, and within_range went from 6/12 to 1/3 — Bosa (in-season
+injury, missed games) inside; Kittle and Woodaz censored but back before their
+floor, so scored misses. The rule was committed before that number was computed.
 
 The metric definitions are pre-registered in `docs/accuracy-preregistration.md`,
 committed before the detector closed anything. Do not change them after

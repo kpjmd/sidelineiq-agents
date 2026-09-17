@@ -61,6 +61,12 @@ export interface GamelogGame {
   game_date_utc: string;
   week: number | null;
   opponent: string | null;
+  /**
+   * The ESPN id of the team the athlete played FOR in this game. Read per game,
+   * not off the roster, so a traded athlete's return is judged against the
+   * schedule of the team he came back with (Amendment 1, A1.3).
+   */
+  team_id: string | null;
   /** The public espn.com recap — a URL a reader can open. */
   url: string | null;
   season_type_label: string;
@@ -131,6 +137,7 @@ interface RawEvent {
   week?: number;
   gameDate?: string;
   opponent?: { displayName?: string };
+  team?: { id?: string | number };
   links?: Array<{ href?: string }>;
 }
 
@@ -178,6 +185,7 @@ export function parseRegularSeasonGames(payload: unknown, sport: SportKey): Game
           game_date_utc: iso,
           week: Number.isFinite(ev?.week) ? (ev!.week as number) : null,
           opponent: ev?.opponent?.displayName ?? null,
+          team_id: ev?.team?.id != null ? String(ev.team.id) : null,
           url: ev?.links?.[0]?.href ?? null,
           season_type_label: label,
         });

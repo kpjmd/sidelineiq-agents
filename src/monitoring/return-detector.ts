@@ -10,6 +10,7 @@ import {
   parseRegularSeasonGames,
   type GamelogGame,
 } from './sports/espn-gamelog.js';
+import { loadCalendarCensoring, type ScheduleCache } from './sports/espn-schedule.js';
 import { localCalendarDate } from '../agents/injury-intelligence/season-calendar.js';
 import type { SportKey } from '../types.js';
 
@@ -32,6 +33,14 @@ import type { SportKey } from '../types.js';
  * cap-exhausted cycle would silently skip returns, and it is feed-driven and
  * therefore structurally blind to threads that have stopped generating events —
  * which is precisely the population that has returned.
+ *
+ * **Calendar censoring (pre-registration Amendment 1, A1.3).** A return that
+ * is the returning team's first game after the injury carries no recovery
+ * information past "on or before". Before closing, the team schedule is read
+ * (espn-schedule.ts) and the answer is sent as `return_censored`; the mcp
+ * decides what the record says. A schedule that cannot answer leaves the
+ * thread ACTIVE. The too-early bar reads `scored_window` — the first PUBLISHED
+ * estimate — so it and the scorer judge the same window.
  *
  * **RETURN_DETECT_MODE=off|shadow|on, default shadow.** Shadow decides and logs
  * and changes nothing, including the cases that look obviously safe. Same
@@ -105,6 +114,21 @@ export interface DetectorThread {
   actual_return_date: string | null;
   espn_athlete_id?: string | null;
   otm_projection?: { min_weeks?: number | null; max_weeks?: number | null } | null;
+  /**
+   * The window accuracy is scored against (pre-registration Amendment 1): the
+   * first PUBLISHED post that carries an estimate. otm_projection is whatever
+   * post wrote last, of any status, so the too-early bar reads this instead.
+   * ABSENT on an mcp that predates it — then, and only then, the bar falls back
+   * to otm_projection.
+   */
+  scored_window?: { post_id: string; min_weeks: number; max_weeks: number } | null;
+}
+
+/** The window the too-early bar and the scorer both judge. */
+export function scoredWindowOf(
+  thread: DetectorThread,
+): { min_weeks?: number | null; max_weeks?: number | null } | null {
+  return 'scored_window' in thread ? (thread.scored_window ?? null) : (thread.otm_projection ?? null);
 }
 
 export type ThreadOutcome =
@@ -119,7 +143,14 @@ export type SkipReason =
   | 'no_espn_athlete_id'
   | 'no_injury_date'
   | 'already_returned'
-  | 'athlete_not_found';
+  | 'athlete_not_found'
+  /**
+   * A return was found but the team schedule could not say whether it was the
+   * first game available (empty or 404 schedule, no team id on the game). The
+   * accuracy record depends on that answer, so the thread stays ACTIVE and is
+   * retried next cycle.
+   */
+  | 'schedule_unavailable';
 
 export interface ReturnDetectSummary {
   mode: ReturnDetectMode;
@@ -130,6 +161,8 @@ export interface ReturnDetectSummary {
   no_return: number;
   skipped: Record<SkipReason, number>;
   unscoreable: number;
+  /** Returns that were the team's first game after the injury (A1.3). */
+  censored: number;
   unknown_labels: string[];
   errors: number;
   aborted: boolean;
@@ -152,8 +185,10 @@ function emptySummary(mode: ReturnDetectMode): ReturnDetectSummary {
       no_injury_date: 0,
       already_returned: 0,
       athlete_not_found: 0,
+      schedule_unavailable: 0,
     },
     unscoreable: 0,
+    censored: 0,
     unknown_labels: [],
     errors: 0,
     aborted: false,
@@ -213,7 +248,7 @@ export function decideThread(thread: DetectorThread, games: GamelogGame[]): Thre
   const game = firstGameAfter(games, thread.injury_date);
   if (!game) return { kind: 'no_return' };
 
-  const minWeeks = thread.otm_projection?.min_weeks;
+  const minWeeks = scoredWindowOf(thread)?.min_weeks;
   if (typeof minWeeks === 'number' && Number.isFinite(minWeeks) && minWeeks > 0) {
     const earliest = addWeeksIso(thread.injury_date, minWeeks * minFractionOfMinWeeks());
     if (game.date < earliest) {
@@ -221,6 +256,25 @@ export function decideThread(thread: DetectorThread, games: GamelogGame[]): Thre
     }
   }
   return { kind: 'returned', game };
+}
+
+/**
+ * What the close will record, predicted for logging and the dry run. The mcp
+ * computes the real record (computeAccuracyRecord); this mirrors its rule so a
+ * shadow cycle can say how many closes would count, and must not be used to
+ * decide anything.
+ */
+export function predictUnscoreable(
+  thread: DetectorThread,
+  game: GamelogGame,
+  censored: boolean,
+): 'no_projection' | 'calendar_censored' | null {
+  const win = scoredWindowOf(thread);
+  if (!win || typeof win.min_weeks !== 'number' || typeof win.max_weeks !== 'number') return 'no_projection';
+  if (censored && thread.injury_date && game.date >= addWeeksIso(thread.injury_date, win.min_weeks)) {
+    return 'calendar_censored';
+  }
+  return null;
 }
 
 /**
@@ -264,7 +318,7 @@ export async function loadGames(
  * accepted 'RESOLUTION' since it was written and nothing has ever emitted one;
  * this is its first producer.
  */
-async function recordReturn(thread: DetectorThread, game: GamelogGame): Promise<void> {
+async function recordReturn(thread: DetectorThread, game: GamelogGame, censored: boolean): Promise<void> {
   const description =
     `Returned to game action: ${game.date} vs ${game.opponent ?? 'opponent'}` +
     (game.week ? ` (week ${game.week})` : '') +
@@ -299,6 +353,9 @@ async function recordReturn(thread: DetectorThread, game: GamelogGame): Promise<
     // physician, and subjects nothing to the system-caller guards.
     closed_by: 'system',
     return_source: 'detector',
+    // Amendment 1, A1.3. Always sent: the detector only reaches here once the
+    // schedule has answered, so it never has to say "unknown".
+    return_censored: censored,
   });
   if (isMCPError(closed)) {
     throw new Error(`close failed: ${extractMCPErrorMessage(closed)}`);
@@ -343,7 +400,8 @@ async function flagDateReview(
         injury_date: thread.injury_date,
         candidate_return_date: game.date,
         earliest_credible_return: earliest,
-        otm_min_weeks: thread.otm_projection?.min_weeks ?? null,
+        otm_min_weeks: scoredWindowOf(thread)?.min_weeks ?? null,
+        scored_post_id: thread.scored_window?.post_id ?? null,
         game_url: game.url,
         reason:
           'A regular-season stat line this soon after the stored injury_date is evidence the date is wrong, not that the athlete returned.',
@@ -380,6 +438,7 @@ export async function runReturnDetectCycle(now: Date = new Date()): Promise<Retu
 
   summary.threads = threads.length;
   const unknownLabels = new Set<string>();
+  const scheduleCache: ScheduleCache = new Map();
 
   for (const thread of threads) {
     const sport = thread.sport ?? '';
@@ -441,9 +500,6 @@ export async function runReturnDetectCycle(now: Date = new Date()): Promise<Retu
       continue;
     }
 
-    const projection = thread.otm_projection;
-    const wouldBeUnscoreable = !projection || typeof projection.min_weeks !== 'number';
-
     if (outcome.kind === 'too_early') {
       summary.date_review++;
       console.log(
@@ -461,16 +517,43 @@ export async function runReturnDetectCycle(now: Date = new Date()): Promise<Retu
       continue;
     }
 
+    // Amendment 1, A1.3: the record depends on whether the team had a game
+    // the athlete could have missed. A bad PAGE aborts like a gamelog failure;
+    // an unanswerable schedule leaves the thread ACTIVE.
+    let censored: boolean | null;
+    try {
+      censored = await loadCalendarCensoring(sport, thread.injury_date, outcome.game, scheduleCache);
+    } catch (err) {
+      summary.errors++;
+      summary.aborted = true;
+      summary.abort_reason =
+        err instanceof TransientEspnError
+          ? `ESPN schedule read failed for ${thread.athlete_name ?? thread.id}: ${err.message}`
+          : errorMessage(err);
+      console.error(`[ReturnDetect] ABORTED — ${summary.abort_reason} (threads left ACTIVE)`);
+      break;
+    }
+    if (censored === null) {
+      summary.skipped.schedule_unavailable++;
+      console.warn(
+        `[ReturnDetect] schedule_unavailable thread=${thread.id} athlete=${thread.athlete_name ?? '?'} ` +
+          `team=${outcome.game.team_id ?? '-'} return=${outcome.game.date} — left ACTIVE`,
+      );
+      continue;
+    }
+
+    const unscoreable = predictUnscoreable(thread, outcome.game, censored);
     summary.returned++;
-    if (wouldBeUnscoreable) summary.unscoreable++;
+    if (censored) summary.censored++;
+    if (unscoreable) summary.unscoreable++;
     console.log(
       `[ReturnDetect] returned thread=${thread.id} athlete=${thread.athlete_name ?? '?'} sport=${sport} ` +
         `injury_date=${thread.injury_date} return=${outcome.game.date} week=${outcome.game.week ?? '-'} ` +
-        `scoreable=${!wouldBeUnscoreable} mode=${mode}`,
+        `censored=${censored} scoreable=${!unscoreable}${unscoreable ? ` (${unscoreable})` : ''} mode=${mode}`,
     );
     if (mode === 'on') {
       try {
-        await recordReturn(thread, outcome.game);
+        await recordReturn(thread, outcome.game, censored);
       } catch (err) {
         summary.errors++;
         console.error(`[ReturnDetect] CLOSE FAILED thread=${thread.id}: ${errorMessage(err)}`);
@@ -491,6 +574,7 @@ export async function runReturnDetectCycle(now: Date = new Date()): Promise<Retu
       `returned=${summary.returned} date_review=${summary.date_review} no_return=${summary.no_return} ` +
       `skipped_no_id=${summary.skipped.no_espn_athlete_id} skipped_no_date=${summary.skipped.no_injury_date} ` +
       `skipped_returned=${summary.skipped.already_returned} not_found=${summary.skipped.athlete_not_found} ` +
+      `schedule_unavailable=${summary.skipped.schedule_unavailable} censored=${summary.censored} ` +
       `unscoreable=${summary.unscoreable} errors=${summary.errors} aborted=${summary.aborted}`,
   );
   return summary;
