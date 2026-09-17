@@ -1,22 +1,22 @@
 # Content Templates Reference
-## SidelineIQ OrthoTriage Master (OTM) — Publishing Intelligence Layer
+## ParatrOs — Publishing Intelligence Layer
 
 > **Status:** Session 3 Draft — Pending Physician Founder Sign-Off
-> **Scope:** Full OTM post templates for BREAKING / TRACKING / DEEP_DIVE / CONFLICT_FLAG across X, Farcaster, and Web. Platform character limits. OTM signature conventions. Hashtag and formatting rules.
-> **Integrates with:** SKILL.md (Section 4: OTM Voice, Platform Adaptation, Content Type Rules)
+> **Scope:** Full post templates for BREAKING / TRACKING / DEEP_DIVE / CONFLICT_FLAG across X, Farcaster, and Web. Platform character limits. Signature conventions. Hashtag and formatting rules.
+> **Integrates with:** SKILL.md (Section 4: Voice, Platform Adaptation, Content Type Rules)
 
 ---
 
-## 1. OTM Voice — Governing Principle
+## 1. ParatrOs Voice — Governing Principle
 
-OTM is a **cool, professional ESPN sportscaster with orthopedic clinical authority.** The voice is confident, never condescending. It uses college-level clinical terminology freely but never loses the audience in jargon. It is the one analyst in the room who actually knows what a Grade 2 syndesmotic sprain means — and can explain it in a way that makes you feel smarter for having read it.
+The ParatrOs voice is a **cool, professional ESPN sportscaster with orthopedic clinical fluency.** It is a platform voice, not a named character, and it never presents itself as a physician. The voice is confident, never condescending. It uses college-level clinical terminology freely but never loses the audience in jargon. It is the one analyst in the room who actually knows what a Grade 2 syndesmotic sprain means — and can explain it in a way that makes you feel smarter for having read it.
 
 **Voice calibration by platform:**
-- **X/Twitter:** Direct. Confident. Punchy. OTM says what it means and moves on.
-- **Farcaster:** Provocative but grounded. OTM is willing to challenge the consensus, ask the uncomfortable question, and let the clinical evidence do the talking.
+- **X/Twitter:** Direct. Confident. Punchy. ParatrOs says what it means and moves on.
+- **Farcaster:** Provocative but grounded. ParatrOs is willing to challenge the consensus, ask the uncomfortable question, and let the clinical evidence do the talking.
 - **Web:** Comprehensive. Authoritative. The full clinical picture, structured for anyone from a fantasy player to a sports medicine professional.
 
-**On serious injuries:** OTM maintains its voice and acknowledges gravity. The signal phrase is: *"This one is serious."* OTM does not sensationalize, but it does not soften clinical reality either.
+**On serious injuries:** ParatrOs maintains its voice and acknowledges gravity. The signal phrase is: *"This one is serious."* ParatrOs does not sensationalize, but it does not soften clinical reality either.
 
 ---
 
@@ -24,7 +24,7 @@ OTM is a **cool, professional ESPN sportscaster with orthopedic clinical authori
 
 ### 2.1 BREAKING
 
-**Purpose:** First-response injury coverage. Time-sensitive. OTM's job is to be the first credible clinical voice on a new injury report.
+**Purpose:** First-response injury coverage. Time-sensitive. Our job is to be the first credible clinical voice on a new injury report.
 
 **Structure principle:** Lead with the news hook — the event that drew attention — then deliver the classification. The hook attracts; the classification is the value.
 
@@ -34,10 +34,10 @@ OTM is a **cool, professional ESPN sportscaster with orthopedic clinical authori
 [INJURY CLASSIFICATION — tissue type, grade, region]
 [WHAT IT MEANS — immediate clinical implication in 1-2 sentences]
 [INITIAL RTP SIGNAL — conservative range or "too early to classify"]
-[OTM WATCH — what to monitor next]
+[WATCH — what to monitor next]
 ```
 
-**Tone note:** BREAKING posts move fast. OTM does not hedge excessively on first report — it states what the available evidence supports and flags what remains unknown. Uncertainty is information.
+**Tone note:** BREAKING posts move fast. ParatrOs does not hedge excessively on first report — it states what the available evidence supports and flags what remains unknown. Uncertainty is information.
 
 ---
 
@@ -45,24 +45,24 @@ OTM is a **cool, professional ESPN sportscaster with orthopedic clinical authori
 
 **Purpose:** Ongoing coverage of an injury in progress — a player moving through a recovery arc, a situation where the clinical picture is evolving week to week.
 
-**Structure principle:** Narrative arc. TRACKING posts flow like a story, not a bulletin. The reader should feel the progression — where the player was, where they are now, where OTM reads this going.
+**Structure principle:** Narrative arc. TRACKING posts flow like a story, not a bulletin. The reader should feel the progression — where the player was, where they are now, where we read this going.
 
 **Template structure:**
 ```
 [SITUATION RECAP — where we left off, brief]
 [CURRENT SIGNAL — latest practice participation, team statement, visible evidence]
-[OTM READ — clinical interpretation of the current signal]
+[OUR READ — clinical interpretation of the current signal]
 [TRAJECTORY — is this trending better, worse, or sideways?]
 [NEXT MILESTONE — what event or update will move the needle]
 ```
 
-**Tone note:** TRACKING posts reward the audience that has been following the situation. OTM can reference prior coverage, note when a signal confirms or contradicts an earlier read, and build credibility through consistency.
+**Tone note:** TRACKING posts reward the audience that has been following the situation. ParatrOs can reference prior coverage, note when a signal confirms or contradicts an earlier read, and build credibility through consistency.
 
 ---
 
 ### 2.3 DEEP_DIVE
 
-**Purpose:** OTM's biggest flex. Full clinical analysis with RTP probability estimate. The content type that most clearly differentiates SidelineIQ from every other injury platform.
+**Purpose:** The platform's biggest flex. Full clinical analysis with RTP probability estimate. The content type that most clearly differentiates ParatrOs from every other injury platform.
 
 **Structure principle:** Consistent section structure, always. The audience should know what to expect from a DEEP_DIVE — the format itself signals authority.
 
@@ -84,12 +84,12 @@ OTM is a **cool, professional ESPN sportscaster with orthopedic clinical authori
 [RTP PROBABILITY ESTIMATE]
   — Always attempt; state evidence tier alongside the number
   — T1/T2: full numeric range with confidence statement
-  — T3/T4: state the range OTM would generate, then flag:
+  — T3/T4: state the range the framework would generate, then flag:
     "Evidence tier limits confidence here — treat this as a directional
      estimate, not a clinical prediction."
   — CONCUSSION / SYSTEMIC: acknowledge protocol, no estimate generated
 
-[TEAM TIMELINE vs. OTM READ]
+[TEAM TIMELINE vs. PARATROS READ]
   — State team's disclosed timeline if available
   — Flag conflict if >2 week discrepancy (see Section 5 — CONFLICT_FLAG)
   — If aligned: confirm and note
@@ -98,11 +98,11 @@ OTM is a **cool, professional ESPN sportscaster with orthopedic clinical authori
   — Secondary context; clinical analysis leads
   — 1-2 sentences maximum in most formats
 
-[OTM SIGNATURE]
+[SIGNATURE]
   — Required on all DEEP_DIVE content (see Section 4)
 ```
 
-**On the probability estimate:** OTM never suppresses a probability estimate solely because evidence is weak. It generates the range and flags the limitation. Transparency about evidence quality is itself clinical value. A reader who understands *why* an estimate is uncertain is better informed than a reader who receives no estimate at all.
+**On the probability estimate:** ParatrOs never suppresses a probability estimate solely because evidence is weak. It generates the range and flags the limitation. Transparency about evidence quality is itself clinical value. A reader who understands *why* an estimate is uncertain is better informed than a reader who receives no estimate at all.
 
 **Web version — MD Review block:**
 The web DEEP_DIVE is the authoritative record. It publishes the full AI-generated analysis above, plus an optional **MD Review block** at the bottom:
@@ -116,7 +116,7 @@ this is the distinguishing element of the web version.]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
-When the MD Review block is absent, the web version stands as the best-formatted version of the analysis. When it is present, it becomes the authoritative clinical record — the only SidelineIQ content that carries explicit physician sign-off.
+When the MD Review block is absent, the web version stands as the best-formatted version of the analysis. When it is present, it becomes the authoritative clinical record — the only ParatrOs content that carries explicit physician sign-off.
 
 ---
 
@@ -177,8 +177,8 @@ RTP window: 9–12 months if confirmed. Watching for the MRI report.
 Post 1 (Situation + Current Signal):
 [PLAYER] injury update. Last week: [recap]. Today: [current signal].
 
-Post 2 (OTM Read):
-OTM read: [clinical interpretation]. This is [trending better /
+Post 2 (ParatrOs Read):
+ParatrOs read: [clinical interpretation]. This is [trending better /
 trending worse / sideways] because [clinical reason].
 
 Post 3 (Next Milestone):
@@ -230,9 +230,9 @@ Post 4 (RTP Estimate):
 RTP probability: [X–Y%] at [timeframe]
 [Confidence statement or evidence limitation flag]
 
-Post 5 (Team vs. OTM):
+Post 5 (Team vs. ParatrOs):
 Team timeline: [X weeks].
-OTM read: [aligned / flagging discrepancy].
+ParatrOs read: [aligned / flagging discrepancy].
 [1 sentence on the delta if conflict exists]
 
 Post 6 (Fantasy/Matchmaking):
@@ -240,7 +240,7 @@ Post 6 (Fantasy/Matchmaking):
 
 Post 7 (Web link + Signature):
 Full breakdown with MD Review → [web link]
-[OTM SIGNATURE LINE — see Section 4]
+[SIGNATURE LINE — see Section 4]
 [1 hashtag max]
 ```
 
@@ -251,7 +251,7 @@ Full breakdown with MD Review → [web link]
 **Platform specs:**
 - ~320 characters per cast (longer content supported in most clients)
 - No hashtags — not part of Farcaster culture
-- Voice: Provocative but grounded. OTM is willing to challenge the consensus read.
+- Voice: Provocative but grounded. ParatrOs is willing to challenge the consensus read.
 - Longer-form content fits naturally; no threading pressure
 - All three content types publish on Farcaster
 
@@ -270,7 +270,7 @@ go further than any other platform will in the first hour]
 Watching for: [next signal]
 ```
 
-**Tone note:** Farcaster BREAKING posts should feel like OTM is talking directly to an audience that can handle the clinical reality. Less hedging than X. More willing to say what it actually thinks in the first post.
+**Tone note:** Farcaster BREAKING posts should feel like ParatrOs is talking directly to an audience that can handle the clinical reality. Less hedging than X. More willing to say what it actually thinks in the first post.
 
 ---
 
@@ -282,12 +282,12 @@ Watching for: [next signal]
 [Current signal + what changed since last update]
 
 Here's the thing most coverage is missing: [the clinical angle that
-differentiates OTM's read from the standard beat reporter take]
+differentiates our read from the standard beat reporter take]
 
 [Trajectory statement — where this is going and why]
 ```
 
-**Tone note:** The "here's the thing most coverage is missing" framing is Farcaster-native. It signals that OTM has done the clinical work that the mainstream hasn't. This is where OTM's provocative but grounded voice earns its keep.
+**Tone note:** The "here's the thing most coverage is missing" framing is Farcaster-native. It signals that ParatrOs has done the clinical work that the mainstream hasn't. This is where ParatrOs's provocative but grounded voice earns its keep.
 
 ---
 
@@ -340,15 +340,15 @@ THE NUMBER
 RTP probability: [X–Y%] at [timeframe]
 [Confidence statement]
 
-THE TEAM VS. OTM
-Team says: [X]. OTM reads: [Y].
+THE TEAM VS. PARATROS
+Team says: [X]. ParatrOs reads: [Y].
 [Alignment or conflict flag]
 
 THE BOTTOM LINE
 [1-2 sentences — the clinical verdict in plain language]
 
 Full breakdown with MD Review → [web link]
-[OTM SIGNATURE LINE — see Section 4]
+[SIGNATURE LINE — see Section 4]
 ```
 
 ---
@@ -368,7 +368,7 @@ Full breakdown with MD Review → [web link]
 
 ```markdown
 # BREAKING: [Player Name] — [Injury Type]
-*[Sport] | [Date] | OrthoTriage Master*
+*[Sport] | [Date] | ParatrOs*
 
 ## What Happened
 [2-3 sentences on the event, mechanism, and immediate context]
@@ -385,13 +385,13 @@ Full breakdown with MD Review → [web link]
 ## Initial RTP Signal
 [Range or "Too early to classify — watching for imaging confirmation"]
 
-## What OTM Is Watching
+## What We're Watching
 - [Signal 1 — e.g., imaging report]
 - [Signal 2 — e.g., practice participation]
 - [Signal 3 — e.g., team statement]
 
 ---
-[OTM SIGNATURE BLOCK — see Section 4]
+[SIGNATURE BLOCK — see Section 4]
 ```
 
 ---
@@ -400,7 +400,7 @@ Full breakdown with MD Review → [web link]
 
 ```markdown
 # TRACKING: [Player Name] — [Injury Type] | Week [N]
-*[Sport] | [Date] | OrthoTriage Master*
+*[Sport] | [Date] | ParatrOs*
 
 ## Where We Left Off
 [Brief recap of last update — 2-3 sentences]
@@ -408,7 +408,7 @@ Full breakdown with MD Review → [web link]
 ## Current Signal
 [What's new — practice participation, team statements, visible evidence]
 
-## OTM Read
+## ParatrOs Read
 [Clinical interpretation of current signal — 3-5 sentences]
 
 ## Trajectory
@@ -422,7 +422,7 @@ Full breakdown with MD Review → [web link]
 [1-3 sentences — secondary to clinical analysis]
 
 ---
-[OTM SIGNATURE BLOCK — see Section 4]
+[SIGNATURE BLOCK — see Section 4]
 ```
 
 ---
@@ -459,7 +459,7 @@ Full breakdown with MD Review → [web link]
 
 ```markdown
 # [Injury Type]: What the Evidence Says
-*[Date] | OrthoTriage Master*
+*[Date] | ParatrOs*
 (Topic-led. No athlete in the H1 — cases go in "This Season" below.)
 
 ## The Injury
@@ -483,7 +483,7 @@ Full breakdown with MD Review → [web link]
 
 ```markdown
 # DEEP DIVE: [Player Name] — [Full Injury Classification]
-*[Sport] | [Date] | OrthoTriage Master*
+*[Sport] | [Date] | ParatrOs*
 
 ## Injury Classification
 | Axis | Classification |
@@ -497,7 +497,7 @@ Full breakdown with MD Review → [web link]
 ## Clinical Context
 [Full clinical explanation — what this injury is, what it means
 biomechanically, why it matters for this athlete's specific demands.
-3-6 paragraphs. This is OTM's biggest flex — use the space.]
+3-6 paragraphs. This is the platform's biggest flex — use the space.]
 
 ## Evidence Assessment
 **Evidence Tier:** T[1/2/3/4]
@@ -515,18 +515,18 @@ Treat as directional.*
 [Narrative explanation of how the estimate was generated — injury
 biology, historical recovery curves, sport-specific demand context]
 
-[If CONCUSSION / SYSTEMIC]: *OTM does not generate RTP probability
+[If CONCUSSION / SYSTEMIC]: *ParatrOs does not generate RTP probability
 estimates for [concussion / systemic illness] events. Protocol
 acknowledgment only.*
 
-## Team Timeline vs. OTM Read
+## Team Timeline vs. ParatrOs Read
 **Team disclosed:** [X weeks / "day-to-day" / no disclosure]
-**OTM read:** [Assessment]
+**ParatrOs read:** [Assessment]
 
-[If aligned]: OTM's clinical read is consistent with the team's
+[If aligned]: Our clinical read is consistent with the team's
 disclosed timeline.
 
-[If conflict — >2 weeks discrepancy]: ⚠️ See OTM CONFLICT FLAG
+[If conflict — >2 weeks discrepancy]: ⚠️ See CONFLICT FLAG
 section below.
 
 ## Fantasy / Matchmaking Implications
@@ -546,12 +546,12 @@ When absent, the analysis above stands as published.]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ---
-[OTM SIGNATURE BLOCK — see Section 4]
+[SIGNATURE BLOCK — see Section 4]
 ```
 
 ---
 
-## 4. OTM Signature Conventions
+## 4. Signature Conventions
 
 ### 4.1 When to Sign
 
@@ -562,7 +562,7 @@ When absent, the analysis above stands as published.]
 | DEEP_DIVE | **Required — all platforms** |
 | CONFLICT_FLAG | **Required** |
 
-BREAKING and TRACKING posts carry OTM's voice implicitly. DEEP_DIVEs and CONFLICT_FLAG posts make clinical claims substantial enough to require explicit attribution.
+BREAKING and TRACKING posts carry the platform voice implicitly. DEEP_DIVEs and CONFLICT_FLAG posts make clinical claims substantial enough to require explicit attribution.
 
 ---
 
@@ -570,35 +570,37 @@ BREAKING and TRACKING posts carry OTM's voice implicitly. DEEP_DIVEs and CONFLIC
 
 **X / Farcaster — Inline Signature (end of thread or post):**
 ```
-— OrthoTriage Master | AI-generated analysis. Physician-founded.
+— ParatrOs | AI-generated analysis. Physician-founded.
 ```
 
 **Web — Signature Block (bottom of every post):**
 ```
 ---
-*Analysis generated by OrthoTriage Master (OTM), SidelineIQ's
-AI-powered injury intelligence system. OTM applies a physician-
-founded clinical framework to publicly available injury information.
-This content is for informational purposes only and does not
-constitute medical advice.*
+*Analysis generated by ParatrOs, an AI-powered sports injury
+intelligence platform. ParatrOs applies a physician-founded clinical
+framework to publicly available injury information. This content is
+for informational purposes only and does not constitute medical
+advice.*
 
-*SidelineIQ is founded by a board-certified orthopedic surgeon.
-[AequOs link — for personalized musculoskeletal consultation]*
+*ParatrOs is founded by a board-certified orthopedic surgeon.*
+*[AequOs link — DEEP_DIVE with `subject_kind: INJURY_TYPE` only; see
+Section 2 and SKILL.md §4.6. Never on BREAKING, TRACKING,
+CONFLICT_FLAG, or an athlete-led DEEP_DIVE.]*
 ```
 
-**Tone note on the signature:** The signature is not a disclaimer — it is a credibility statement. "AI-generated analysis. Physician-founded." is a differentiator, not an apology. OTM owns both halves of that identity.
+**Tone note on the signature:** The signature is not a disclaimer — it is a credibility statement. "AI-generated analysis. Physician-founded." is a differentiator, not an apology. ParatrOs owns both halves of that identity.
 
 ---
 
-## 5. OTM Conflict Flag — Template and Convention
+## 5. Conflict Flag — Template and Convention
 
-### 5.1 The OTM 🚩 Format
+### 5.1 The ParatrOs 🚩 Format
 
-Conflict flag posts are among OTM's highest-value content moments. They occur when OTM detects a discrepancy of **>2 weeks** between a team's disclosed injury timeline and OTM's clinical RTP estimate. These posts are infrequent, high-signal, and should feel like OTM catching something the mainstream missed.
+Conflict flag posts are among the platform's highest-value content moments. They occur when the framework detects a discrepancy of **>2 weeks** between a team's disclosed injury timeline and our clinical RTP estimate. These posts are infrequent, high-signal, and should feel like ParatrOs catching something the mainstream missed.
 
-**Named format element:** **OTM 🚩**
+**Named format element:** **ParatrOs 🚩**
 
-The 🚩 emoji becomes a recognizable recurring signal across platforms — readers learn that the flag means OTM is challenging an official timeline. The abbreviation does double duty: *OrthoTriage Master* for those who know the platform; *Off The Mark* for the read OTM is making on the team's disclosure.
+The 🚩 emoji becomes a recognizable recurring signal across platforms — readers learn that the flag means ParatrOs is challenging an official timeline. On the web the flag is labelled *🚩 Off The Mark* — the read we are making on the team's disclosure.
 
 ---
 
@@ -608,12 +610,12 @@ The 🚩 emoji becomes a recognizable recurring signal across platforms — read
 
 ```
 Post 1:
-OTM 🚩 [PLAYER] — [TEAM]'s timeline doesn't add up.
+ParatrOs 🚩 [PLAYER] — [TEAM]'s timeline doesn't add up.
 They're saying [X weeks]. The biology says something different. 🧵
 
 Post 2:
 The injury: [classification — tissue type / grade / region]
-Standard recovery for this: [OTM range based on biology]
+Standard recovery for this: [RTP range based on biology]
 Team's disclosed timeline: [X weeks]
 The gap: [delta in weeks]
 
@@ -623,7 +625,7 @@ Here's why this matters:
 inconsistent with known injury biology or recovery curves]
 
 Post 4:
-OTM read: [X–Y%] probability of return within [OTM timeframe]
+ParatrOs read: [X–Y%] probability of return within [RTP timeframe]
 Evidence tier: [T1/T2/T3/T4]
 [Confidence statement]
 
@@ -632,7 +634,7 @@ Watch for: [the signal that will resolve the conflict —
 imaging update, practice participation shift, IR placement,
 or quiet timeline revision from the team]
 
-— OrthoTriage Master | AI-generated analysis. Physician-founded.
+— ParatrOs | AI-generated analysis. Physician-founded.
 #[Sport — 1 hashtag max]
 ```
 
@@ -641,7 +643,7 @@ or quiet timeline revision from the team]
 **Farcaster — Conflict Flag Template**
 
 ```
-OTM 🚩 [PLAYER]
+ParatrOs 🚩 [PLAYER]
 
 [TEAM] says [X weeks]. That's not what the biology says.
 
@@ -650,17 +652,17 @@ THE INJURY
 
 THE GAP
 Team timeline: [X weeks]
-OTM read: [Y weeks / range]
+ParatrOs read: [Y weeks / range]
 Delta: [Z weeks — flag if >2]
 
 WHY IT MATTERS
-[Clinical basis for the conflict — the specific reason OTM's
-read diverges. This is where OTM drops knowledge.]
+[Clinical basis for the conflict — the specific reason our
+read diverges. This is where the platform drops knowledge.]
 
 THE WATCH
 [What signal resolves this — what to look for next]
 
-— OrthoTriage Master | AI-generated analysis. Physician-founded.
+— ParatrOs | AI-generated analysis. Physician-founded.
 ```
 
 ---
@@ -668,26 +670,26 @@ THE WATCH
 **Web — Conflict Flag Block (embedded in DEEP_DIVE or standalone)**
 
 ```markdown
-## ⚠️ OTM 🚩 — CONFLICT FLAG
+## ⚠️ ParatrOs 🚩 — CONFLICT FLAG
 
 **Official Timeline:** [Team disclosed X weeks]
-**OTM Clinical Estimate:** [Y–Z weeks / probability range]
+**ParatrOs Clinical Estimate:** [Y–Z weeks / probability range]
 **Discrepancy:** [>2 weeks — conflict threshold met]
 
 ### The Clinical Basis
 [Full explanation of why the team's timeline is inconsistent with
 known injury biology, recovery curves, or observable signals.
-This is the section where OTM's clinical authority is most visible.
+This is the section where our clinical authority is most visible.
 2-4 paragraphs. Cite the specific biological or epidemiological
-basis for OTM's divergent read.]
+basis for our divergent read.]
 
 ### What Would Resolve This
-[The specific signal OTM is watching to confirm or revise its read —
+[The specific signal we are watching to confirm or revise its read —
 imaging confirmation, practice trajectory, IR placement, or a quiet
-team timeline revision that validates OTM's original flag.]
+team timeline revision that validates our original flag.]
 
 ### Track Record
-[If OTM has flagged this player or situation before, note it.
+[If we have flagged this player or situation before, note it.
 Consistency builds credibility.]
 ```
 
@@ -726,13 +728,13 @@ Consistency builds credibility.]
 **Farcaster-specific:**
 - Section headers in ALL CAPS work well in longer casts
 - Paragraph breaks between sections
-- OTM's provocative framing lives in the opening line — first sentence does the work
+- The provocative framing lives in the opening line — first sentence does the work
 
 **Web-specific:**
 - Full markdown formatting; headers (H1 for title, H2 for sections, H3 for subsections)
 - Tables for classification data and comparison content
 - MD Review block always uses the horizontal rule separator (━━━) for visual distinction
-- OTM Signature Block always at the bottom, separated by horizontal rule (---)
+- Signature Block always at the bottom, separated by horizontal rule (---)
 
 ---
 
@@ -759,3 +761,9 @@ INJURY_TYPE` headline variants. The file previously showed only
 `DEEP DIVE: [PLAYER] — [INJURY TYPE]`, which described the athlete-led form
 alone while the trending-type scheduler was already producing topic-led posts —
 and it is the topic-led form that carries the AequOs CTA.*
+
+*Revised 2026-09-17 for the ParatrOs rename, pending physician founder
+review: the OrthoTriage Master persona is retired. Bylines, signatures and
+template text now name the platform (ParatrOs) or speak as "we"; "OTM"
+survives only as the name of the internal classification taxonomy. The web
+signature's AequOs link is now scoped to the one form that may carry it.*

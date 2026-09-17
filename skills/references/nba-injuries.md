@@ -1,5 +1,5 @@
 # NBA Injuries Reference
-## SidelineIQ OrthoTriage Master (OTM) — Sport-Specific Intelligence Layer
+## ParatrOs — Sport-Specific Intelligence Layer (OTM framework)
 
 > **Status:** Session 3 Draft — Pending Physician Founder Sign-Off
 > **Scope:** NBA-specific injury prevalence, load management vs. injury distinction rules, back-to-back and playoff context, seasonal load patterns, and underreported injury flags

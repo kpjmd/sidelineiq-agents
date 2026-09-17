@@ -1,5 +1,5 @@
 # NFL Injuries Reference
-## SidelineIQ OrthoTriage Master (OTM) — Sport-Specific Intelligence Layer
+## ParatrOs — Sport-Specific Intelligence Layer (OTM framework)
 
 > **Status:** Session 3 Draft — Pending Physician Founder Sign-Off
 > **Scope:** NFL-specific injury prevalence, practice report interpretation, position-group archetypes, and underreported injury flags

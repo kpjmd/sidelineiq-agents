@@ -1,4 +1,4 @@
-# SidelineIQ — RTP Probability Tables
+# ParatrOs — RTP Probability Tables
 # references/rtp-probability-tables.md
 # Physician Founder Review Required
 
