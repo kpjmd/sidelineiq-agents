@@ -189,9 +189,9 @@ thing scored:
 
 - **Wan'Dale Robinson**: the stored window was written by a TRACKING post that
   a physician later REJECTED.
-- **Alec Pierce**, injured 2026-03-18: his April posts published 10–16 weeks. A
-  TRACKING post five months later published 0–6 and replaced it, and the
-  thread was scored against 0–6.
+- **Ashton Jeanty**: his thread's only published post gave 1–4 weeks. The
+  stored window read 2–8, written by a later post that never reached an
+  audience, and that 2–8 window is what was scored.
 
 A window that later posts can move toward the outcome is not a forecast.
 
