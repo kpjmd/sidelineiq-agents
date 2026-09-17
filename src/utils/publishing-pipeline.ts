@@ -2,6 +2,7 @@ import { callTool, isServerAvailable } from './mcp-client-manager.js';
 import { formatForFarcaster, formatForTwitter, formatForWeb, buildLaunchAnnouncement } from './content-formatter.js';
 import { parseListPostsResponse } from '../monitoring/deduplicator.js';
 import type { InjuryPostContent, PlatformResult, PublishResult } from '../types.js';
+import { siteOrigin } from '../config/brand.js';
 
 const DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
 const DEFAULT_MD_REVIEW_THRESHOLD = 0.75;
@@ -606,7 +607,7 @@ function extractReviewFiling(data: unknown): { status: string | null; filed: boo
  */
 async function pingIndexNow(slug: string): Promise<void> {
   const key = process.env.INDEXNOW_KEY;
-  const siteUrl = (process.env.SITE_URL ?? 'https://sidelineiq.vercel.app').replace(/\/$/, '');
+  const siteUrl = siteOrigin();
   if (!key) {
     console.log('[Pipeline] IndexNow skipped: INDEXNOW_KEY not set');
     return;

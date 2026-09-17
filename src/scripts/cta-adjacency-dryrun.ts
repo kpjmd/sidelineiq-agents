@@ -53,6 +53,7 @@ import {
   REFERRAL_CTA_MARKER,
 } from '../utils/content-formatter.js';
 import type { InjuryPostContent } from '../types.js';
+import { siteOrigin } from '../config/brand.js';
 
 interface Row extends StoredPostRow {
   id?: string;
@@ -61,7 +62,7 @@ interface Row extends StoredPostRow {
   created_at?: string;
 }
 
-const SITE_URL = (process.env.SITE_URL ?? 'https://sidelineiq.vercel.app').replace(/\/$/, '');
+const SITE_URL = siteOrigin();
 const KNOWN_KINDS = new Set(['INJURY_TYPE', 'ATHLETE']);
 
 function typeLedRaw(row: Row): boolean {

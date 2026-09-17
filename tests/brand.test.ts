@@ -5,10 +5,12 @@
  * published posts, still 4 of 39 in September 2026. The cases below are those
  * live phrasings.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import {
   BRAND_NAME,
   BRAND_SIGNATURE,
+  DEFAULT_SITE_URL,
+  siteOrigin,
   BRAND_SLUG,
   rebrandPersona,
 } from '../src/config/brand.js';
@@ -45,5 +47,20 @@ describe('rebrandPersona', () => {
       expect(rebrandPersona(s)).toBe(s);
     }
     expect(rebrandPersona('')).toBe('');
+  });
+});
+
+describe('siteOrigin', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('falls back to the canonical host since the domain cutover', () => {
+    vi.stubEnv('SITE_URL', undefined);
+    expect(DEFAULT_SITE_URL).toBe('https://www.paratros.com');
+    expect(siteOrigin()).toBe('https://www.paratros.com');
+  });
+
+  it('prefers SITE_URL and drops one trailing slash', () => {
+    vi.stubEnv('SITE_URL', 'https://example.org/');
+    expect(siteOrigin()).toBe('https://example.org');
   });
 });

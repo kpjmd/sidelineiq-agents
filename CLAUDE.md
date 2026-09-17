@@ -33,8 +33,11 @@ signature (`— ParatrOs | AI-generated analysis. Physician-founded.`), the
   on a handle: X resolves `/2/users/me` (account id survives a rename) and
   Farcaster uses the numeric FID. `metric_snapshots.detail.username` is
   informational and simply changes value.
-- The site URL fallbacks still read `sidelineiq.vercel.app` until paratros.com
-  is attached in Vercel; that cutover is its own change.
+- **The site origin is `https://www.paratros.com`** (cut over 2026-09-17).
+  `siteUrl()` in `src/config/brand.ts` is the one fallback — do not re-inline
+  a `process.env.SITE_URL ?? '…'`. `sidelineiq.vercel.app` stays attached and
+  308s to the same path on www (frontend `lib/legacy-host-redirect.ts`), so
+  links in every earlier post keep working.
 
 ## Platform Overview
 

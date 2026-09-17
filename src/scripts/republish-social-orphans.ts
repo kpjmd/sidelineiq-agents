@@ -62,6 +62,7 @@ import { listAllPosts } from '../utils/web-posts.js';
 import { reconstructPostContent, describeReconstructFailure, type StoredPostRow } from '../utils/post-content.js';
 import { publishApprovedPost, isMCPError, extractMCPErrorMessage } from '../utils/publishing-pipeline.js';
 import { formatForFarcaster, formatForTwitter, REFERRAL_CTA_MARKER } from '../utils/content-formatter.js';
+import { siteOrigin } from '../config/brand.js';
 
 const ACTOR_ID = 'republish-social-orphans';
 const DEFAULT_SINCE = '2026-08-09T00:00:00Z';
@@ -454,7 +455,7 @@ async function run(): Promise<void> {
       continue;
     }
 
-    const siteUrl = (process.env.SITE_URL ?? 'https://sidelineiq.vercel.app').replace(/\/$/, '');
+    const siteUrl = siteOrigin();
     const slug = String(row.slug ?? '');
     const postUrl = slug ? `${siteUrl}/post/${slug}` : '';
 
@@ -570,7 +571,7 @@ async function run(): Promise<void> {
         continue;
       }
 
-      const siteUrl = (process.env.SITE_URL ?? 'https://sidelineiq.vercel.app').replace(/\/$/, '');
+      const siteUrl = siteOrigin();
       const slug = String(row.slug ?? '');
       const postUrl = slug ? `${siteUrl}/post/${slug}` : '';
 
