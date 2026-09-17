@@ -39,6 +39,7 @@ import {
   decideThread,
   addWeeksIso,
   returnDetectMode,
+  predictUnscoreable,
   type DetectorThread,
 } from '../src/monitoring/return-detector.js';
 import { parseRegularSeasonGames } from '../src/monitoring/sports/espn-gamelog.js';
@@ -401,7 +402,24 @@ describe('calendar censoring (Amendment 1, A1.3)', () => {
       scored_window: { post_id: 'p1', min_weeks: 20, max_weeks: 30 },
     };
     expect(decideThread(t, NFL_GAMES).kind).toBe('too_early');
+    // No published estimate and a 0-0 display projection: no bar to apply.
     expect(decideThread({ ...t, scored_window: null }, NFL_GAMES).kind).toBe('returned');
+  });
+
+  it('falls back to otm_projection for the bar when there is no published estimate (Alfred Collins)', () => {
+    // Injured two days before Week 1, a 3-6w display projection, nothing published.
+    const t: DetectorThread = {
+      ...THREAD,
+      injury_date: '2025-09-03',
+      otm_projection: { min_weeks: 3, max_weeks: 6 },
+      scored_window: null,
+    };
+    const out = decideThread(t, NFL_GAMES);
+    expect(out.kind).toBe('too_early');
+    // …and the fallback never makes the close scoreable.
+    const game = NFL_GAMES[0];
+    expect(predictUnscoreable(t, game, true)).toBe('no_projection');
+    expect(predictUnscoreable(t, game, false)).toBe('no_projection');
   });
 });
 

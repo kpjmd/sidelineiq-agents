@@ -124,7 +124,28 @@ export interface DetectorThread {
   scored_window?: { post_id: string; min_weeks: number; max_weeks: number } | null;
 }
 
-/** The window the too-early bar and the scorer both judge. */
+/**
+ * The window the too-early bar reads.
+ *
+ * The bar is a DATE-SANITY check, not scoring: a stat line far inside any
+ * window OTM ever proposed says the injury_date is probably wrong. So it
+ * prefers the scored window (the first PUBLISHED estimate, which the scorer
+ * judges) and falls back to otm_projection when the thread has no published
+ * estimate. Reading the scored window alone dropped the bar entirely for those
+ * threads: Alfred Collins (injured 09-08, "returned" 09-10) had been held for
+ * date review and was closed on the first cycle after the change.
+ *
+ * The fallback never reaches scoring — predictUnscoreable reads
+ * scoredWindowOf, and a thread with no published estimate is no_projection
+ * whatever its display projection says.
+ */
+export function tooEarlyWindowOf(
+  thread: DetectorThread,
+): { min_weeks?: number | null; max_weeks?: number | null } | null {
+  return scoredWindowOf(thread) ?? thread.otm_projection ?? null;
+}
+
+/** The window the scorer judges (Amendment 1, A1.1). */
 export function scoredWindowOf(
   thread: DetectorThread,
 ): { min_weeks?: number | null; max_weeks?: number | null } | null {
@@ -248,7 +269,7 @@ export function decideThread(thread: DetectorThread, games: GamelogGame[]): Thre
   const game = firstGameAfter(games, thread.injury_date);
   if (!game) return { kind: 'no_return' };
 
-  const minWeeks = scoredWindowOf(thread)?.min_weeks;
+  const minWeeks = tooEarlyWindowOf(thread)?.min_weeks;
   if (typeof minWeeks === 'number' && Number.isFinite(minWeeks) && minWeeks > 0) {
     const earliest = addWeeksIso(thread.injury_date, minWeeks * minFractionOfMinWeeks());
     if (game.date < earliest) {
@@ -400,7 +421,7 @@ async function flagDateReview(
         injury_date: thread.injury_date,
         candidate_return_date: game.date,
         earliest_credible_return: earliest,
-        otm_min_weeks: scoredWindowOf(thread)?.min_weeks ?? null,
+        otm_min_weeks: tooEarlyWindowOf(thread)?.min_weeks ?? null,
         scored_post_id: thread.scored_window?.post_id ?? null,
         game_url: game.url,
         reason:
