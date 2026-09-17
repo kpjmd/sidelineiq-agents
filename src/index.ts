@@ -34,6 +34,7 @@ import type {
 } from './types.js';
 import { refreshTierSnapshotsIfStale } from './agents/injury-intelligence/tier-snapshots.js';
 import { isRetiredPostStatus } from './utils/web-posts.js';
+import { siteOrigin } from './config/brand.js';
 
 const app = express();
 const PORT = process.env.PORT || 3100;
@@ -224,7 +225,7 @@ app.post('/admin/approve/:post_id', async (req, res) => {
   }
 
   const slug = String(post.slug ?? '');
-  const siteUrl = (process.env.SITE_URL ?? 'https://sidelineiq.vercel.app').replace(/\/$/, '');
+  const siteUrl = siteOrigin();
   const postUrl = slug ? `${siteUrl}/post/${slug}` : '';
   const webPostId = String(post.post_id ?? post.id ?? post_id);
 

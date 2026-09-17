@@ -19,6 +19,22 @@ export const BRAND_NAME = 'ParatrOs';
 /** Domain, handle, slug and tag contexts. */
 export const BRAND_SLUG = 'paratros';
 
+/**
+ * The site origin every post link, IndexNow ping and republish uses.
+ *
+ * Canonical since the domain cutover (2026-09-17) is www.paratros.com — Vercel
+ * 308s the apex to www, and sidelineiq.vercel.app 308s to the same path here,
+ * so links in posts published before the cutover keep resolving. Production
+ * sets SITE_URL; this is only the fallback, and it used to be copied into six
+ * files.
+ */
+export const DEFAULT_SITE_URL = 'https://www.paratros.com';
+
+/** SITE_URL, or the canonical default, with any trailing slash removed. */
+export function siteOrigin(): string {
+  return (process.env.SITE_URL ?? DEFAULT_SITE_URL).replace(/\/$/, '');
+}
+
 /** The byline on every post and reply. */
 export const BRAND_SIGNATURE = `— ${BRAND_NAME} | AI-generated analysis. Physician-founded.`;
 

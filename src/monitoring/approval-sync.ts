@@ -2,6 +2,7 @@ import { callTool, isServerAvailable } from '../utils/mcp-client-manager.js';
 import { listAllPosts } from '../utils/web-posts.js';
 import { reconstructPostContent, describeReconstructFailure, type StoredPostRow } from '../utils/post-content.js';
 import { publishApprovedPost, isMCPError, extractMCPErrorMessage } from '../utils/publishing-pipeline.js';
+import { siteOrigin } from '../config/brand.js';
 
 const DEFAULT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const STARTUP_DELAY_MS = 2 * 60 * 1000;    // 2 minutes — let MCP clients settle
@@ -513,7 +514,7 @@ async function runApprovalSyncCycle(): Promise<void> {
     );
   }
 
-  const siteUrl = (process.env.SITE_URL ?? 'https://sidelineiq.vercel.app').replace(/\/$/, '');
+  const siteUrl = siteOrigin();
 
   for (const [index, post] of batch.entries()) {
     const webPostId = String(post.post_id ?? post.id ?? '');
