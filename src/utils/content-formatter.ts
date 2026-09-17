@@ -1,5 +1,13 @@
 import type { InjuryPostContent, ReturnToPlayEstimate } from '../types.js';
 import { computeConflictGap, elapsedWeeksSince, isConflict } from './conflict-gap.js';
+import {
+  BRAND_NAME,
+  BRAND_READ_LABEL,
+  BRAND_SIGNATURE,
+  BRAND_SLUG,
+  BRAND_WINDOW_PHRASE,
+  rebrandPersona,
+} from '../config/brand.js';
 
 const FARCASTER_CHAR_LIMIT = 320;
 const TWITTER_CHAR_LIMIT = Number(process.env.TWITTER_CHAR_LIMIT) || 280;
@@ -16,7 +24,7 @@ const URL_REGEX = /https?:\/\/\S+/g;
 // aequos.io directly, not through the orthoiq.io redirect. The legacy
 // ORTHOIQ_REFERRAL_URL is deliberately NOT read: production set it to orthoiq.io
 // and the code default was orthoiq.com, a domain that never existed.
-export const AEQUOS_REFERRAL_URL = process.env.AEQUOS_REFERRAL_URL || 'https://aequos.io?ref=sidelineiq';
+export const AEQUOS_REFERRAL_URL = process.env.AEQUOS_REFERRAL_URL || `https://aequos.io?ref=${BRAND_SLUG}`;
 
 /**
  * The host every referral CTA contains. Anything auditing where the CTA appears
@@ -71,7 +79,8 @@ function deepDiveSubjectLine(content: InjuryPostContent): string {
 }
 
 const AEQUOS_CTA = `\n\nDealing with a similar injury? Get a personalized consultation at AequOs. ${AEQUOS_REFERRAL_URL}`;
-const OTM_SIGNATURE = '— OrthoTriage Master | AI-generated analysis. Physician-founded.';
+// Name kept so the character-budget comments below still read; the value is the brand byline.
+const OTM_SIGNATURE = BRAND_SIGNATURE;
 
 /**
  * Render the RTP window with its anchor named.
@@ -188,13 +197,17 @@ function splitIntoChunks(text: string, maxLen: number): string[] {
  * Applied as a safety net on both social and web content.
  */
 function stripFrameworkLabels(text: string): string {
-  return text
+  // Prose may arrive already rebranded (agent.ts runs rebrandPersona at
+  // emission), which turns "per OTM protocol" into "per protocol"; both forms
+  // are stripped. The rewrite runs again LAST, for text that did not come
+  // through the agent (a reconstructed or hand-seeded post).
+  const stripped = text
     // "Axis N — ..." header lines (e.g. "Axis 1 — Tissue: NRV")
     .replace(/^Axis\s+\d+\s*[—\-][^\n]*$/gim, '')
     // "per SKILL.md ..." inline phrases
     .replace(/\bper\s+SKILL\.md[^.!\n]*/gi, '')
     // "per OTM protocol ..." inline phrases
-    .replace(/\bper\s+OTM\s+protocol[^.!\n]*/gi, '')
+    .replace(/\bper\s+(?:OTM\s+)?protocol[^.!\n]*/gi, '')
     // "MD review flagged ..." standalone lines
     .replace(/^MD\s+review\s+flagged[^\n]*\.?\s*$/gim, '')
     // "Evidence Tier: T1 ..." standalone lines
@@ -206,6 +219,7 @@ function stripFrameworkLabels(text: string): string {
     // Collapse any blank lines left behind
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+  return rebrandPersona(stripped);
 }
 
 function stripMarkdown(text: string): string {
@@ -411,7 +425,7 @@ export function formatConflictGapLine(
 
   if (gap.status === 'no_timeline') return `${label}: exceeds 2-week conflict threshold`;
   if (gap.status === 'no_anchor') return `${label}: not computable — injury date unresolved`;
-  if (gap.status === 'inside') return `${label}: team timeline sits inside the OTM window`;
+  if (gap.status === 'inside') return `${label}: team timeline sits inside ${BRAND_WINDOW_PHRASE}`;
 
   const magnitude = Math.abs(gap.gap_weeks);
   const direction = gap.status === 'shorter' ? 'short of' : 'beyond';
@@ -421,7 +435,7 @@ export function formatConflictGapLine(
       ? `team ~${gap.team_total_weeks}w total`
       : `team ~${gap.team_total_weeks}w total from ${anchor}`;
   const met = isConflict(gap) ? ' — conflict threshold met' : '';
-  return `${label}: ${magnitude}w ${direction} the OTM window (${total})${met}`;
+  return `${label}: ${magnitude}w ${direction} ${BRAND_WINDOW_PHRASE} (${total})${met}`;
 }
 
 // CONFLICT_FLAG — Farcaster: single long-form cast with OTM 🚩 sections
@@ -430,11 +444,11 @@ function buildConflictFarcasterCast(content: InjuryPostContent, charLimit: numbe
   const teamLine = content.team_timeline_weeks != null
     ? `Team timeline: ${content.team_timeline_weeks} weeks from report`
     : 'Team timeline: not disclosed';
-  const otmLine = formatRtpWindow(rtp, content.injury_date, { label: 'OTM read', minimal: true });
+  const otmLine = formatRtpWindow(rtp, content.injury_date, { label: BRAND_READ_LABEL, minimal: true });
   const deltaLine = formatConflictGapLine(content, { minimal: true });
 
   const parts = [
-    `OTM 🚩 ${content.athlete_name}`,
+    `${BRAND_NAME} 🚩 ${content.athlete_name}`,
     '',
     `${content.team} says ${content.team_timeline_weeks != null ? `${content.team_timeline_weeks} weeks` : 'day-to-day'}. That's not what the biology says.`,
     '',
@@ -447,7 +461,7 @@ function buildConflictFarcasterCast(content: InjuryPostContent, charLimit: numbe
     deltaLine,
     '',
     'WHY IT MATTERS',
-    content.conflict_reason ?? 'OTM clinical estimate diverges from team disclosure.',
+    content.conflict_reason ?? `The ${BRAND_NAME} clinical estimate diverges from team disclosure.`,
     '',
     OTM_SIGNATURE,
   ];
@@ -463,7 +477,7 @@ function buildConflictTwitterThread(content: InjuryPostContent, charLimit: numbe
   const posts: string[] = [
     // Post 1: hook
     truncateWithEllipsis(
-      `OTM 🚩 ${content.athlete_name} — ${content.team}'s timeline doesn't add up.\nThey're saying ${teamDisclosure}. The biology says something different. 🧵`,
+      `${BRAND_NAME} 🚩 ${content.athlete_name} — ${content.team}'s timeline doesn't add up.\nThey're saying ${teamDisclosure}. The biology says something different. 🧵`,
       charLimit
     ),
     // Post 2: the gap
@@ -483,12 +497,12 @@ function buildConflictTwitterThread(content: InjuryPostContent, charLimit: numbe
     ),
     // Post 4: RTP + evidence
     truncateWithEllipsis(
-      `${formatRtpWindow(rtp, content.injury_date, { label: 'OTM read', compact: true })}\nWk 2: ${Math.round(rtp.probability_week_2 * 100)}% | Wk 4: ${Math.round(rtp.probability_week_4 * 100)}% | Wk 8: ${Math.round(rtp.probability_week_8 * 100)}%`,
+      `${formatRtpWindow(rtp, content.injury_date, { label: BRAND_READ_LABEL, compact: true })}\nWk 2: ${Math.round(rtp.probability_week_2 * 100)}% | Wk 4: ${Math.round(rtp.probability_week_4 * 100)}% | Wk 8: ${Math.round(rtp.probability_week_8 * 100)}%`,
       charLimit
     ),
     // Post 5: watch + signature
     truncateWithEllipsis(
-      `Watch for: the signal that resolves this — imaging update, practice shift, or a quiet timeline revision that validates OTM's flag.\n\n${OTM_SIGNATURE}`,
+      `Watch for: the signal that resolves this — imaging update, practice shift, or a quiet timeline revision that validates the flag.\n\n${OTM_SIGNATURE}`,
       charLimit
     ),
   ];
@@ -569,7 +583,7 @@ function buildLongFormConflict(content: InjuryPostContent): string[] {
   const teamDisclosure = teamWeeks != null ? `${teamWeeks} weeks` : 'day-to-day';
 
   const post1 = [
-    `OTM 🚩 ${content.athlete_name} — ${content.team}'s timeline doesn't add up.`,
+    `${BRAND_NAME} 🚩 ${content.athlete_name} — ${content.team}'s timeline doesn't add up.`,
     '',
     `The injury: ${content.injury_type} | Severity: ${content.injury_severity}`,
     '',
@@ -577,13 +591,13 @@ function buildLongFormConflict(content: InjuryPostContent): string[] {
     '',
     'The gap:',
     `Team disclosed: ${teamDisclosure} from report`,
-    formatRtpWindow(rtp, content.injury_date, { label: 'OTM read' }),
+    formatRtpWindow(rtp, content.injury_date, { label: BRAND_READ_LABEL }),
     formatConflictGapLine(content),
     ...(content.conflict_reason ? ['', content.conflict_reason] : []),
   ].join('\n');
 
   const post2 = [
-    'Watch for: the signal that resolves this — imaging update, practice shift, or a quiet timeline revision that validates OTM\'s flag.',
+    'Watch for: the signal that resolves this — imaging update, practice shift, or a quiet timeline revision that validates the flag.',
     '',
     OTM_SIGNATURE,
   ].join('\n');
@@ -592,19 +606,19 @@ function buildLongFormConflict(content: InjuryPostContent): string[] {
 }
 
 /**
- * Launch announcement — single cast/tweet introducing SidelineIQ.
+ * Launch announcement — single cast/tweet introducing the platform.
  * Fires alongside the launch deep dive approval when LAUNCH_ANNOUNCEMENT=true.
  * Fits within 280 effective Twitter chars (URL counts as 23 via t.co).
  */
 export function buildLaunchAnnouncement(postUrl: string): string {
   return [
-    '🏥 Introducing SidelineIQ — AI sports injury intelligence, physician-founded.',
+    `🏥 Introducing ${BRAND_NAME} — AI sports injury intelligence, physician-founded.`,
     '',
     'We analyze injuries the way team docs do: three-axis classification, evidence-based RTP estimates, and no spin.',
     '',
     `Launching with our Moses Moody deep dive:\n${postUrl}`,
     '',
-    '— OrthoTriage Master',
+    `— ${BRAND_NAME}`,
   ].join('\n');
 }
 

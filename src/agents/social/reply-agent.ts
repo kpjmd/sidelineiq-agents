@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { callTool, isServerAvailable } from '../../utils/mcp-client-manager.js';
 import type { SocialMention, MentionIntent } from '../../types.js';
+import { BRAND_NAME, BRAND_SIGNATURE } from '../../config/brand.js';
 
 // Classification uses Haiku (fast, cheap) — matches classifier.ts pattern
 const CLASSIFICATION_MODEL = 'claude-haiku-4-5-20251001';
@@ -28,7 +29,7 @@ interface MentionClassification {
 
 const CLASSIFICATION_TOOL = {
   name: 'classify_mention_intent',
-  description: 'Classify the intent of a social media reply directed at OrthoTriage Master (OTM).',
+  description: `Classify the intent of a social media reply directed at ${BRAND_NAME}.`,
   input_schema: {
     type: 'object' as const,
     properties: {
@@ -50,15 +51,15 @@ const CLASSIFICATION_TOOL = {
   },
 };
 
-const CLASSIFICATION_SYSTEM_PROMPT = `You are classifying the intent of a social media reply directed at OrthoTriage Master (OTM), an AI sports injury analysis platform founded by a board-certified orthopedic surgeon.
+const CLASSIFICATION_SYSTEM_PROMPT = `You are classifying the intent of a social media reply directed at ${BRAND_NAME}, an AI sports injury analysis platform founded by a board-certified orthopedic surgeon.
 
 Classify into exactly one category:
 
 - CORRECTION: User is disputing a specific factual claim (wrong player, wrong team, wrong injury type, wrong timeline). Must reference a specific claim.
 - CLINICAL_QUESTION: User is asking a genuine medical or recovery question about an injury, timeline, or rehabilitation.
 - ENGAGEMENT: User is reacting positively, sharing enthusiasm, or adding color commentary. Not a question or dispute.
-- PUSHBACK: User disagrees with OTM's clinical estimate but provides no factual basis — just opinion or fan sentiment.
-- SOURCING: User is asking for the basis, source, or provenance of OTM's analysis ("where did you get this?", "source?").
+- PUSHBACK: User disagrees with ${BRAND_NAME}'s clinical estimate but provides no factual basis — just opinion or fan sentiment.
+- SOURCING: User is asking for the basis, source, or provenance of ${BRAND_NAME}'s analysis ("where did you get this?", "source?").
 - IGNORE: Trolling, spam, bots, hostile without substance, completely off-topic, or unintelligible.
 
 Be strict about CORRECTION vs PUSHBACK: CORRECTION requires a specific factual claim being disputed. "This is wrong" without specifics is PUSHBACK, not CORRECTION.`;
@@ -66,7 +67,7 @@ Be strict about CORRECTION vs PUSHBACK: CORRECTION requires a specific factual c
 export async function classifyMention(mention: SocialMention): Promise<MentionClassification> {
   const anthropic = getClient();
 
-  const userMessage = `Classify this social media mention directed at OrthoTriage Master (OTM):
+  const userMessage = `Classify this social media mention directed at ${BRAND_NAME}:
 
 Platform: ${mention.platform}
 Message: "${mention.text}"
@@ -123,9 +124,9 @@ function getCharLimit(platform: SocialMention['platform']): number {
 
 function buildSystemPrompt(mention: SocialMention, intent: MentionIntent, aiSkepticism: boolean): string {
   const charLimit = getCharLimit(mention.platform);
-  const signature = '— OrthoTriage Master | AI-generated analysis. Physician-founded.';
+  const signature = BRAND_SIGNATURE;
 
-  const base = `You are OrthoTriage Master (OTM), an AI sports injury analysis platform founded by a board-certified orthopedic surgeon. Your voice is confident, clinical, and direct — like a cool ESPN sportscaster with orthopedic authority. Never apologetic. Never sycophantic. Sign your reply with: ${signature}
+  const base = `You are ${BRAND_NAME}, an AI sports injury analysis platform founded by a board-certified orthopedic surgeon. Your voice is confident, clinical, and direct — like a cool ESPN sportscaster with orthopedic authority. Never apologetic. Never sycophantic. Sign your reply with: ${signature}
 
 Platform: ${mention.platform === 'twitter' ? 'X/Twitter' : 'Farcaster'}
 Character limit: ${charLimit} characters (including signature).`;
@@ -134,14 +135,14 @@ Character limit: ${charLimit} characters (including signature).`;
     case 'CORRECTION':
       return `${base}
 
-A user has corrected a factual claim in OTM's analysis. Acknowledge the correction directly and graciously. State the correct information using clinical language. Do not be defensive. If the correction involves player team, injury classification, or RTP timeline, note the analysis will be updated.
+A user has corrected a factual claim in ${BRAND_NAME}'s analysis. Acknowledge the correction directly and graciously. State the correct information using clinical language. Do not be defensive. If the correction involves player team, injury classification, or RTP timeline, note the analysis will be updated.
 
 Also extract the correction into JSON at the end of your thinking, but keep it out of the reply text. Return the reply text only.`;
 
     case 'CLINICAL_QUESTION':
       return `${base}
 
-A user has asked a genuine medical or recovery question. Answer within OTM's clinical scope: tissue biology, healing timelines, RTP methodology, sport-specific load considerations. Be specific and grounded. Note this is AI-generated analysis reviewed by a physician. Keep under ${charLimit} characters.`;
+A user has asked a genuine medical or recovery question. Answer within ${BRAND_NAME}'s clinical scope: tissue biology, healing timelines, RTP methodology, sport-specific load considerations. Be specific and grounded. Note this is AI-generated analysis reviewed by a physician. Keep under ${charLimit} characters.`;
 
     case 'ENGAGEMENT':
       if (aiSkepticism) {
@@ -151,12 +152,12 @@ A user expressed skepticism about trusting AI-generated analysis. Do NOT be defe
       }
       return `${base}
 
-A user is engaging positively with OTM's analysis. Respond briefly — confident, clinical, no fluff. Add one clinical data point that extends the conversation. Do not just say "thanks." Make the reply worth reading. Under 200 characters.`;
+A user is engaging positively with ${BRAND_NAME}'s analysis. Respond briefly — confident, clinical, no fluff. Add one clinical data point that extends the conversation. Do not just say "thanks." Make the reply worth reading. Under 200 characters.`;
 
     case 'PUSHBACK':
       return `${base}
 
-PUSHBACK — a user disagrees with OTM's clinical position.
+PUSHBACK — a user disagrees with ${BRAND_NAME}'s clinical position.
 
 First, determine which kind of pushback this is:
 
@@ -171,7 +172,7 @@ When in doubt between the two types, lean toward acknowledging the limitation �
     case 'SOURCING':
       return `${base}
 
-A user is asking for the basis of OTM's analysis. Explain the methodology briefly: injury report data, practice participation signals, sport-specific clinical literature, physician review. Note physician-founded status. This is the single most important funnel to the web frontend — always reference that a full breakdown is available. Under ${charLimit} characters.`;
+A user is asking for the basis of ${BRAND_NAME}'s analysis. Explain the methodology briefly: injury report data, practice participation signals, sport-specific clinical literature, physician review. Note physician-founded status. This is the single most important funnel to the web frontend — always reference that a full breakdown is available. Under ${charLimit} characters.`;
 
     default:
       return base;
@@ -241,7 +242,7 @@ async function fetchOriginalPostContext(mention: SocialMention): Promise<string 
     if (!post?.clinical_summary) return null;
 
     const dateLine = post.injury_date
-      ? `Injury/surgery date in OTM's records: ${post.injury_date}`
+      ? `Injury/surgery date in ${BRAND_NAME}'s records: ${post.injury_date}`
       : 'Injury/surgery date: not confirmed in source data (OTM stated uncertainty in original post)';
 
     return `Original OTM post context (the post being replied to):
@@ -375,7 +376,7 @@ export async function processMention(mention: SocialMention): Promise<MentionPro
 
   // Step 4: CORRECTION with high confidence → queue for admin review
   if (intent === 'CORRECTION' && confidence > 0.8 && correctionData) {
-    // mention.parentPostId is the tweet/cast ID of OTM's post, not the DB UUID,
+    // mention.parentPostId is the tweet/cast ID of our own post, not the DB UUID,
     // and nothing maps one to the other yet — so the original post stays
     // unresolved and the admin cross-references it by hand. This used to list
     // every post and throw the result away; the call is gone, not the caveat.

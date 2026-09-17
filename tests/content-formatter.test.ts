@@ -251,9 +251,9 @@ describe('formatForTwitter — long-form (Premium, 25K chars)', () => {
       })
     );
     expect(result).toHaveLength(2);
-    expect(result[0]).toContain('OTM 🚩');
+    expect(result[0]).toContain('ParatrOs 🚩');
     expect(result[0]).toContain('MRI confirms');
-    expect(result[0]).toContain('OTM read:');
+    expect(result[0]).toContain('ParatrOs read:');
     expect(result[1]).toContain('Watch for:');
     expect(result[1]).toContain('Physician-founded.');
   });
@@ -325,5 +325,36 @@ describe('formatForWeb', () => {
   it('omits parent_post_id when not provided', () => {
     const result = formatForWeb(makeContent());
     expect(result).not.toHaveProperty('parent_post_id');
+  });
+});
+
+describe('ParatrOs rename — nothing that publishes names the retired persona or old brand', () => {
+  it('no formatter output carries SidelineIQ, OrthoTriage or a bare OTM label', async () => {
+    const { formatForTwitter, formatForFarcaster, buildLaunchAnnouncement } = await import('../src/utils/content-formatter.js');
+    const base = {
+      athlete_name: 'Test Athlete',
+      sport: 'NFL',
+      team: 'Test Team',
+      injury_type: 'Grade 2 hamstring strain',
+      injury_severity: 'MODERATE',
+      headline: 'h',
+      clinical_summary: 'A Grade 2 hamstring strain. Imaging confirmed.',
+      return_to_play: { min_weeks: 3, max_weeks: 6, probability_week_2: 0.1, probability_week_4: 0.5, probability_week_8: 0.9, confidence: 0.7 },
+      confidence: 0.8,
+      team_timeline_weeks: 1,
+      conflict_reason: 'team says 1 week',
+      injury_date: '2026-09-01',
+      source_url: 'https://example.com',
+    };
+    const out: string[] = [buildLaunchAnnouncement('https://example.com/p')];
+    for (const content_type of ['BREAKING', 'TRACKING', 'DEEP_DIVE', 'CONFLICT_FLAG'] as const) {
+      const c = { ...base, content_type } as unknown as Parameters<typeof formatForTwitter>[0];
+      out.push(...formatForTwitter(c, 'https://example.com/p'), ...formatForFarcaster(c, 'https://example.com/p'));
+    }
+    const text = out.join('\n');
+    expect(text).not.toMatch(/sidelineiq/i);
+    expect(text).not.toMatch(/orthotriage/i);
+    expect(text).not.toMatch(/\bOTM\b/);
+    expect(text).toContain('ParatrOs');
   });
 });

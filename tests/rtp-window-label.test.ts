@@ -108,7 +108,7 @@ describe('Farcaster budget under the longest label', () => {
       // pre-existing and out of scope. What must hold is that the anchored
       // label does not make it WORSE than the bare range it replaced.
       if (content_type !== 'CONFLICT_FLAG') {
-        expect(casts.join('\n'), content_type).toContain('OrthoTriage Master');
+        expect(casts.join('\n'), content_type).toContain('— ParatrOs | AI-generated analysis. Physician-founded.');
       }
       // And the clinical anchor still survives — not squeezed down to "...".
       expect(casts.some((c) => c.trim() !== '...')).toBe(true);
