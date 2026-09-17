@@ -698,8 +698,11 @@ re-scored under Amendment 1.
 computed in mcp `computeAccuracyRecord` and nowhere else:
 - **The scored window is the first PUBLISHED post's**, read at close
   (`pickScoredWindow`), never `otm_projection`. `web_list_threads` returns it as
-  `scored_window`, and `decideThread`'s too-early bar reads THAT (`scoredWindowOf`)
-  so the bar and the scorer judge one window. Robinson's stored window came from a
+  `scored_window`. `decideThread`'s too-early bar reads it first (`tooEarlyWindowOf`)
+  and falls back to `otm_projection` when no post was published: the bar is a
+  date-sanity check, and reading the scored window alone removed it for exactly those
+  threads (Alfred Collins, 09-08 → 09-10, closed instead of held). The fallback never
+  reaches scoring — `predictUnscoreable` reads `scoredWindowOf` only. Robinson's stored window came from a
   rejected post; Jeanty's published 1-4w had been overwritten by an unpublished 2-8w.
 - **0/0 at `rtp_confidence` 0 is not an estimate.** It is the concussion/systemic
   "decline to estimate" signature the prompt prescribes, and those posts publish.

@@ -147,7 +147,7 @@ async function main(): Promise<void> {
   const now = new Date();
   console.log('\n═══ Return-detect dry run ═══\n');
   console.log(`  as_of: ${now.toISOString()}`);
-  console.log(`  too-early bar: ${minFractionOfMinWeeks()} × scored_window.min_weeks`);
+  console.log(`  too-early bar: ${minFractionOfMinWeeks()} × min_weeks (scored_window, else otm_projection)`);
 
   await initializeMCPClients();
   if (!isServerAvailable('web')) {
