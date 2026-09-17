@@ -1,5 +1,5 @@
 # UFC / MMA Injuries Reference
-## SidelineIQ OrthoTriage Master (OTM) — Sport-Specific Intelligence Layer
+## ParatrOs — Sport-Specific Intelligence Layer (OTM framework)
 
 > **Status:** Session 3 Draft — Pending Physician Founder Sign-Off
 > **Scope:** UFC/MMA-specific injury prevalence, fighting style modifiers, commission suspension taxonomy, weight cut context, short-notice replacement flags, and underreported injury patterns

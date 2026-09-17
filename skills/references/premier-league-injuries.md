@@ -1,5 +1,5 @@
 # Premier League Injuries Reference
-## SidelineIQ OrthoTriage Master (OTM) — Sport-Specific Intelligence Layer
+## ParatrOs — Sport-Specific Intelligence Layer (OTM framework)
 
 > **Status:** Session 3 Draft — Pending Physician Founder Sign-Off
 > **Scope:** PL-specific injury prevalence, fixture congestion context, international duty handling, pitch condition modifiers, and underreported injury flags
