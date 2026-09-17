@@ -97,10 +97,30 @@ function routeMcp(threads: DetectorThread[], overrides: Partial<Record<string, T
   });
 }
 
-/** Stub ESPN. `status` is per-URL so one athlete can 404 while others succeed. */
-function routeEspn(byAthlete: Record<string, { status: number; body?: unknown }>) {
+const schedules = JSON.parse(
+  readFileSync(resolve(__dirname, 'fixtures/espn-team-schedules.json'), 'utf-8'),
+) as Fixture;
+const KC_2025 = schedules.cases['nfl-kc-2025-pairs-with-gamelog'].body;
+const EMPTY_SCHEDULE = schedules.cases['unknown-team-200-empty'].body;
+
+/**
+ * Stub ESPN. `status` is per-URL so one athlete can 404 while others succeed.
+ * Team schedules: KC 2025 is recorded (it pairs with the gamelog fixture);
+ * every other team-season answers the way ESPN really does — 200, empty.
+ */
+function routeEspn(
+  byAthlete: Record<string, { status: number; body?: unknown }>,
+  schedule: { status: number } = { status: 200 },
+) {
   vi.stubGlobal('fetch', async (url: string | URL) => {
     const href = String(url);
+    if (href.includes('/schedule')) {
+      if (schedule.status !== 200) {
+        return { ok: false, status: schedule.status, json: async () => null } as unknown as Response;
+      }
+      const body = href.includes('/teams/12/') && href.includes('season=2025') ? KC_2025 : EMPTY_SCHEDULE;
+      return { ok: true, status: 200, json: async () => body } as unknown as Response;
+    }
     const id = href.match(/athletes\/(\d+)\//)?.[1] ?? '';
     const entry = byAthlete[id] ?? { status: 200, body: NFL_BODY };
     if (entry.status === 404) return { ok: false, status: 404, json: async () => null } as unknown as Response;
@@ -311,6 +331,77 @@ describe('the too-early bar', () => {
     const summary = await runReturnDetectCycle(NOW);
     expect(summary.returned).toBe(1);
     expect(summary.unscoreable).toBe(1);
+  });
+});
+
+describe('calendar censoring (Amendment 1, A1.3)', () => {
+  it('sends return_censored=true for an offseason injury back in Week 1, and predicts calendar_censored', async () => {
+    vi.stubEnv('RETURN_DETECT_MODE', 'on');
+    routeMcp([THREAD]);
+    routeEspn({});
+    const summary = await runReturnDetectCycle(NOW);
+    expect(summary.returned).toBe(1);
+    expect(summary.censored).toBe(1);
+    // 2-6w from 2025-08-01: the floor is 2025-08-15, Week 1 is after it.
+    expect(summary.unscoreable).toBe(1);
+    const close = mockCallTool.mock.calls.find(([, t]) => t === 'web_thread_close');
+    expect((close![2] as { return_censored?: boolean }).return_censored).toBe(true);
+  });
+
+  it('sends return_censored=false when the team played a game the athlete missed', async () => {
+    vi.stubEnv('RETURN_DETECT_MODE', 'on');
+    // Injured the day after Week 1; KC played Week 2 on 2025-09-14. Drop the
+    // athlete's Week 2 stat line so his next game is Week 3.
+    const body = structuredClone(NFL_BODY) as {
+      seasonTypes: Array<{ categories: Array<{ events: Array<{ eventId: string }> }> }>;
+    };
+    for (const st of body.seasonTypes) {
+      for (const c of st.categories) c.events = c.events.filter((e) => e.eventId !== '401772837');
+    }
+    routeMcp([{ ...THREAD, injury_date: '2025-09-07', otm_projection: { min_weeks: 1, max_weeks: 3 } }]);
+    routeEspn({ '3139477': { status: 200, body } });
+    const summary = await runReturnDetectCycle(NOW);
+    expect(summary.returned).toBe(1);
+    expect(summary.censored).toBe(0);
+    const close = mockCallTool.mock.calls.find(([, t]) => t === 'web_thread_close');
+    expect((close![2] as { return_censored?: boolean; actual_return_date: string }).return_censored).toBe(false);
+    expect((close![2] as { actual_return_date: string }).actual_return_date).toBe('2025-09-21'); // 00:20Z Sunday night
+  });
+
+  it('leaves the thread ACTIVE when the schedule cannot answer (200, empty)', async () => {
+    vi.stubEnv('RETURN_DETECT_MODE', 'on');
+    routeMcp([THREAD]);
+    // A different team-season than the recording: ESPN's empty 200.
+    const body = structuredClone(NFL_BODY) as { events: Record<string, { team?: { id: string } }> };
+    for (const ev of Object.values(body.events)) if (ev.team) ev.team.id = '999';
+    routeEspn({ '3139477': { status: 200, body } });
+    const summary = await runReturnDetectCycle(NOW);
+    expect(summary.returned).toBe(0);
+    expect(summary.skipped.schedule_unavailable).toBe(1);
+    expect(summary.aborted).toBe(false);
+    expect(writeCalls()).toHaveLength(0);
+  });
+
+  it('aborts on a schedule 503 and closes nothing', async () => {
+    vi.stubEnv('RETURN_DETECT_MODE', 'on');
+    routeMcp([THREAD, { ...THREAD, id: '770e8400-e29b-41d4-a716-446655440003' }]);
+    routeEspn({}, { status: 503 });
+    const summary = await runReturnDetectCycle(NOW);
+    expect(summary.aborted).toBe(true);
+    expect(summary.returned).toBe(0);
+    expect(writeCalls()).toHaveLength(0);
+  });
+
+  it('judges the too-early bar against scored_window, not otm_projection', () => {
+    // otm_projection says 0-0 (a later concussion post); the scored window is
+    // the first published 20-30w estimate, so a Week 1 return is too early.
+    const t: DetectorThread = {
+      ...THREAD,
+      otm_projection: { min_weeks: 0, max_weeks: 0 },
+      scored_window: { post_id: 'p1', min_weeks: 20, max_weeks: 30 },
+    };
+    expect(decideThread(t, NFL_GAMES).kind).toBe('too_early');
+    expect(decideThread({ ...t, scored_window: null }, NFL_GAMES).kind).toBe('returned');
   });
 });
 

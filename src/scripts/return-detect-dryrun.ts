@@ -31,12 +31,20 @@
  *  6. Decisions that differ across two runs over the same corpus. The whole
  *     point of game participation over a status designation is that it is an
  *     event; if the answer moves between passes, it is not.
+ *  7. Closes proposed while the team schedule could not say whether the return
+ *     was the first game available (pre-registration Amendment 1, A1.3). The
+ *     record depends on that answer; without it the thread must stay ACTIVE.
+ *     Schedule failures are injected in Section D alongside gamelog ones, with
+ *     the same 404-row / 503-page split.
  *
  * Reported but NOT gates:
- *  - Closes that would produce an unscoreable accuracy_record (no
- *    otm_projection). Real and worth knowing — it is the gap between "threads
- *    closed" and "threads counted" — but a thread with no projection is an old
- *    row, not a defect in this code.
+ *  - Closes that would produce an unscoreable accuracy_record, split by
+ *    reason: no_projection (no PUBLISHED post carries an estimate) and
+ *    calendar_censored. Real and worth knowing — the gap between "threads
+ *    closed" and "threads counted" — but not a defect in this code.
+ *  - Section G, the re-score preview: every detector-closed RESOLVED thread,
+ *    its stored record against the record Amendment 1 would write. That is the
+ *    list web_thread_reopen would be run over.
  *  - Candidates below the too-early bar. These are date bugs the detector
  *    correctly declines to act on; a non-zero count is the feature working.
  *  - Unknown seasonType labels. Excluded by the parser and surfaced here so a
@@ -48,23 +56,30 @@
  *   npx tsx src/scripts/return-detect-dryrun.ts
  *   npx tsx src/scripts/return-detect-dryrun.ts --limit 20      # quick pass
  *   npx tsx src/scripts/return-detect-dryrun.ts --skip-replay   # skip gate 6
+ *   npx tsx src/scripts/return-detect-dryrun.ts --skip-rescore  # skip section G
  *
  * Read-only. It forces RETURN_DETECT_MODE=shadow regardless of the environment,
  * so no thread is closed, no update is appended and no date-review flag is set.
- * It reads web_list_threads and the public ESPN gamelog endpoint, nothing else.
+ * It reads web_list_threads and the public ESPN gamelog and team-schedule
+ * endpoints, nothing else.
  */
 import 'dotenv/config';
 import { initializeMCPClients, disconnectAll, isServerAvailable } from '../utils/mcp-client-manager.js';
+import { callTool } from '../utils/mcp-client-manager.js';
 import {
   listActiveThreads,
   decideThread,
   loadGames,
   runReturnDetectCycle,
   minFractionOfMinWeeks,
+  predictUnscoreable,
+  scoredWindowOf,
+  addWeeksIso,
   type DetectorThread,
   type ThreadOutcome,
 } from '../monitoring/return-detector.js';
 import { hasGamelog } from '../monitoring/sports/espn-gamelog.js';
+import { loadCalendarCensoring, type ScheduleCache } from '../monitoring/sports/espn-schedule.js';
 import { localCalendarDate } from '../agents/injury-intelligence/season-calendar.js';
 import type { SportKey } from '../types.js';
 
@@ -95,10 +110,13 @@ interface Decision {
   outcome: ThreadOutcome;
   seasonLabels: string[];
   unknownLabels: string[];
+  /** Only for 'returned': the A1.3 answer, null when the schedule could not say. */
+  censored: boolean | null;
 }
 
 async function collectDecisions(threads: DetectorThread[], now: Date): Promise<Decision[]> {
   const out: Decision[] = [];
+  const cache: ScheduleCache = new Map();
   for (const t of threads) {
     const sport = t.sport ?? '';
     if (!hasGamelog(sport) || !t.espn_athlete_id || !t.injury_date) continue;
@@ -110,7 +128,11 @@ async function collectDecisions(threads: DetectorThread[], now: Date): Promise<D
       outcome.kind === 'returned' || outcome.kind === 'too_early'
         ? [outcome.game.season_type_label]
         : [];
-    out.push({ thread: t, outcome, seasonLabels: labels, unknownLabels: loaded.unknown_labels });
+    const censored =
+      outcome.kind === 'returned'
+        ? await loadCalendarCensoring(sport, t.injury_date, outcome.game, cache)
+        : null;
+    out.push({ thread: t, outcome, seasonLabels: labels, unknownLabels: loaded.unknown_labels, censored });
   }
   return out;
 }
@@ -118,14 +140,14 @@ async function collectDecisions(threads: DetectorThread[], now: Date): Promise<D
 /** A stable, comparable fingerprint of one verdict. */
 function fingerprint(d: Decision): string {
   const g = d.outcome.kind === 'returned' || d.outcome.kind === 'too_early' ? d.outcome.game.date : '-';
-  return `${d.thread.id}|${d.outcome.kind}|${g}`;
+  return `${d.thread.id}|${d.outcome.kind}|${g}|${d.censored}`;
 }
 
 async function main(): Promise<void> {
   const now = new Date();
   console.log('\n═══ Return-detect dry run ═══\n');
   console.log(`  as_of: ${now.toISOString()}`);
-  console.log(`  too-early bar: ${minFractionOfMinWeeks()} × otm_projection.min_weeks`);
+  console.log(`  too-early bar: ${minFractionOfMinWeeks()} × scored_window.min_weeks`);
 
   await initializeMCPClients();
   if (!isServerAvailable('web')) {
@@ -158,12 +180,18 @@ async function main(): Promise<void> {
   // ── Section B: verdicts over the live corpus ───────────────────────
   console.log('\n─── B. Verdicts (live ESPN) ───');
   const decisions = await collectDecisions(threads, now);
-  const returned = decisions.filter((d) => d.outcome.kind === 'returned');
+  const found = decisions.filter((d) => d.outcome.kind === 'returned');
+  // What the live loop would actually close: a return whose schedule answered.
+  const returned = found.filter((d) => d.censored !== null);
+  const undecidable = found.filter((d) => d.censored === null);
   const tooEarly = decisions.filter((d) => d.outcome.kind === 'too_early');
   report('threads evaluated against a gamelog', decisions.length);
   report('would close RESOLVED', returned.length,
     returned.map((d) => `${d.thread.athlete_name} ${d.thread.injury_date} → ${(d.outcome as { game: { date: string } }).game.date}`));
   report('no return yet', decisions.filter((d) => d.outcome.kind === 'no_return').length);
+  report('returns left ACTIVE: schedule could not answer', undecidable.length,
+    undecidable.map((d) => `${d.thread.athlete_name} team=${(d.outcome as { game: { team_id: string | null } }).game.team_id ?? '-'}`));
+  report('closes that were the first game available (censored)', returned.filter((d) => d.censored).length);
 
   // ── Section C: the gates ───────────────────────────────────────────
   console.log('\n─── C. Gates ───');
@@ -187,6 +215,13 @@ async function main(): Promise<void> {
   mustBeZero('existing actual_return_date values that would be overwritten', wouldOverwrite.length,
     wouldOverwrite.map((d) => `${d.thread.id} stored=${d.thread.actual_return_date}`));
 
+  // Gate 7, over the live loop's own summary rather than this script's
+  // filter, so it would catch the loop closing on an unanswered schedule.
+  const liveShadow = await runReturnDetectCycle(now);
+  const closedUnanswered = Math.max(0, liveShadow.returned - returned.length);
+  mustBeZero('closes proposed without a schedule answer', closedUnanswered,
+    closedUnanswered ? [`live loop returned=${liveShadow.returned}, answered=${returned.length}`] : []);
+
   const nonActive = decisions.filter((d) => d.thread.status !== 'ACTIVE' && d.outcome.kind === 'returned');
   mustBeZero('closes proposed for a non-ACTIVE thread', nonActive.length,
     nonActive.map((d) => `${d.thread.id} status=${d.thread.status}`));
@@ -196,7 +231,10 @@ async function main(): Promise<void> {
   // the property whose failure is worst.
   console.log('\n─── D. Injected HTTP failures ───');
   const realFetch = globalThis.fetch;
-  async function cycleUnder(status: number): Promise<{ closes: number; aborted: boolean }> {
+  async function cycleUnder(
+    status: number,
+    target: '/gamelog' | '/schedule' = '/gamelog',
+  ): Promise<{ closes: number; aborted: boolean }> {
     // Forward EVERY argument. An earlier version took only the url and dropped
     // the init, which turned the MCP POST into an unauthenticated GET — so the
     // thread listing failed and BOTH injected cycles "aborted", for a reason
@@ -204,7 +242,7 @@ async function main(): Promise<void> {
     // gate working: a detector that aborts on everything is not tolerant, it is
     // broken in the other direction.
     globalThis.fetch = (async (...args: Parameters<typeof fetch>) => {
-      if (String(args[0]).includes('/gamelog')) {
+      if (String(args[0]).includes(target)) {
         return { ok: false, status, json: async () => null } as unknown as Response;
       }
       return realFetch(...args);
@@ -226,6 +264,15 @@ async function main(): Promise<void> {
   mustBeZero('a 503 that did not abort the cycle', under503.aborted ? 0 : 1);
   mustBeZero('a 404 that aborted the cycle', under404.aborted ? 1 : 0);
 
+  // The same split one endpoint over. A schedule 404 is a bad row (that thread
+  // stays ACTIVE); a 503 is a bad page. Either way nothing closes.
+  const sched503 = await cycleUnder(503, '/schedule');
+  const sched404 = await cycleUnder(404, '/schedule');
+  mustBeZero('threads that would close under a schedule 503', sched503.closes);
+  mustBeZero('threads that would close under a schedule 404', sched404.closes);
+  mustBeZero('a schedule 503 that did not abort the cycle', returned.length === 0 || sched503.aborted ? 0 : 1);
+  mustBeZero('a schedule 404 that aborted the cycle', sched404.aborted ? 1 : 0);
+
   // ── Section E: replay ──────────────────────────────────────────────
   console.log('\n─── E. Replay ───');
   if (has('--skip-replay')) {
@@ -241,11 +288,27 @@ async function main(): Promise<void> {
 
   // ── Section F: reported, not gated ─────────────────────────────────
   console.log('\n─── F. Reported, not gated ───');
-  const unscoreable = returned.filter(
-    (d) => !d.thread.otm_projection || typeof d.thread.otm_projection.min_weeks !== 'number',
-  );
-  report('closes that would be unscoreable (no otm_projection)', unscoreable.length,
-    unscoreable.map((d) => `${d.thread.athlete_name} (${d.thread.id})`));
+  const reasons = returned.map((d) => ({
+    d,
+    reason: predictUnscoreable(d.thread, (d.outcome as { game: Parameters<typeof predictUnscoreable>[1] }).game, d.censored === true),
+  }));
+  for (const r of ['no_projection', 'calendar_censored'] as const) {
+    const hit = reasons.filter((x) => x.reason === r);
+    report(`closes that would be unscoreable (${r})`, hit.length,
+      hit.map((x) => `${x.d.thread.athlete_name} (${x.d.thread.id})`));
+  }
+  report('closes that would be scored', reasons.filter((x) => !x.reason).length);
+  const drift = threads.filter((t) => {
+    const a = scoredWindowOf(t);
+    const b = t.otm_projection;
+    return JSON.stringify(a ? [a.min_weeks, a.max_weeks] : null) !== JSON.stringify(b ? [b.min_weeks, b.max_weeks] : null);
+  });
+  report('ACTIVE threads whose scored window differs from otm_projection', drift.length,
+    drift.map((t) => {
+      const a = scoredWindowOf(t);
+      const b = t.otm_projection;
+      return `${t.athlete_name}: scored=${a ? `${a.min_weeks}-${a.max_weeks}` : '-'} stored=${b ? `${b.min_weeks}-${b.max_weeks}` : '-'}`;
+    }));
   report('candidates below the too-early bar → date review', tooEarly.length,
     tooEarly.map((d) => {
       const o = d.outcome as { game: { date: string }; earliest_credible: string };
@@ -256,6 +319,14 @@ async function main(): Promise<void> {
   report('ACTIVE threads with no espn_athlete_id', threads.length - withId,
     threads.filter((t) => !t.espn_athlete_id).map((t) => `${t.athlete_name} (${t.sport})`));
 
+  // ── Section G: re-score preview (Amendment 1, A1.4) ────────────────
+  console.log('\n─── G. Re-score preview: detector closes under Amendment 1 ───');
+  if (has('--skip-rescore')) {
+    report('skipped (--skip-rescore)', '-');
+  } else {
+    await rescorePreview(now);
+  }
+
   console.log('\n═══ Verdict ═══\n');
   if (failures.length === 0) {
     console.log('  PASS — every gated number is zero.\n');
@@ -265,6 +336,89 @@ async function main(): Promise<void> {
     console.log('');
     process.exitCode = 1;
   }
+}
+
+interface ClosedThread extends DetectorThread {
+  return_source?: string | null;
+  accuracy_record?: {
+    scoreable?: boolean;
+    within_range?: boolean | null;
+    unscoreable_reason?: string;
+  } | null;
+}
+
+/**
+ * Predict, for every RESOLVED thread the detector closed, what Amendment 1
+ * would write. Read-only: it replays the gamelog and schedule for the stored
+ * actual_return_date. The prediction mirrors computeAccuracyRecord and is for
+ * reading only — the reopen-and-reclose it previews goes through the mcp.
+ */
+async function rescorePreview(now: Date): Promise<void> {
+  const closed: ClosedThread[] = [];
+  for (const sport of ['NFL', 'NBA']) {
+    let offset = 0;
+    for (;;) {
+      const raw = await callTool('web', 'web_list_threads', { status: 'RESOLVED', sport, limit: 100, offset });
+      const text = (raw as { content?: Array<{ text?: string }> })?.content?.[0]?.text;
+      const page = text ? (JSON.parse(text) as { threads: ClosedThread[]; has_more?: boolean; next_offset?: number | null }) : null;
+      if (!page) break;
+      closed.push(...page.threads.filter((t) => t.return_source === 'detector'));
+      if (!page.has_more || page.next_offset == null || page.next_offset <= offset) break;
+      offset = page.next_offset;
+    }
+  }
+  const cache: ScheduleCache = new Map();
+  const changes: string[] = [];
+  let oldScored = 0;
+  let oldWithin = 0;
+  let newScored = 0;
+  let newWithin = 0;
+  let undecided = 0;
+  for (const t of closed) {
+    const rec = t.accuracy_record ?? null;
+    const wasScored = rec?.scoreable ?? rec?.within_range != null;
+    if (wasScored) oldScored++;
+    if (rec?.within_range === true) oldWithin++;
+
+    const sport = t.sport as 'NFL' | 'NBA';
+    const ret = t.actual_return_date ? String(t.actual_return_date).slice(0, 10) : null;
+    if (!t.injury_date || !t.espn_athlete_id || !ret) {
+      undecided++;
+      changes.push(`${t.athlete_name}: cannot replay (missing date or id)`);
+      continue;
+    }
+    const today = localCalendarDate(now, sport).date;
+    const loaded = await loadGames(sport, t.espn_athlete_id, t.injury_date, today);
+    const game = loaded?.games.find((g) => g.date === ret);
+    const censored = game ? await loadCalendarCensoring(sport, t.injury_date, game, cache) : null;
+    if (!game || censored === null) {
+      undecided++;
+      changes.push(`${t.athlete_name}: return ${ret} not re-derivable (game=${!!game}, censored=${censored})`);
+      continue;
+    }
+    const reason = predictUnscoreable(t, game, censored);
+    const win = scoredWindowOf(t);
+    let within: boolean | null = null;
+    if (!reason && win && typeof win.min_weeks === 'number' && typeof win.max_weeks === 'number') {
+      within = ret >= addWeeksIso(t.injury_date, win.min_weeks) && ret <= addWeeksIso(t.injury_date, win.max_weeks);
+      newScored++;
+      if (within) newWithin++;
+    }
+    const before = wasScored ? `within=${rec?.within_range}` : `unscoreable(${rec?.unscoreable_reason ?? '?'})`;
+    const after = reason ? `unscoreable(${reason})` : `within=${within}`;
+    if (before !== after) {
+      changes.push(
+        `${t.athlete_name} (${t.id.slice(0, 8)}): ${before} → ${after}  ` +
+          `window=${win ? `${win.min_weeks}-${win.max_weeks}` : '-'} censored=${censored}`,
+      );
+    }
+  }
+  report('detector-closed RESOLVED threads', closed.length);
+  report('stored: within_range', `${oldWithin} of ${oldScored} scoreable`);
+  report('Amendment 1: within_range', `${newWithin} of ${newScored} scoreable`);
+  report('not re-derivable (would stay as-is if reopened: check by hand)', undecided);
+  report('records that would change', changes.length, changes.slice(0, 40));
+  for (const c of changes.slice(8)) console.log(`          ${c}`);
 }
 
 main()
