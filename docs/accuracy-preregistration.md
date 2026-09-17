@@ -165,3 +165,121 @@ in this file, dated, before the number exists — not after.
 The honest expectation is that this resolves itself as the season runs: an
 injury that occurs AND resolves in-season returns on a date the recovery
 actually chose. Those are the rows that carry signal.
+
+---
+
+## Amendment 1 — 2026-09-16
+
+**Made at n = 12 scoreable, before any accuracy number has been published
+anywhere.** Nothing above this line has been edited; this section supersedes it
+where the two differ, and says so point by point. It was decided on the
+reasoning below, without first computing which option makes the first 12 rows
+look better — which is the only condition under which amending a
+pre-registration is honest at all.
+
+Everything not named here is unchanged: the definition of "returned", the
+`within_range` headline, the n ≥ 30 publication bar and the G1 kill switch.
+
+### A1.1 — Which window is scored: the first PUBLISHED estimate
+
+The text above says the projection is "frozen at thread open". **It was not.**
+The thread's stored `otm_projection` was rewritten by every later post on the
+thread, of any status. Two rows in the first cohort show why that cannot be the
+thing scored:
+
+- **Wan'Dale Robinson**: the stored window was written by a TRACKING post that
+  a physician later REJECTED.
+- **Ashton Jeanty**: his thread's only published post gave 1–4 weeks. The
+  stored window read 2–8, written by a later post that never reached an
+  audience, and that 2–8 window is what was scored.
+
+A window that later posts can move toward the outcome is not a forecast.
+
+**The scored window is the RTP window on the earliest-created post that is
+linked to the thread (through `injury_updates` or `canonical_post_id`), has
+status `PUBLISHED`, and carries an estimate (A1.2).** It is read when the thread
+is closed, not from the stored `otm_projection`. That column remains a display
+value and nothing is scored from it.
+
+- The projected return date used for the signed error is `injury_date` plus the
+  midpoint of the scored window, computed at close.
+- The record names the post the window came from.
+- A post a physician rejected, a post still in review, and a post superseded
+  before approval are never the scored window, because none of them reached an
+  audience.
+- **Why first rather than latest:** the first published window is the claim
+  made before anyone knew how the recovery would go. A later window is often
+  better informed, and that is exactly the problem: it can only become better
+  informed by moving toward the result.
+
+### A1.2 — A window of zero is not an estimate
+
+SKILL.md forbids an RTP estimate for CONCUSSION and SYSTEMIC events. Those posts
+still publish, and by instruction they carry `min_weeks = max_weeks = 0` and
+`rtp_confidence = 0`. That means "we decline to estimate", not "back in zero
+weeks". Robinson's 0–0 was a concussion, and it was being scored as a miss that
+no return could ever have avoided.
+
+**A post carries an estimate only when `rtp_confidence > 0` and
+`max_weeks ≥ 1`.** A thread with no published post that carries an estimate is
+`no_projection`, the same as a thread that never had a window.
+
+A window whose floor is zero and whose ceiling is not is a real estimate and is
+scored. For example, 0–2 weeks for a nasal fracture says "may not miss a game".
+
+### A1.3 — Calendar-censored returns: the interval rule
+
+A return is **calendar-censored** when the return game is the **first completed
+regular-season game on the returning team's schedule dated strictly after
+`injury_date`**, both compared as the sport's local calendar dates. In other
+words, the athlete missed no games because there were none to miss. Every
+offseason or preseason injury that resolves by the opener is censored, and so
+is an in-season injury followed by the very next game.
+
+A censored return does not tell us when the athlete recovered. It tells us only
+that recovery happened **on or before** the return date. Scored against the
+window `[injury_date + min_weeks, injury_date + max_weeks]`:
+
+| Censored return date | What it proves | Treatment |
+|---|---|---|
+| before `injury_date + min_weeks` | recovery was earlier than the window's floor | **scored**, `within_range = false` |
+| on or after `injury_date + min_weeks` | nothing: recovery could have been anywhere up to that date | **unscoreable**, `calendar_censored` |
+
+Censored-and-unscoreable records carry no `within_range` and no signed error.
+Every record says whether it was censored.
+
+**Why this rule and not the two simpler ones:**
+- **Scoring censored returns as-is** grades the NFL schedule. Whether a window
+  "contains Week 1" is not a clinical claim anyone made.
+- **Excluding every censored return** also drops the returns that provably came
+  before the window's floor. Those are known misses, and dropping them silently
+  flatters the headline. It is the "denominator that quietly discards the hard
+  cases" that this file already forbids.
+- **The interval rule** keeps every observation that carries information and
+  only those. It is the standard treatment of an interval-censored observation
+  against an interval claim.
+
+Two notes:
+- A return far enough before the floor already never closes a thread. The
+  detector's too-early bar holds it ACTIVE for date review, because at that
+  distance the injury date is the likelier error. The first row of the table
+  therefore applies only between that bar and the floor.
+- The schedule consulted is the team the athlete returned WITH. An athlete
+  traded while injured is judged against the new team's calendar.
+
+The exclusions table above gains one row:
+
+| Reason | Meaning |
+|---|---|
+| `calendar_censored` | returned in the first game available after injury, on or after the window's floor |
+
+`no_projection` now means "no PUBLISHED post on the thread carries an estimate"
+(A1.1, A1.2).
+
+### A1.4 — Retroactive, and how
+
+This amendment applies to **every** close, including the first cohort of 24.
+Those threads are re-scored by reopening them (`web_thread_reopen`, whose
+`thread_reopened` audit row keeps the original record verbatim) and letting the
+detector close them again through the one scoring path. There is no hand-edited
+record and no second formula.
