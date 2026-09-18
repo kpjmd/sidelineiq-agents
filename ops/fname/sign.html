@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>ParatrOs — sign the fname transfers</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; background:#0A121B; color:#E8EDF1;
+         font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;
+         padding:40px 24px; display:flex; justify-content:center; }
+  main { width:100%; max-width:760px; display:flex; flex-direction:column; gap:26px; }
+  h1 { font-size:24px; margin:0; letter-spacing:-.02em; }
+  h2 { font-size:15px; margin:0 0 8px; letter-spacing:.08em; text-transform:uppercase; color:#6C8497; }
+  section { background:#11202D; border:1px solid #24384A; border-radius:4px; padding:20px 22px; }
+  code, pre { font-family:ui-monospace,"SF Mono",Menlo,monospace; }
+  pre { background:#0E1924; border:1px solid #1E2C3A; border-radius:2px; padding:14px;
+        overflow:auto; font-size:12px; margin:10px 0 0; white-space:pre-wrap; word-break:break-all; }
+  button { font:inherit; font-weight:600; border:0; border-radius:2px; padding:11px 18px;
+           background:#4FC9E6; color:#06222B; cursor:pointer; }
+  button:disabled { opacity:.35; cursor:not-allowed; }
+  button.secondary { background:#24384A; color:#E8EDF1; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .muted { color:#7E97A8; }
+  .warn { border-left:3px solid #F0A02A; padding-left:12px; }
+  .bad  { border-left:3px solid #E0533F; padding-left:12px; color:#E0533F; }
+  .ok   { color:#4FC9E6; }
+  dl { display:grid; grid-template-columns:auto 1fr; gap:6px 16px; margin:0; font-size:13px; }
+  dt { color:#6C8497; } dd { margin:0; font-family:ui-monospace,Menlo,monospace; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Sign the ParatrOs fname transfers</h1>
+
+  <section class="warn">
+    <strong>This page never asks for a private key or a seed phrase, and cannot see one.</strong>
+    It asks your wallet extension to sign two typed-data messages. The signing happens
+    inside the wallet; only the resulting signatures appear here.
+  </section>
+
+  <section>
+    <h2>What will be signed</h2>
+    <dl>
+      <dt>FID</dt><dd id="fid"></dd>
+      <dt>Custody address</dt><dd id="custody"></dd>
+      <dt>1 · release</dt><dd id="release-name"></dd>
+      <dt>2 · claim</dt><dd id="claim-name"></dd>
+    </dl>
+    <p class="muted" style="margin:14px 0 0">
+      One fname per FID, so the claim cannot succeed while the FID still holds the old
+      name — the registry answers <code>TOO_MANY_NAMES</code>. Sign <em>both</em> below
+      before submitting either, so the account is nameless for seconds rather than
+      minutes. The release is one-way; the claim can be retried as often as needed.
+    </p>
+  </section>
+
+  <section>
+    <h2>1 · Connect</h2>
+    <div class="row">
+      <button id="connect">Connect wallet</button>
+      <span id="account" class="muted">not connected</span>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button id="switch-chain" class="secondary" hidden>Switch wallet to Ethereum Mainnet</button>
+      <span id="chain" class="muted"></span>
+    </div>
+    <div id="account-problem" style="margin-top:14px"></div>
+    <div id="chain-problem" style="margin-top:14px"></div>
+  </section>
+
+  <section>
+    <h2>2 · Sign</h2>
+    <div class="row">
+      <button id="sign-release" disabled>Sign release of <span class="rn"></span></button>
+      <button id="sign-claim" disabled>Sign claim of <span class="cn"></span></button>
+    </div>
+    <p id="clock" class="muted" style="margin:14px 0 0"></p>
+  </section>
+
+  <section>
+    <h2>3 · Payloads</h2>
+    <p class="muted" style="margin:0">
+      Save each block to a file and submit it with
+      <code>node ops/fname/submit.mjs &lt;file&gt;</code> — release first.
+    </p>
+    <div id="out"></div>
+  </section>
+</main>
+
+<script type="module">
+import {
+  FID, CUSTODY_ADDRESS, VERIFIED_WALLET_NOT_CUSTODY, CURRENT_NAME, TARGET_NAME,
+  REGISTRY, EIP712_DOMAIN, EIP712_TYPES, TIMESTAMP_TOLERANCE_SECONDS,
+} from './config.mjs';
+
+const $ = (id) => document.getElementById(id);
+$('fid').textContent = String(FID);
+$('custody').textContent = CUSTODY_ADDRESS;
+$('release-name').textContent = `${CURRENT_NAME} → fid 0 (burn)`;
+$('claim-name').textContent = `fid 0 → ${TARGET_NAME} (mint)`;
+for (const el of document.querySelectorAll('.rn')) el.textContent = CURRENT_NAME;
+for (const el of document.querySelectorAll('.cn')) el.textContent = TARGET_NAME;
+
+let account = null;
+let chainId = null;
+const signed = {};
+
+/**
+ * The wallet must be ON mainnet to sign, even though nothing is sent anywhere and
+ * no gas is spent.
+ *
+ * eth_signTypedData_v4 refuses when domain.chainId differs from the active chain
+ * — MetaMask answers `Provided chainId "1" must match the active chainId
+ * "8453"`. That is a WALLET guard, not the registry's, and the fix is to switch
+ * the wallet, never to edit the domain: the registry verifies against chainId 1
+ * (its hub_domain), so a signature made under any other domain verifies to a
+ * different address and is rejected as INVALID_SIGNATURE.
+ *
+ * chainId 1 is also not where the FID lives — the ID Registry is on OP Mainnet.
+ * The domain is just a namespace here, so do not "correct" it to 10 or 8453
+ * either.
+ */
+const REQUIRED_CHAIN_ID = '0x' + EIP712_DOMAIN.chainId.toString(16);
+
+const KNOWN_CHAINS = {
+  '0x1': 'Ethereum Mainnet',
+  '0xa': 'OP Mainnet',
+  '0x2105': 'Base',
+  '0x89': 'Polygon',
+  '0xa4b1': 'Arbitrum One',
+};
+
+const chainName = (id) => KNOWN_CHAINS[id] ?? `chain ${parseInt(id, 16)}`;
+
+/**
+ * The registry's clock, not this machine's. They agreed exactly when this was
+ * written, but a signature is only valid within TIMESTAMP_TOLERANCE of the
+ * timestamp it embeds, so a skewed laptop would produce silently-rejected
+ * signatures with a 400 that says INVALID_TIMESTAMP and nothing else.
+ */
+async function registryNow() {
+  const r = await fetch(`${REGISTRY}/current-time`);
+  if (!r.ok) throw new Error(`registry /current-time -> ${r.status}`);
+  const { currentTime } = await r.json();
+  if (!Number.isInteger(currentTime)) throw new Error('registry returned no currentTime');
+  return currentTime;
+}
+
+/** Both preconditions in one place, re-run whenever either can have changed. */
+function refreshState() {
+  const accountProblem = $('account-problem');
+  const chainProblem = $('chain-problem');
+  accountProblem.innerHTML = '';
+  chainProblem.innerHTML = '';
+
+  $('account').textContent = account || 'not connected';
+  $('chain').textContent = chainId ? chainName(chainId) : '';
+
+  let ok = true;
+
+  if (!account) {
+    ok = false;
+  } else if (account !== CUSTODY_ADDRESS.toLowerCase()) {
+    const isTheVerifiedOne = account === VERIFIED_WALLET_NOT_CUSTODY.toLowerCase();
+    accountProblem.innerHTML = `<div class="bad">
+      <strong>Wrong account — nothing will be signed.</strong><br />
+      Connected: <code>${account}</code><br />
+      Needed:    <code>${CUSTODY_ADDRESS}</code>
+      ${isTheVerifiedOne ? `<br /><br />That is the account's <em>verified primary</em>
+        wallet, not its custody wallet. The registry checks
+        <code>IdRegistry.idOf(owner) === ${FID}</code>, and this address owns no FID, so a
+        signature from it is rejected with <code>INVALID_FID_OWNER</code>.` : ''}
+      <br /><br />Switch the extension to the custody account and press Connect again.
+    </div>`;
+    ok = false;
+  } else {
+    accountProblem.innerHTML = `<div class="ok">Custody account confirmed.</div>`;
+  }
+
+  const wrongChain = Boolean(chainId) && chainId !== REQUIRED_CHAIN_ID;
+  $('switch-chain').hidden = !wrongChain;
+  if (wrongChain) {
+    chainProblem.innerHTML = `<div class="bad">
+      <strong>Wallet is on ${chainName(chainId)} — it must be on Ethereum Mainnet to sign.</strong>
+      <br /><br />Your wallet refuses to sign typed data whose domain chainId differs from the
+      network it is pointed at (<code>Provided chainId "1" must match the active chainId
+      "${parseInt(chainId, 16)}"</code>). That is the wallet's rule, not the registry's.
+      <br /><br /><strong>Nothing is sent on-chain and no gas is spent</strong> — the network
+      only sets the signing context. The domain must stay chainId 1: that is what the registry
+      verifies against, so signing under any other domain produces a signature it rejects as
+      <code>INVALID_SIGNATURE</code>.
+    </div>`;
+    ok = false;
+  }
+
+  $('sign-release').disabled = !ok;
+  $('sign-claim').disabled = !ok;
+}
+
+async function readWallet() {
+  const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+  account = (accounts[0] ?? '').toLowerCase() || null;
+  chainId = await window.ethereum.request({ method: 'eth_chainId' });
+  refreshState();
+}
+
+$('connect').onclick = async () => {
+  if (!window.ethereum) {
+    $('account-problem').innerHTML = `<div class="bad">No wallet detected. Extensions do not inject
+      into <code>file://</code> pages — serve this directory over http://localhost
+      (see README.md) and reload.</div>`;
+    return;
+  }
+  await window.ethereum.request({ method: 'eth_requestAccounts' });
+  await readWallet();
+
+  // Re-check rather than trust the last answer: switching account or network in
+  // the extension does not reload the page, and a stale "confirmed" here would
+  // hand the registry a signature from the wrong address.
+  window.ethereum.on?.('accountsChanged', () => void readWallet());
+  window.ethereum.on?.('chainChanged', () => void readWallet());
+};
+
+$('switch-chain').onclick = async () => {
+  try {
+    await window.ethereum.request({
+      method: 'wallet_switchEthereumChain',
+      params: [{ chainId: REQUIRED_CHAIN_ID }],
+    });
+  } catch (err) {
+    // 4902 = the wallet does not know the chain. Mainnet is built into every
+    // wallet, so this should be unreachable; say so rather than silently failing.
+    $('chain-problem').innerHTML = `<div class="bad">Could not switch automatically
+      (${String(err && err.message || err)}). Select Ethereum Mainnet in the extension by hand.</div>`;
+    return;
+  }
+  await readWallet();
+};
+
+async function sign(kind) {
+  const name = kind === 'release' ? CURRENT_NAME : TARGET_NAME;
+  const timestamp = await registryNow();
+
+  // The claim embeds `name`, so the two transfers are genuinely different
+  // messages and need two signatures. One will not stand in for the other.
+  const signature = await window.ethereum.request({
+    method: 'eth_signTypedData_v4',
+    params: [account, JSON.stringify({
+      domain: EIP712_DOMAIN,
+      types: EIP712_TYPES,
+      primaryType: 'UserNameProof',
+      message: { name, timestamp, owner: CUSTODY_ADDRESS },
+    })],
+  });
+
+  signed[kind] = {
+    name,
+    from: kind === 'release' ? FID : 0,
+    to: kind === 'release' ? 0 : FID,
+    fid: FID,
+    owner: CUSTODY_ADDRESS,
+    timestamp,
+    signature,
+  };
+  render();
+}
+
+$('sign-release').onclick = () => sign('release').catch(showError);
+$('sign-claim').onclick = () => sign('claim').catch(showError);
+
+function showError(err) {
+  $('out').insertAdjacentHTML('afterbegin',
+    `<div class="bad" style="margin-top:14px">${String(err && err.message || err)}</div>`);
+}
+
+function render() {
+  $('out').innerHTML = ['release', 'claim']
+    .filter((k) => signed[k])
+    .map((k) => `<h2 style="margin-top:18px">${k === 'release' ? '1 · release' : '2 · claim'} — ${signed[k].name}</h2>
+                 <pre>${JSON.stringify(signed[k], null, 2)}</pre>`)
+    .join('');
+}
+
+// A live countdown, because the ten-minute window is the one thing that silently
+// invalidates otherwise-correct work.
+setInterval(async () => {
+  const stamps = Object.values(signed).map((s) => s.timestamp);
+  if (!stamps.length) return;
+  const now = Math.floor(Date.now() / 1000);
+  const left = Math.min(...stamps) + TIMESTAMP_TOLERANCE_SECONDS - now;
+  $('clock').textContent = left > 0
+    ? `Signatures valid for about ${Math.floor(left / 60)}m ${left % 60}s. Submit before then.`
+    : 'EXPIRED — sign again. The registry will answer INVALID_TIMESTAMP.';
+  $('clock').className = left > 60 ? 'muted' : 'bad';
+}, 1000);
+</script>
+</body>
+</html>
