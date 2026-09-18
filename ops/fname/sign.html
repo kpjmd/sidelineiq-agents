@@ -60,7 +60,12 @@
       <button id="connect">Connect wallet</button>
       <span id="account" class="muted">not connected</span>
     </div>
+    <div class="row" style="margin-top:12px">
+      <button id="switch-chain" class="secondary" hidden>Switch wallet to Ethereum Mainnet</button>
+      <span id="chain" class="muted"></span>
+    </div>
     <div id="account-problem" style="margin-top:14px"></div>
+    <div id="chain-problem" style="margin-top:14px"></div>
   </section>
 
   <section>
@@ -97,7 +102,35 @@ for (const el of document.querySelectorAll('.rn')) el.textContent = CURRENT_NAME
 for (const el of document.querySelectorAll('.cn')) el.textContent = TARGET_NAME;
 
 let account = null;
+let chainId = null;
 const signed = {};
+
+/**
+ * The wallet must be ON mainnet to sign, even though nothing is sent anywhere and
+ * no gas is spent.
+ *
+ * eth_signTypedData_v4 refuses when domain.chainId differs from the active chain
+ * — MetaMask answers `Provided chainId "1" must match the active chainId
+ * "8453"`. That is a WALLET guard, not the registry's, and the fix is to switch
+ * the wallet, never to edit the domain: the registry verifies against chainId 1
+ * (its hub_domain), so a signature made under any other domain verifies to a
+ * different address and is rejected as INVALID_SIGNATURE.
+ *
+ * chainId 1 is also not where the FID lives — the ID Registry is on OP Mainnet.
+ * The domain is just a namespace here, so do not "correct" it to 10 or 8453
+ * either.
+ */
+const REQUIRED_CHAIN_ID = '0x' + EIP712_DOMAIN.chainId.toString(16);
+
+const KNOWN_CHAINS = {
+  '0x1': 'Ethereum Mainnet',
+  '0xa': 'OP Mainnet',
+  '0x2105': 'Base',
+  '0x89': 'Polygon',
+  '0xa4b1': 'Arbitrum One',
+};
+
+const chainName = (id) => KNOWN_CHAINS[id] ?? `chain ${parseInt(id, 16)}`;
 
 /**
  * The registry's clock, not this machine's. They agreed exactly when this was
@@ -113,22 +146,23 @@ async function registryNow() {
   return currentTime;
 }
 
-$('connect').onclick = async () => {
-  const problem = $('account-problem');
-  problem.innerHTML = '';
-  if (!window.ethereum) {
-    problem.innerHTML = `<div class="bad">No wallet detected. Extensions do not inject
-      into <code>file://</code> pages — serve this directory over http://localhost
-      (see README.md) and reload.</div>`;
-    return;
-  }
-  const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-  account = (accounts[0] ?? '').toLowerCase();
-  $('account').textContent = account || 'not connected';
+/** Both preconditions in one place, re-run whenever either can have changed. */
+function refreshState() {
+  const accountProblem = $('account-problem');
+  const chainProblem = $('chain-problem');
+  accountProblem.innerHTML = '';
+  chainProblem.innerHTML = '';
 
-  if (account !== CUSTODY_ADDRESS.toLowerCase()) {
+  $('account').textContent = account || 'not connected';
+  $('chain').textContent = chainId ? chainName(chainId) : '';
+
+  let ok = true;
+
+  if (!account) {
+    ok = false;
+  } else if (account !== CUSTODY_ADDRESS.toLowerCase()) {
     const isTheVerifiedOne = account === VERIFIED_WALLET_NOT_CUSTODY.toLowerCase();
-    problem.innerHTML = `<div class="bad">
+    accountProblem.innerHTML = `<div class="bad">
       <strong>Wrong account — nothing will be signed.</strong><br />
       Connected: <code>${account}</code><br />
       Needed:    <code>${CUSTODY_ADDRESS}</code>
@@ -138,14 +172,69 @@ $('connect').onclick = async () => {
         signature from it is rejected with <code>INVALID_FID_OWNER</code>.` : ''}
       <br /><br />Switch the extension to the custody account and press Connect again.
     </div>`;
-    $('sign-release').disabled = true;
-    $('sign-claim').disabled = true;
-    return;
+    ok = false;
+  } else {
+    accountProblem.innerHTML = `<div class="ok">Custody account confirmed.</div>`;
   }
 
-  problem.innerHTML = `<div class="ok">Custody account confirmed.</div>`;
-  $('sign-release').disabled = false;
-  $('sign-claim').disabled = false;
+  const wrongChain = Boolean(chainId) && chainId !== REQUIRED_CHAIN_ID;
+  $('switch-chain').hidden = !wrongChain;
+  if (wrongChain) {
+    chainProblem.innerHTML = `<div class="bad">
+      <strong>Wallet is on ${chainName(chainId)} — it must be on Ethereum Mainnet to sign.</strong>
+      <br /><br />Your wallet refuses to sign typed data whose domain chainId differs from the
+      network it is pointed at (<code>Provided chainId "1" must match the active chainId
+      "${parseInt(chainId, 16)}"</code>). That is the wallet's rule, not the registry's.
+      <br /><br /><strong>Nothing is sent on-chain and no gas is spent</strong> — the network
+      only sets the signing context. The domain must stay chainId 1: that is what the registry
+      verifies against, so signing under any other domain produces a signature it rejects as
+      <code>INVALID_SIGNATURE</code>.
+    </div>`;
+    ok = false;
+  }
+
+  $('sign-release').disabled = !ok;
+  $('sign-claim').disabled = !ok;
+}
+
+async function readWallet() {
+  const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+  account = (accounts[0] ?? '').toLowerCase() || null;
+  chainId = await window.ethereum.request({ method: 'eth_chainId' });
+  refreshState();
+}
+
+$('connect').onclick = async () => {
+  if (!window.ethereum) {
+    $('account-problem').innerHTML = `<div class="bad">No wallet detected. Extensions do not inject
+      into <code>file://</code> pages — serve this directory over http://localhost
+      (see README.md) and reload.</div>`;
+    return;
+  }
+  await window.ethereum.request({ method: 'eth_requestAccounts' });
+  await readWallet();
+
+  // Re-check rather than trust the last answer: switching account or network in
+  // the extension does not reload the page, and a stale "confirmed" here would
+  // hand the registry a signature from the wrong address.
+  window.ethereum.on?.('accountsChanged', () => void readWallet());
+  window.ethereum.on?.('chainChanged', () => void readWallet());
+};
+
+$('switch-chain').onclick = async () => {
+  try {
+    await window.ethereum.request({
+      method: 'wallet_switchEthereumChain',
+      params: [{ chainId: REQUIRED_CHAIN_ID }],
+    });
+  } catch (err) {
+    // 4902 = the wallet does not know the chain. Mainnet is built into every
+    // wallet, so this should be unreachable; say so rather than silently failing.
+    $('chain-problem').innerHTML = `<div class="bad">Could not switch automatically
+      (${String(err && err.message || err)}). Select Ethereum Mainnet in the extension by hand.</div>`;
+    return;
+  }
+  await readWallet();
 };
 
 async function sign(kind) {

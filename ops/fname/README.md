@@ -59,6 +59,22 @@ cd ops/fname && python3 -m http.server 8731 --bind 127.0.0.1
 Open <http://127.0.0.1:8731/sign.html>, connect the **custody** account, and press
 both Sign buttons. Save each JSON block to a file.
 
+**Your wallet must be on Ethereum Mainnet while it signs.** If it is on Base, OP
+or anything else you get:
+
+    Provided chainId "1" must match the active chainId "8453"
+
+That is the wallet's guard, not the registry's: `eth_signTypedData_v4` refuses
+when `domain.chainId` differs from the active network. The page detects this,
+names the network you are on, and offers a button that switches for you.
+
+**Nothing is sent on-chain and no gas is spent** — the network only sets the
+signing context. Do **not** edit the domain to match your wallet: the registry
+verifies against chainId 1, so a signature made under any other domain recovers
+to a different address and comes back `INVALID_SIGNATURE`. (chainId 1 is not
+where the FID lives either — the ID Registry is on OP Mainnet. The domain is
+just a namespace.)
+
 ```bash
 # 3. Submit, release first, promptly — a signature is valid for ±600s.
 node ops/fname/submit.mjs release.json
@@ -94,6 +110,15 @@ and simply changes value. The series stays continuous.
 No code keys on the handle. The only `sidelineiq_` strings are recorded test
 fixtures (`tests/fixtures/neynar-user-bulk.json`, `x-users-me.json`) — **leave
 them**, they are recordings of a past response, not configuration.
+
+## What the page refuses to sign
+
+A connected account that is not the custody address (naming the verified wallet
+explicitly if that is the one connected), and a wallet pointed at any network
+other than Ethereum Mainnet. Both are checked independently and re-checked when
+you change account or network in the extension — switching does not reload the
+page, and a stale "confirmed" would hand the registry a signature from the wrong
+address.
 
 ## What `submit.mjs` refuses before sending
 
