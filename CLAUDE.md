@@ -271,6 +271,27 @@ athlete's tier.
 shadow decides and logs but changes nothing at all, including the cases
 that look obviously safe.
 
+### The ESPN feed names the team on the GROUP
+
+The injuries feed is `{ injuries: [{ id, displayName, injuries: [...] }] }` — there
+is no `group.team` object. `parse()` read only `group.team.*` until 2026-10-03, so
+**every** feed row parsed as `team: 'Unknown'` (749/749 NFL, 61/61 NBA), the fact
+validator filled it from the roster, and the team check never compared anything for
+an ESPN row. The 2026-08-19 fixture had pruned every team field, so the suite could
+not see it; `tests/fixtures/espn-injuries-team-shape.json` keeps them.
+
+**Never read `record.athlete.team`.** It is STALE across trades: 7 of 61 live NBA rows
+sat in their new club's group with `athlete.team` naming the old one (Brandon Ingram:
+Clippers group, `athlete.team` Raptors). The roster agreed with the group on all 7, so
+that field would have forced 7 false `team_mismatch_unconfirmed` reviews. It is
+deliberately undeclared, and an unnamed group falls back to `Unknown`, never to it.
+
+ESPN is T1, so a feed-row team contradiction is the SOFT `team_mismatch_unconfirmed`
+(forced review), never the hard drop. Re-verify with
+`src/scripts/espn-team-parse-dryrun.ts`; the numbers that must be zero are rows
+differing in anything but `team`, new hard drops, and new forced reviews where the
+roster (resolved by ESPN athlete id) agrees with ESPN.
+
 ### The athlete tier chain
 
 `lookupAthleteTier` (significance.ts) asks four sources in a fixed order and stops
