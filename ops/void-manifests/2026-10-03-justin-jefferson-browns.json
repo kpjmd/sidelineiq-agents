@@ -1,0 +1,281 @@
+{
+  "generated_at": "2026-10-03T15:07:32.561Z",
+  "manifest": [
+    {
+      "entity_id": "8e83f234-44ad-4c6f-b688-08c1ec21da74",
+      "athlete_name": "Justin Jefferson",
+      "sport": "NFL",
+      "anchored_player_id": "bb88af99-aad3-4e26-bb8b-20431c2d8d7b",
+      "anchored_team": "Cleveland Browns",
+      "anchored_espn_athlete_id": "5150249",
+      "injured_player_id": "f34a67eb-471c-4065-a5cb-cb31ac52afab",
+      "body_part": "ankle",
+      "laterality": "LEFT",
+      "injury_type": "sprain",
+      "injury_date": "2026-09-27",
+      "first_reported_at": "2026-09-28T22:07:07.848Z",
+      "updates": [
+        {
+          "kind": "INITIAL",
+          "post_id": null
+        }
+      ],
+      "posts": [],
+      "has_projection": true,
+      "proposed": {
+        "tool": "web_thread_close",
+        "args": {
+          "entity_id": "8e83f234-44ad-4c6f-b688-08c1ec21da74",
+          "outcome": "VOID",
+          "closed_by": "system",
+          "void_reason": "Anchored on the wrong same-named athlete: \"Justin Jefferson\" resolved ambiguous and the thread was minted on Cleveland Browns player bb88af99-aad3-4e26-bb8b-20431c2d8d7b; the injured athlete is f34a67eb-471c-4065-a5cb-cb31ac52afab. Minted once per poll cycle by resolveThreadAndDates."
+        }
+      }
+    },
+    {
+      "entity_id": "53dfb49e-9aeb-463e-ac4f-39d747b5ac81",
+      "athlete_name": "Justin Jefferson",
+      "sport": "NFL",
+      "anchored_player_id": "bb88af99-aad3-4e26-bb8b-20431c2d8d7b",
+      "anchored_team": "Cleveland Browns",
+      "anchored_espn_athlete_id": "5150249",
+      "injured_player_id": "f34a67eb-471c-4065-a5cb-cb31ac52afab",
+      "body_part": "ankle",
+      "laterality": "LEFT",
+      "injury_type": "sprain",
+      "injury_date": "2026-09-27",
+      "first_reported_at": "2026-09-29T04:30:50.763Z",
+      "updates": [],
+      "posts": [],
+      "has_projection": false,
+      "proposed": {
+        "tool": "web_thread_close",
+        "args": {
+          "entity_id": "53dfb49e-9aeb-463e-ac4f-39d747b5ac81",
+          "outcome": "VOID",
+          "closed_by": "system",
+          "void_reason": "Anchored on the wrong same-named athlete: \"Justin Jefferson\" resolved ambiguous and the thread was minted on Cleveland Browns player bb88af99-aad3-4e26-bb8b-20431c2d8d7b; the injured athlete is f34a67eb-471c-4065-a5cb-cb31ac52afab. Minted once per poll cycle by resolveThreadAndDates."
+        }
+      }
+    },
+    {
+      "entity_id": "ec503a78-2b89-4f94-92b6-a695629bea71",
+      "athlete_name": "Justin Jefferson",
+      "sport": "NFL",
+      "anchored_player_id": "bb88af99-aad3-4e26-bb8b-20431c2d8d7b",
+      "anchored_team": "Cleveland Browns",
+      "anchored_espn_athlete_id": "5150249",
+      "injured_player_id": "f34a67eb-471c-4065-a5cb-cb31ac52afab",
+      "body_part": "ankle",
+      "laterality": "LEFT",
+      "injury_type": "sprain",
+      "injury_date": "2026-09-27",
+      "first_reported_at": "2026-09-29T17:20:25.788Z",
+      "updates": [],
+      "posts": [],
+      "has_projection": false,
+      "proposed": {
+        "tool": "web_thread_close",
+        "args": {
+          "entity_id": "ec503a78-2b89-4f94-92b6-a695629bea71",
+          "outcome": "VOID",
+          "closed_by": "system",
+          "void_reason": "Anchored on the wrong same-named athlete: \"Justin Jefferson\" resolved ambiguous and the thread was minted on Cleveland Browns player bb88af99-aad3-4e26-bb8b-20431c2d8d7b; the injured athlete is f34a67eb-471c-4065-a5cb-cb31ac52afab. Minted once per poll cycle by resolveThreadAndDates."
+        }
+      }
+    },
+    {
+      "entity_id": "e66af291-a81d-41af-bee3-4691609785af",
+      "athlete_name": "Justin Jefferson",
+      "sport": "NFL",
+      "anchored_player_id": "bb88af99-aad3-4e26-bb8b-20431c2d8d7b",
+      "anchored_team": "Cleveland Browns",
+      "anchored_espn_athlete_id": "5150249",
+      "injured_player_id": "f34a67eb-471c-4065-a5cb-cb31ac52afab",
+      "body_part": "ankle",
+      "laterality": "LEFT",
+      "injury_type": "sprain",
+      "injury_date": "2026-09-27",
+      "first_reported_at": "2026-09-29T23:42:16.683Z",
+      "updates": [],
+      "posts": [],
+      "has_projection": false,
+      "proposed": {
+        "tool": "web_thread_close",
+        "args": {
+          "entity_id": "e66af291-a81d-41af-bee3-4691609785af",
+          "outcome": "VOID",
+          "closed_by": "system",
+          "void_reason": "Anchored on the wrong same-named athlete: \"Justin Jefferson\" resolved ambiguous and the thread was minted on Cleveland Browns player bb88af99-aad3-4e26-bb8b-20431c2d8d7b; the injured athlete is f34a67eb-471c-4065-a5cb-cb31ac52afab. Minted once per poll cycle by resolveThreadAndDates."
+        }
+      }
+    },
+    {
+      "entity_id": "d6342508-14ac-436d-a487-12a313f06c47",
+      "athlete_name": "Justin Jefferson",
+      "sport": "NFL",
+      "anchored_player_id": "bb88af99-aad3-4e26-bb8b-20431c2d8d7b",
+      "anchored_team": "Cleveland Browns",
+      "anchored_espn_athlete_id": "5150249",
+      "injured_player_id": "f34a67eb-471c-4065-a5cb-cb31ac52afab",
+      "body_part": "ankle",
+      "laterality": "LEFT",
+      "injury_type": "sprain",
+      "injury_date": "2026-09-27",
+      "first_reported_at": "2026-09-30T06:01:22.197Z",
+      "updates": [],
+      "posts": [],
+      "has_projection": false,
+      "proposed": {
+        "tool": "web_thread_close",
+        "args": {
+          "entity_id": "d6342508-14ac-436d-a487-12a313f06c47",
+          "outcome": "VOID",
+          "closed_by": "system",
+          "void_reason": "Anchored on the wrong same-named athlete: \"Justin Jefferson\" resolved ambiguous and the thread was minted on Cleveland Browns player bb88af99-aad3-4e26-bb8b-20431c2d8d7b; the injured athlete is f34a67eb-471c-4065-a5cb-cb31ac52afab. Minted once per poll cycle by resolveThreadAndDates."
+        }
+      }
+    },
+    {
+      "entity_id": "8e0905ec-393d-4114-a8ea-adf2c4cea18b",
+      "athlete_name": "Justin Jefferson",
+      "sport": "NFL",
+      "anchored_player_id": "bb88af99-aad3-4e26-bb8b-20431c2d8d7b",
+      "anchored_team": "Cleveland Browns",
+      "anchored_espn_athlete_id": "5150249",
+      "injured_player_id": "f34a67eb-471c-4065-a5cb-cb31ac52afab",
+      "body_part": "ankle",
+      "laterality": "LEFT",
+      "injury_type": "sprain",
+      "injury_date": "2026-09-27",
+      "first_reported_at": "2026-09-30T12:20:20.263Z",
+      "updates": [],
+      "posts": [],
+      "has_projection": false,
+      "proposed": {
+        "tool": "web_thread_close",
+        "args": {
+          "entity_id": "8e0905ec-393d-4114-a8ea-adf2c4cea18b",
+          "outcome": "VOID",
+          "closed_by": "system",
+          "void_reason": "Anchored on the wrong same-named athlete: \"Justin Jefferson\" resolved ambiguous and the thread was minted on Cleveland Browns player bb88af99-aad3-4e26-bb8b-20431c2d8d7b; the injured athlete is f34a67eb-471c-4065-a5cb-cb31ac52afab. Minted once per poll cycle by resolveThreadAndDates."
+        }
+      }
+    },
+    {
+      "entity_id": "fffb17e8-4eeb-4e00-aaee-795f6ae6808a",
+      "athlete_name": "Justin Jefferson",
+      "sport": "NFL",
+      "anchored_player_id": "bb88af99-aad3-4e26-bb8b-20431c2d8d7b",
+      "anchored_team": "Cleveland Browns",
+      "anchored_espn_athlete_id": "5150249",
+      "injured_player_id": "f34a67eb-471c-4065-a5cb-cb31ac52afab",
+      "body_part": "ankle",
+      "laterality": "LEFT",
+      "injury_type": "sprain",
+      "injury_date": "2026-09-27",
+      "first_reported_at": "2026-09-30T18:42:20.600Z",
+      "updates": [],
+      "posts": [],
+      "has_projection": false,
+      "proposed": {
+        "tool": "web_thread_close",
+        "args": {
+          "entity_id": "fffb17e8-4eeb-4e00-aaee-795f6ae6808a",
+          "outcome": "VOID",
+          "closed_by": "system",
+          "void_reason": "Anchored on the wrong same-named athlete: \"Justin Jefferson\" resolved ambiguous and the thread was minted on Cleveland Browns player bb88af99-aad3-4e26-bb8b-20431c2d8d7b; the injured athlete is f34a67eb-471c-4065-a5cb-cb31ac52afab. Minted once per poll cycle by resolveThreadAndDates."
+        }
+      }
+    },
+    {
+      "entity_id": "8c1e493b-eeda-42ae-8231-1e6e026bc825",
+      "athlete_name": "Justin Jefferson",
+      "sport": "NFL",
+      "anchored_player_id": "bb88af99-aad3-4e26-bb8b-20431c2d8d7b",
+      "anchored_team": "Cleveland Browns",
+      "anchored_espn_athlete_id": "5150249",
+      "injured_player_id": "f34a67eb-471c-4065-a5cb-cb31ac52afab",
+      "body_part": "ankle",
+      "laterality": "LEFT",
+      "injury_type": "sprain",
+      "injury_date": "2026-09-27",
+      "first_reported_at": "2026-10-01T00:59:43.599Z",
+      "updates": [],
+      "posts": [],
+      "has_projection": false,
+      "proposed": {
+        "tool": "web_thread_close",
+        "args": {
+          "entity_id": "8c1e493b-eeda-42ae-8231-1e6e026bc825",
+          "outcome": "VOID",
+          "closed_by": "system",
+          "void_reason": "Anchored on the wrong same-named athlete: \"Justin Jefferson\" resolved ambiguous and the thread was minted on Cleveland Browns player bb88af99-aad3-4e26-bb8b-20431c2d8d7b; the injured athlete is f34a67eb-471c-4065-a5cb-cb31ac52afab. Minted once per poll cycle by resolveThreadAndDates."
+        }
+      }
+    },
+    {
+      "entity_id": "e207770e-2fbd-4009-ba5b-e5d4c5661934",
+      "athlete_name": "Justin Jefferson",
+      "sport": "NFL",
+      "anchored_player_id": "bb88af99-aad3-4e26-bb8b-20431c2d8d7b",
+      "anchored_team": "Cleveland Browns",
+      "anchored_espn_athlete_id": "5150249",
+      "injured_player_id": "f34a67eb-471c-4065-a5cb-cb31ac52afab",
+      "body_part": "ankle",
+      "laterality": "LEFT",
+      "injury_type": "sprain",
+      "injury_date": "2026-09-27",
+      "first_reported_at": "2026-10-02T20:35:14.362Z",
+      "updates": [],
+      "posts": [],
+      "has_projection": false,
+      "proposed": {
+        "tool": "web_thread_close",
+        "args": {
+          "entity_id": "e207770e-2fbd-4009-ba5b-e5d4c5661934",
+          "outcome": "VOID",
+          "closed_by": "system",
+          "void_reason": "Anchored on the wrong same-named athlete: \"Justin Jefferson\" resolved ambiguous and the thread was minted on Cleveland Browns player bb88af99-aad3-4e26-bb8b-20431c2d8d7b; the injured athlete is f34a67eb-471c-4065-a5cb-cb31ac52afab. Minted once per poll cycle by resolveThreadAndDates."
+        }
+      }
+    },
+    {
+      "entity_id": "e734461f-334d-4e03-be7c-31fee0254963",
+      "athlete_name": "Justin Jefferson",
+      "sport": "NFL",
+      "anchored_player_id": "bb88af99-aad3-4e26-bb8b-20431c2d8d7b",
+      "anchored_team": "Cleveland Browns",
+      "anchored_espn_athlete_id": "5150249",
+      "injured_player_id": "f34a67eb-471c-4065-a5cb-cb31ac52afab",
+      "body_part": "ankle",
+      "laterality": "LEFT",
+      "injury_type": "sprain",
+      "injury_date": "2026-09-27",
+      "first_reported_at": "2026-10-03T02:47:40.700Z",
+      "updates": [
+        {
+          "kind": "INITIAL",
+          "post_id": "c39bf79e-615a-4fd2-8fb2-77cb8ef47531"
+        }
+      ],
+      "posts": [
+        {
+          "post_id": "c39bf79e-615a-4fd2-8fb2-77cb8ef47531",
+          "status": "PENDING_REVIEW",
+          "content_type": "TRACKING"
+        }
+      ],
+      "has_projection": true,
+      "proposed": {
+        "tool": "web_thread_close",
+        "args": {
+          "entity_id": "e734461f-334d-4e03-be7c-31fee0254963",
+          "outcome": "VOID",
+          "closed_by": "system",
+          "void_reason": "Anchored on the wrong same-named athlete: \"Justin Jefferson\" resolved ambiguous and the thread was minted on Cleveland Browns player bb88af99-aad3-4e26-bb8b-20431c2d8d7b; the injured athlete is f34a67eb-471c-4065-a5cb-cb31ac52afab. Minted once per poll cycle by resolveThreadAndDates."
+        }
+      }
+    }
+  ]
+}

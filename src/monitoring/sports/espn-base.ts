@@ -21,7 +21,17 @@ interface ESPNTeamInjuries {
 }
 
 interface ESPNInjuryRecord {
-  athlete?: { displayName?: string; fullName?: string };
+  /**
+   * The row carries NO `athlete.id` (verified 2026-10-03: 0 of 800 NFL rows).
+   * ESPN's athlete id is only inside the profile URLs in `links`, and every row
+   * has one — see espnAthleteIdFromLinks.
+   */
+  athlete?: {
+    displayName?: string;
+    fullName?: string;
+    id?: string | number;
+    links?: Array<{ href?: string }>;
+  };
   status?: string;
   date?: string;
   longComment?: string;
@@ -47,6 +57,37 @@ interface ESPNInjuryRecord {
     fantasyStatus?: { description?: string; abbreviation?: string };
   };
   type?: { description?: string };
+}
+
+/**
+ * ESPN's athlete id for an injuries-feed row, or undefined.
+ *
+ * Without it the player lookup is by NAME, and a name two rostered athletes
+ * share comes back 'ambiguous' with an ARBITRARY one of them attached (the
+ * mcp query has no ORDER BY). Justin Jefferson, Vikings WR, resolved to
+ * Justin Jefferson, Browns LB, for six days in Sept-Oct 2026 and minted a new
+ * wrong-athlete thread nearly every cycle. The id is the strong key, and
+ * resolvePlayer already tries it first.
+ *
+ * The feed has no `athlete.id`; the id lives in the profile URLs
+ * (`/nfl/player/_/id/4262921/justin-jefferson`). Returns an id only when every
+ * link that carries one agrees: picking between two ids for one row is the
+ * guess this exists to stop making, and undefined degrades to the name lookup,
+ * which is exactly the behaviour before this existed.
+ */
+export function espnAthleteIdFromLinks(
+  athlete: { id?: string | number; links?: Array<{ href?: string }> } | undefined,
+): string | undefined {
+  const direct = athlete?.id;
+  if (direct !== undefined && direct !== null && String(direct).trim() !== '') {
+    return String(direct).trim();
+  }
+  const ids = new Set<string>();
+  for (const link of athlete?.links ?? []) {
+    const m = /\/id\/(\d+)(?:\/|$)/.exec(link?.href ?? '');
+    if (m) ids.add(m[1]);
+  }
+  return ids.size === 1 ? [...ids][0] : undefined;
 }
 
 /**
@@ -236,6 +277,7 @@ export abstract class ESPNInjurySource implements SportDataSource {
 
         const teamTimeline = extractTeamTimeline(record);
         const isUpdate = inferIsUpdate(record.status);
+        const espnAthleteId = espnAthleteIdFromLinks(record.athlete);
 
         events.push({
           athlete_name: athleteName,
@@ -256,6 +298,10 @@ export abstract class ESPNInjurySource implements SportDataSource {
           // tagged athlete is the injured one at all — a row on an Active
           // player exists to carry a comment about a teammate.
           ...(record.status && { athlete_status: record.status }),
+          // The tagged athlete's identity, which a shared name cannot give.
+          // An athlete re-anchor deletes it (athlete-reanchor.ts) because the
+          // id resolves ahead of the name and would revert the re-anchor.
+          ...(espnAthleteId && { espn_athlete_id: espnAthleteId }),
           ...(record.details && {
             injury_details: {
               type: record.details.type,

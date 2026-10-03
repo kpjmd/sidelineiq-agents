@@ -169,6 +169,31 @@ export interface DedupResult {
     | 'no_match';
 }
 
+/**
+ * Whether a resolved player is a strong enough identity to MATCH or MINT an
+ * injury entity. The one predicate for all three entity sites — entity dedup
+ * here, resolveThreadAndDates and maintainEntity in poller.ts — so that what
+ * may anchor a thread and what may find one cannot disagree again.
+ *
+ * They did disagree. Dedup refused an 'ambiguous' player and fell back to the
+ * 24h post check, which never sees an entity; resolveThreadAndDates then
+ * minted one anyway, on whichever of the same-named athletes the roster query
+ * happened to return first (it has no ORDER BY). So every cycle missed the
+ * thread the previous cycle had created and made another: eleven ACTIVE
+ * "Justin Jefferson" threads in six days, ten on a Browns LB whom the feed
+ * lists only as a coach's-decision inactive — each one a thread the return
+ * detector would close the first time he records a stat line.
+ *
+ * An ambiguous identity gets no thread at all. The event still processes —
+ * thread-less, exactly as with DATE_RESOLUTION_ENABLED off — and
+ * identity_ambiguous already forces it to MD review.
+ */
+export function anchorsEntity(
+  player: ResolvedPlayerInfo | null | undefined,
+): player is ResolvedPlayerInfo {
+  return Boolean(player) && player!.confidence !== 'ambiguous';
+}
+
 export interface DedupContext {
   resolvedPlayer: ResolvedPlayerInfo | null;
   metadata: ExtractedInjuryMetadata;
@@ -266,7 +291,7 @@ async function entityAwareDedup(
   context: DedupContext,
 ): Promise<DedupResult> {
   const player = context.resolvedPlayer;
-  if (!player || player.confidence === 'ambiguous') {
+  if (!anchorsEntity(player)) {
     return fallbackDedup(event);
   }
 
