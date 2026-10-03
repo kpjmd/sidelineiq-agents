@@ -423,6 +423,65 @@ describe('calendar censoring (Amendment 1, A1.3)', () => {
   });
 });
 
+describe('the predates-report hold (A2.2)', () => {
+  // The first recorded game, and the day after it, as the sport-local calendar.
+  const G0 = NFL_GAMES[0].date;
+  const dayAfter = addWeeksIso(G0, 1 / 7);
+
+  it('holds a return played before the report that opened the thread (Pierce shape)', () => {
+    // Injury long ago, thread opened well after the first game was played.
+    const t: DetectorThread = { ...THREAD, first_reported_at: `${addWeeksIso(G0, 1.5)}T17:00:00Z` };
+    const out = decideThread(t, NFL_GAMES);
+    expect(out.kind).toBe('predates_report');
+    if (out.kind === 'predates_report') {
+      expect(out.game.date).toBe(G0);
+      expect(out.first_report_date).toBe(addWeeksIso(G0, 1.5));
+    }
+  });
+
+  it('lets a same-day game through: reported in the morning, played that night', () => {
+    const t: DetectorThread = { ...THREAD, first_reported_at: `${G0}T15:00:00Z` };
+    expect(decideThread(t, NFL_GAMES).kind).toBe('returned');
+  });
+
+  it('reads the report on the LOCAL calendar, not UTC', () => {
+    // 03:00Z the next day is still the game-day evening in the US. Read as UTC
+    // it would look like a day-later report and wrongly hold a real return.
+    const t: DetectorThread = { ...THREAD, first_reported_at: `${dayAfter}T03:00:00Z` };
+    expect(decideThread(t, NFL_GAMES).kind).toBe('returned');
+  });
+
+  it('does not apply when the row carries no first_reported_at', () => {
+    expect(decideThread({ ...THREAD, first_reported_at: null }, NFL_GAMES).kind).toBe('returned');
+    expect(decideThread({ ...THREAD, first_reported_at: 'not-a-date' }, NFL_GAMES).kind).toBe('returned');
+  });
+
+  it('flags the date for review under its own audit action and never closes', async () => {
+    vi.stubEnv('RETURN_DETECT_MODE', 'on');
+    routeMcp([{ ...THREAD, first_reported_at: `${addWeeksIso(G0, 2)}T17:00:00Z` }]);
+    routeEspn({});
+
+    const summary = await runReturnDetectCycle(NOW);
+    expect(summary.predates_report).toBe(1);
+    expect(summary.date_review).toBe(0);
+    expect(summary.returned).toBe(0);
+    expect(mockCallTool.mock.calls.some(([, t]) => t === 'web_thread_close')).toBe(false);
+    expect(mockCallTool.mock.calls.some(([, t]) => t === 'web_append_injury_update')).toBe(false);
+    const flag = mockCallTool.mock.calls.find(([, t]) => t === 'web_thread_update_dates');
+    expect((flag![2] as { needs_date_review: boolean }).needs_date_review).toBe(true);
+    const audit = mockCallTool.mock.calls.find(([, t]) => t === 'web_audit_append');
+    expect((audit![2] as { action: string }).action).toBe('return_before_first_report');
+  });
+
+  it('writes nothing in shadow mode', async () => {
+    routeMcp([{ ...THREAD, first_reported_at: `${addWeeksIso(G0, 2)}T17:00:00Z` }]);
+    routeEspn({});
+    const summary = await runReturnDetectCycle(NOW);
+    expect(summary.predates_report).toBe(1);
+    expect(writeCalls()).toHaveLength(0);
+  });
+});
+
 describe('decideThread (pure)', () => {
   it('is strictly after the injury date', () => {
     const out = decideThread({ ...THREAD, injury_date: NFL_GAMES[0].date }, NFL_GAMES);

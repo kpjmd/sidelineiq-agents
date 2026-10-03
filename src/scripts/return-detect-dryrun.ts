@@ -36,6 +36,12 @@
  *     record depends on that answer; without it the thread must stay ACTIVE.
  *     Schedule failures are injected in Section D alongside gamelog ones, with
  *     the same 404-row / 503-page split.
+ *  8. Closes whose return game was played BEFORE the thread's own first report
+ *     (sport-local date). The report says the athlete is injured now, so an
+ *     earlier stat line is a wrong injury_date or the game he was hurt in —
+ *     never the comeback. Section H replays the hold over every detector close
+ *     already made and gates that it would have held NO scoreable record: the
+ *     hold is a date-sanity check and must not move the headline (A2.2).
  *
  * Reported but NOT gates:
  *  - Closes that would produce an unscoreable accuracy_record, split by
@@ -69,6 +75,7 @@ import { callTool } from '../utils/mcp-client-manager.js';
 import {
   listActiveThreads,
   decideThread,
+  firstReportDateOf,
   loadGames,
   runReturnDetectCycle,
   minFractionOfMinWeeks,
@@ -125,7 +132,7 @@ async function collectDecisions(threads: DetectorThread[], now: Date): Promise<D
     if (!loaded) continue;
     const outcome = decideThread(t, loaded.games);
     const labels =
-      outcome.kind === 'returned' || outcome.kind === 'too_early'
+      outcome.kind === 'returned' || outcome.kind === 'too_early' || outcome.kind === 'predates_report'
         ? [outcome.game.season_type_label]
         : [];
     const censored =
@@ -139,7 +146,10 @@ async function collectDecisions(threads: DetectorThread[], now: Date): Promise<D
 
 /** A stable, comparable fingerprint of one verdict. */
 function fingerprint(d: Decision): string {
-  const g = d.outcome.kind === 'returned' || d.outcome.kind === 'too_early' ? d.outcome.game.date : '-';
+  const g =
+    d.outcome.kind === 'returned' || d.outcome.kind === 'too_early' || d.outcome.kind === 'predates_report'
+      ? d.outcome.game.date
+      : '-';
   return `${d.thread.id}|${d.outcome.kind}|${g}|${d.censored}`;
 }
 
@@ -185,6 +195,7 @@ async function main(): Promise<void> {
   const returned = found.filter((d) => d.censored !== null);
   const undecidable = found.filter((d) => d.censored === null);
   const tooEarly = decisions.filter((d) => d.outcome.kind === 'too_early');
+  const predates = decisions.filter((d) => d.outcome.kind === 'predates_report');
   report('threads evaluated against a gamelog', decisions.length);
   report('would close RESOLVED', returned.length,
     returned.map((d) => `${d.thread.athlete_name} ${d.thread.injury_date} → ${(d.outcome as { game: { date: string } }).game.date}`));
@@ -192,6 +203,11 @@ async function main(): Promise<void> {
   report('returns left ACTIVE: schedule could not answer', undecidable.length,
     undecidable.map((d) => `${d.thread.athlete_name} team=${(d.outcome as { game: { team_id: string | null } }).game.team_id ?? '-'}`));
   report('closes that were the first game available (censored)', returned.filter((d) => d.censored).length);
+  report('held: return predates the thread\'s first report → date review', predates.length,
+    predates.map((d) => {
+      const o = d.outcome as { game: { date: string }; first_report_date: string };
+      return `${d.thread.athlete_name} (${d.thread.id}) injury=${d.thread.injury_date} game=${o.game.date} first_report=${o.first_report_date}`;
+    }));
 
   // ── Section C: the gates ───────────────────────────────────────────
   console.log('\n─── C. Gates ───');
@@ -225,6 +241,13 @@ async function main(): Promise<void> {
   const nonActive = decisions.filter((d) => d.thread.status !== 'ACTIVE' && d.outcome.kind === 'returned');
   mustBeZero('closes proposed for a non-ACTIVE thread', nonActive.length,
     nonActive.map((d) => `${d.thread.id} status=${d.thread.status}`));
+
+  const beforeReport = returned.filter((d) => {
+    const first = firstReportDateOf(d.thread);
+    return !!first && (d.outcome as { game: { date: string } }).game.date < first;
+  });
+  mustBeZero('closes whose return predates the thread\'s first report', beforeReport.length,
+    beforeReport.map((d) => `${d.thread.id} ${d.thread.athlete_name} first=${firstReportDateOf(d.thread)}`));
 
   // ── Section D: injected HTTP failures ──────────────────────────────
   // Synthetic on purpose: the live endpoint will not 503 on demand, and this is
@@ -319,6 +342,10 @@ async function main(): Promise<void> {
   report('ACTIVE threads with no espn_athlete_id', threads.length - withId,
     threads.filter((t) => !t.espn_athlete_id).map((t) => `${t.athlete_name} (${t.sport})`));
 
+  // ── Section H: the predates-report hold over closes already made ───
+  console.log('\n─── H. Predates-report hold, replayed over detector closes ───');
+  await predatesReportReplay();
+
   // ── Section G: re-score preview (Amendment 1, A1.4) ────────────────
   console.log('\n─── G. Re-score preview: detector closes under Amendment 1 ───');
   if (has('--skip-rescore')) {
@@ -336,6 +363,49 @@ async function main(): Promise<void> {
     console.log('');
     process.exitCode = 1;
   }
+}
+
+/**
+ * Every detector close already made, asked: would the predates-report hold
+ * have kept it ACTIVE? No ESPN read is needed — the stored actual_return_date
+ * IS the game date the detector closed on. The hold must reach no scoreable
+ * record (A2.2 says it changed none); anything else means it moves the
+ * headline and needs its own decision.
+ */
+async function predatesReportReplay(): Promise<void> {
+  const closed = (await listResolved()).filter((t) => t.return_source === 'detector');
+  const held = closed.filter((t) => {
+    const first = firstReportDateOf(t);
+    const ret = t.actual_return_date ? String(t.actual_return_date).slice(0, 10) : null;
+    return !!first && !!ret && ret < first;
+  });
+  const isScored = (t: ClosedThread) =>
+    t.accuracy_record?.scoreable ?? (t.accuracy_record?.within_range != null);
+  report('detector closes replayed', closed.length);
+  report('would have been held for date review', held.length,
+    held.map((t) =>
+      `${t.athlete_name} (${t.id.slice(0, 8)}) injury=${t.injury_date} return=${String(t.actual_return_date).slice(0, 10)} ` +
+      `first_report=${firstReportDateOf(t)} record=${t.accuracy_record?.unscoreable_reason ?? (isScored(t) ? 'scored' : '-')}`));
+  const heldScored = held.filter(isScored);
+  mustBeZero('scoreable records the hold would have held', heldScored.length,
+    heldScored.map((t) => `${t.athlete_name} (${t.id})`));
+}
+
+async function listResolved(): Promise<ClosedThread[]> {
+  const closed: ClosedThread[] = [];
+  for (const sport of ['NFL', 'NBA']) {
+    let offset = 0;
+    for (;;) {
+      const raw = await callTool('web', 'web_list_threads', { status: 'RESOLVED', sport, limit: 100, offset });
+      const text = (raw as { content?: Array<{ text?: string }> })?.content?.[0]?.text;
+      const page = text ? (JSON.parse(text) as { threads: ClosedThread[]; has_more?: boolean; next_offset?: number | null }) : null;
+      if (!page) break;
+      closed.push(...page.threads);
+      if (!page.has_more || page.next_offset == null || page.next_offset <= offset) break;
+      offset = page.next_offset;
+    }
+  }
+  return closed;
 }
 
 interface ClosedThread extends DetectorThread {

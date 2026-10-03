@@ -42,6 +42,18 @@ import type { SportKey } from '../types.js';
  * thread ACTIVE. The too-early bar reads `scored_window` — the first PUBLISHED
  * estimate — so it and the scorer judge the same window.
  *
+ * **A stat line that predates the report is not a return from it.** A thread
+ * is opened by a report that the athlete is injured NOW. A game played before
+ * that report cannot be the comeback from the injury it describes — either the
+ * stored injury_date is wrong (a carryover anchored to an older injury: Alec
+ * Pierce, 03-01, reported 09-23 with a 09-13 game in hand) or the athlete was
+ * hurt in that very game (Greenard, 09-28, reported 09-30). Like the too-early
+ * bar this is a DATE-SANITY hold, not a change to what "returned" means: the
+ * thread is flagged for date review and left ACTIVE. Closing it instead
+ * started a close→re-mint loop — the next report found no ACTIVE thread and
+ * minted a fresh one, which the next cycle closed again (Pierce: four threads
+ * in three days). See docs/accuracy-preregistration.md, A2.2.
+ *
  * **RETURN_DETECT_MODE=off|shadow|on, default shadow.** Shadow decides and logs
  * and changes nothing, including the cases that look obviously safe. Same
  * convention and same reasoning as ATHLETE_REANCHOR_MODE.
@@ -122,6 +134,12 @@ export interface DetectorThread {
    * to otm_projection.
    */
   scored_window?: { post_id: string; min_weeks: number; max_weeks: number } | null;
+  /**
+   * When the thread was opened (UTC instant). The predates-report hold reads
+   * it as the sport's LOCAL calendar date. Optional because a caller built
+   * from an older row shape may not carry it; then the hold does not apply.
+   */
+  first_reported_at?: string | null;
 }
 
 /**
@@ -154,6 +172,7 @@ export function scoredWindowOf(
 
 export type ThreadOutcome =
   | { kind: 'returned'; game: GamelogGame }
+  | { kind: 'predates_report'; game: GamelogGame; first_report_date: string }
   | { kind: 'too_early'; game: GamelogGame; earliest_credible: string }
   | { kind: 'no_return' }
   | { kind: 'skipped'; reason: SkipReason };
@@ -178,7 +197,10 @@ export interface ReturnDetectSummary {
   threads: number;
   by_sport: Record<string, number>;
   returned: number;
+  /** Held by the too-early bar. */
   date_review: number;
+  /** Held because the return game was played before the thread's first report. */
+  predates_report: number;
   no_return: number;
   skipped: Record<SkipReason, number>;
   unscoreable: number;
@@ -198,6 +220,7 @@ function emptySummary(mode: ReturnDetectMode): ReturnDetectSummary {
     by_sport: {},
     returned: 0,
     date_review: 0,
+    predates_report: 0,
     no_return: 0,
     skipped: {
       not_active: 0,
@@ -258,6 +281,18 @@ export function addWeeksIso(iso: string, weeks: number): string {
 }
 
 /**
+ * The sport-local calendar date the thread was first reported on, or null when
+ * the row carries no usable timestamp. UTC is the wrong calendar: a report
+ * stamped 2026-09-30T03:00Z is a 09-29 evening story in the US.
+ */
+export function firstReportDateOf(thread: DetectorThread): string | null {
+  if (!thread.first_reported_at) return null;
+  const instant = new Date(thread.first_reported_at);
+  if (Number.isNaN(instant.getTime())) return null;
+  return localCalendarDate(instant, (thread.sport ?? 'NFL') as SportKey).date;
+}
+
+/**
  * Decide one thread against its gamelog. Pure — no I/O, no writes — so the dry
  * run and the live loop reach the same verdict from the same inputs.
  */
@@ -268,6 +303,13 @@ export function decideThread(thread: DetectorThread, games: GamelogGame[]): Thre
 
   const game = firstGameAfter(games, thread.injury_date);
   if (!game) return { kind: 'no_return' };
+
+  // Strictly before: a same-day game (reported questionable in the morning,
+  // played that night) is a return, and nothing seen live needed the day.
+  const firstReport = firstReportDateOf(thread);
+  if (firstReport && game.date < firstReport) {
+    return { kind: 'predates_report', game, first_report_date: firstReport };
+  }
 
   const minWeeks = tooEarlyWindowOf(thread)?.min_weeks;
   if (typeof minWeeks === 'number' && Number.isFinite(minWeeks) && minWeeks > 0) {
@@ -394,14 +436,21 @@ async function recordReturn(thread: DetectorThread, game: GamelogGame, censored:
 }
 
 /**
- * A return that arrived impossibly early is evidence about the DATE. Flag the
- * thread for the MD's existing date-review view and leave it ACTIVE — closing
- * it would freeze a wrong injury_date into an accuracy record.
+ * A return that cannot be a return is evidence about the DATE. Flag the thread
+ * for the MD's existing date-review view and leave it ACTIVE — closing it would
+ * freeze a wrong injury_date into an accuracy record. Two holds reach this:
+ * a return impossibly early in the window, and one played before the thread's
+ * own first report. Each audits under its own action so the date-review view
+ * can say which.
  */
+type DateReviewHold =
+  | { action: 'return_before_credible_window'; earliest_credible: string }
+  | { action: 'return_before_first_report'; first_report_date: string };
+
 async function flagDateReview(
   thread: DetectorThread,
   game: GamelogGame,
-  earliest: string,
+  hold: DateReviewHold,
 ): Promise<void> {
   const res = await callTool('web', 'web_thread_update_dates', {
     entity_id: thread.id,
@@ -410,22 +459,34 @@ async function flagDateReview(
   });
   if (isMCPError(res)) throw new Error(`date-review flag failed: ${extractMCPErrorMessage(res)}`);
 
+  const detail =
+    hold.action === 'return_before_credible_window'
+      ? {
+          earliest_credible_return: hold.earliest_credible,
+          otm_min_weeks: tooEarlyWindowOf(thread)?.min_weeks ?? null,
+          reason:
+            'A regular-season stat line this soon after the stored injury_date is evidence the date is wrong, not that the athlete returned.',
+        }
+      : {
+          first_reported_at: thread.first_reported_at ?? null,
+          first_report_date: hold.first_report_date,
+          reason:
+            'The stat line predates the report that opened this thread, so it cannot be the return from the injury that report describes. The stored injury_date is likely an older injury, or the athlete was hurt in that game.',
+        };
+
   try {
     await callTool('web', 'web_audit_append', {
       actor: 'system',
       actor_id: 'return-detector',
       entity_type: 'injury_thread',
       entity_id: thread.id,
-      action: 'return_before_credible_window',
+      action: hold.action,
       payload: {
         injury_date: thread.injury_date,
         candidate_return_date: game.date,
-        earliest_credible_return: earliest,
-        otm_min_weeks: tooEarlyWindowOf(thread)?.min_weeks ?? null,
         scored_post_id: thread.scored_window?.post_id ?? null,
         game_url: game.url,
-        reason:
-          'A regular-season stat line this soon after the stored injury_date is evidence the date is wrong, not that the athlete returned.',
+        ...detail,
       },
     });
   } catch (err) {
@@ -521,6 +582,26 @@ export async function runReturnDetectCycle(now: Date = new Date()): Promise<Retu
       continue;
     }
 
+    if (outcome.kind === 'predates_report') {
+      summary.predates_report++;
+      console.log(
+        `[ReturnDetect] predates_report thread=${thread.id} athlete=${thread.athlete_name ?? '?'} sport=${sport} ` +
+          `injury_date=${thread.injury_date} candidate=${outcome.game.date} first_report=${outcome.first_report_date}`,
+      );
+      if (mode === 'on') {
+        try {
+          await flagDateReview(thread, outcome.game, {
+            action: 'return_before_first_report',
+            first_report_date: outcome.first_report_date,
+          });
+        } catch (err) {
+          summary.errors++;
+          console.error(`[ReturnDetect] date-review flag failed thread=${thread.id}: ${errorMessage(err)}`);
+        }
+      }
+      continue;
+    }
+
     if (outcome.kind === 'too_early') {
       summary.date_review++;
       console.log(
@@ -529,7 +610,10 @@ export async function runReturnDetectCycle(now: Date = new Date()): Promise<Retu
       );
       if (mode === 'on') {
         try {
-          await flagDateReview(thread, outcome.game, outcome.earliest_credible);
+          await flagDateReview(thread, outcome.game, {
+            action: 'return_before_credible_window',
+            earliest_credible: outcome.earliest_credible,
+          });
         } catch (err) {
           summary.errors++;
           console.error(`[ReturnDetect] date-review flag failed thread=${thread.id}: ${errorMessage(err)}`);
@@ -592,7 +676,8 @@ export async function runReturnDetectCycle(now: Date = new Date()): Promise<Retu
   const sports = SPORTS.map((s) => `${s.toLowerCase()}=${summary.by_sport[s] ?? 0}`).join(' ');
   console.log(
     `[ReturnDetect] mode=${summary.mode} threads=${summary.threads} ${sports} ` +
-      `returned=${summary.returned} date_review=${summary.date_review} no_return=${summary.no_return} ` +
+      `returned=${summary.returned} date_review=${summary.date_review} ` +
+      `predates_report=${summary.predates_report} no_return=${summary.no_return} ` +
       `skipped_no_id=${summary.skipped.no_espn_athlete_id} skipped_no_date=${summary.skipped.no_injury_date} ` +
       `skipped_returned=${summary.skipped.already_returned} not_found=${summary.skipped.athlete_not_found} ` +
       `schedule_unavailable=${summary.skipped.schedule_unavailable} censored=${summary.censored} ` +

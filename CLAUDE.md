@@ -732,6 +732,27 @@ The metric definitions are pre-registered in `docs/accuracy-preregistration.md`,
 committed before the detector closed anything. Do not change them after
 publishing a number derived from them.
 
+**Amendment 2 (2026-10-03).**
+- **A return played BEFORE the thread's first report is held, not closed.** The
+  outcome is `predates_report` and the audit action is `return_before_first_report`.
+  Compare on the sport-local calendar, strictly before. It is a date-sanity hold
+  like the too-early bar, not a new definition of "returned". Closing on such a
+  return started a close→re-mint loop (Pierce: 4 threads in 3 days). The dry run
+  gates it (8 and Section H).
+- **The accuracy number counts RETURNS, not threads.** Closed threads with the same
+  `player_id` and the same `actual_return_date` are one observation, and the
+  earliest-opened scoreable record is the verdict. `summarizeAccuracy`
+  (`src/utils/accuracy-observations.ts`) is the only place this happens. Frontend
+  `lib/accuracy-observations.ts` is a byte-identical copy, pinned by
+  `tests/fixtures/accuracy-observation-cases.json` in both repos. Do not count
+  `accuracy_record`s directly anywhere else.
+- **The private reading comes from `src/scripts/accuracy-report.ts`.**
+- **Physician closes are re-scored by `src/scripts/rescore-md-closes.ts`, never by
+  reopening.** Reopening erases the MD's date.
+- **Not built, on purpose: `backfill-returns.ts`.** The detector already sweeps every
+  ACTIVE thread. The only history is the 2026-09-10 VOIDed backfill shells, and
+  those are dateless and unreopenable by design.
+
 ### AequOs Reference Rule
 The commercial AequOs CTA appears ONLY when `content_type = 'DEEP_DIVE'`
 **and** `subject_kind = 'INJURY_TYPE'`, on the final post/cast only, and on the
