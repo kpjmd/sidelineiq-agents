@@ -1,0 +1,1811 @@
+{
+  "helper_version": 1,
+  "_recorded_from": "synthetic boundary cases (hand-written expectations) + one live case RECORDED from production via src/scripts/accuracy-report.ts --emit-fixture",
+  "_recorded_at": "2026-10-03",
+  "_note": "Shared by sidelineiq-agents (src/utils/accuracy-observations.ts) and sidelineiq-frontend (lib/accuracy-observations.ts). The two implementations are byte-identical and this file is what stops them drifting: copy it to both repos together. helper_version must equal ACCURACY_OBSERVATIONS_VERSION in both. The live case is the corpus BEFORE the 2026-10 physician re-score (two legacy records still present).",
+  "cases": [
+    {
+      "name": "Burns shape: one return on two threads, both misses, counts once",
+      "source": "synthetic",
+      "threads": [
+        {
+          "id": "11111111-0000-4000-8000-000000000001",
+          "player_id": "p1",
+          "status": "RESOLVED",
+          "athlete_name": "A",
+          "first_reported_at": "2026-09-22T09:31:57Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": false,
+            "error_days": -4,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 2,
+            "censored": true
+          }
+        },
+        {
+          "id": "11111111-0000-4000-8000-000000000002",
+          "player_id": "p1",
+          "status": "RESOLVED",
+          "athlete_name": "A",
+          "first_reported_at": "2026-09-23T23:44:46Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": false,
+            "error_days": -27,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 8,
+            "censored": true
+          }
+        }
+      ],
+      "expect": {
+        "within": 0,
+        "n": 1,
+        "excluded_by_reason": {},
+        "collapsed": 1,
+        "legacy": 0,
+        "signed_error_median": -4,
+        "signed_error_n": 1,
+        "window_weeks_median": 1,
+        "observation_ids": [
+          "11111111-0000-4000-8000-000000000001"
+        ]
+      }
+    },
+    {
+      "name": "disagreeing duplicates: the earliest-opened thread is the verdict",
+      "source": "synthetic",
+      "threads": [
+        {
+          "id": "11111111-0000-4000-8000-000000000001",
+          "player_id": "p1",
+          "status": "RESOLVED",
+          "athlete_name": "A",
+          "first_reported_at": "2026-09-10T00:00:00Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": true,
+            "error_days": 3,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 4,
+            "censored": false
+          }
+        },
+        {
+          "id": "11111111-0000-4000-8000-000000000002",
+          "player_id": "p1",
+          "status": "RESOLVED",
+          "athlete_name": "A",
+          "first_reported_at": "2026-09-11T00:00:00Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": false,
+            "error_days": -9,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 2,
+            "otm_max_weeks": 3,
+            "censored": false
+          }
+        }
+      ],
+      "expect": {
+        "within": 1,
+        "n": 1,
+        "excluded_by_reason": {},
+        "collapsed": 1,
+        "legacy": 0,
+        "signed_error_median": 3,
+        "signed_error_n": 1,
+        "window_weeks_median": 3,
+        "observation_ids": [
+          "11111111-0000-4000-8000-000000000001"
+        ]
+      }
+    },
+    {
+      "name": "disagreeing duplicates, open order reversed: the verdict follows the earliest-opened",
+      "source": "synthetic",
+      "threads": [
+        {
+          "id": "11111111-0000-4000-8000-000000000001",
+          "player_id": "p1",
+          "status": "RESOLVED",
+          "athlete_name": "A",
+          "first_reported_at": "2026-09-12T00:00:00Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": true,
+            "error_days": 3,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 4,
+            "censored": false
+          }
+        },
+        {
+          "id": "11111111-0000-4000-8000-000000000002",
+          "player_id": "p1",
+          "status": "RESOLVED",
+          "athlete_name": "A",
+          "first_reported_at": "2026-09-11T00:00:00Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": false,
+            "error_days": -9,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 2,
+            "otm_max_weeks": 3,
+            "censored": false
+          }
+        }
+      ],
+      "expect": {
+        "within": 0,
+        "n": 1,
+        "excluded_by_reason": {},
+        "collapsed": 1,
+        "legacy": 0,
+        "signed_error_median": -9,
+        "signed_error_n": 1,
+        "window_weeks_median": 1,
+        "observation_ids": [
+          "11111111-0000-4000-8000-000000000002"
+        ]
+      }
+    },
+    {
+      "name": "earliest-opened member unscoreable: the earliest SCOREABLE member is the verdict",
+      "source": "synthetic",
+      "threads": [
+        {
+          "id": "11111111-0000-4000-8000-000000000001",
+          "player_id": "p1",
+          "status": "RESOLVED",
+          "athlete_name": "A",
+          "first_reported_at": "2026-09-01T00:00:00Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": false
+          }
+        },
+        {
+          "id": "11111111-0000-4000-8000-000000000002",
+          "player_id": "p1",
+          "status": "RESOLVED",
+          "athlete_name": "A",
+          "first_reported_at": "2026-09-05T00:00:00Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": false,
+            "error_days": -86,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 16,
+            "otm_max_weeks": 26,
+            "censored": false
+          }
+        }
+      ],
+      "expect": {
+        "within": 0,
+        "n": 1,
+        "excluded_by_reason": {},
+        "collapsed": 1,
+        "legacy": 0,
+        "signed_error_median": -86,
+        "signed_error_n": 1,
+        "window_weeks_median": 10,
+        "observation_ids": [
+          "11111111-0000-4000-8000-000000000002"
+        ]
+      }
+    },
+    {
+      "name": "Pierce shape: four unscoreable threads on one return are one exclusion",
+      "source": "synthetic",
+      "threads": [
+        {
+          "id": "11111111-0000-4000-8000-000000000001",
+          "player_id": "p1",
+          "status": "RESOLVED",
+          "athlete_name": "A",
+          "first_reported_at": "2026-09-21T00:00:00Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": false
+          }
+        },
+        {
+          "id": "11111111-0000-4000-8000-000000000002",
+          "player_id": "p1",
+          "status": "RESOLVED",
+          "athlete_name": "A",
+          "first_reported_at": "2026-09-22T00:00:00Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": false
+          }
+        },
+        {
+          "id": "11111111-0000-4000-8000-000000000003",
+          "player_id": "p1",
+          "status": "RESOLVED",
+          "athlete_name": "A",
+          "first_reported_at": "2026-09-23T00:00:00Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": false
+          }
+        },
+        {
+          "id": "11111111-0000-4000-8000-000000000004",
+          "player_id": "p1",
+          "status": "RESOLVED",
+          "athlete_name": "A",
+          "first_reported_at": "2026-09-24T00:00:00Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": false
+          }
+        }
+      ],
+      "expect": {
+        "within": 0,
+        "n": 0,
+        "excluded_by_reason": {
+          "no_projection": 1
+        },
+        "collapsed": 1,
+        "legacy": 0,
+        "signed_error_median": null,
+        "signed_error_n": 0,
+        "window_weeks_median": null,
+        "observation_ids": []
+      }
+    },
+    {
+      "name": "same player, different return dates: two returns",
+      "source": "synthetic",
+      "threads": [
+        {
+          "id": "11111111-0000-4000-8000-000000000001",
+          "player_id": "p1",
+          "status": "RESOLVED",
+          "athlete_name": "A",
+          "first_reported_at": "2026-09-20T12:00:00Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": true,
+            "error_days": 1,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 2,
+            "censored": false
+          }
+        },
+        {
+          "id": "11111111-0000-4000-8000-000000000002",
+          "player_id": "p1",
+          "status": "RESOLVED",
+          "athlete_name": "A",
+          "first_reported_at": "2026-09-20T12:00:00Z",
+          "actual_return_date": "2026-10-04",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": false,
+            "error_days": -2,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 2,
+            "censored": false
+          }
+        }
+      ],
+      "expect": {
+        "within": 1,
+        "n": 2,
+        "excluded_by_reason": {},
+        "collapsed": 0,
+        "legacy": 0,
+        "signed_error_median": -0.5,
+        "signed_error_n": 2,
+        "window_weeks_median": 1,
+        "observation_ids": [
+          "11111111-0000-4000-8000-000000000001",
+          "11111111-0000-4000-8000-000000000002"
+        ]
+      }
+    },
+    {
+      "name": "different players, same return date: two returns",
+      "source": "synthetic",
+      "threads": [
+        {
+          "id": "11111111-0000-4000-8000-000000000001",
+          "player_id": "p1",
+          "status": "RESOLVED",
+          "athlete_name": "A",
+          "first_reported_at": "2026-09-20T12:00:00Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": true,
+            "error_days": 1,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 2,
+            "censored": false
+          }
+        },
+        {
+          "id": "11111111-0000-4000-8000-000000000002",
+          "player_id": "p2",
+          "status": "RESOLVED",
+          "athlete_name": "A",
+          "first_reported_at": "2026-09-20T12:00:00Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": true,
+            "error_days": 5,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 2,
+            "censored": false
+          }
+        }
+      ],
+      "expect": {
+        "within": 2,
+        "n": 2,
+        "excluded_by_reason": {},
+        "collapsed": 0,
+        "legacy": 0,
+        "signed_error_median": 3,
+        "signed_error_n": 2,
+        "window_weeks_median": 1,
+        "observation_ids": [
+          "11111111-0000-4000-8000-000000000001",
+          "11111111-0000-4000-8000-000000000002"
+        ]
+      }
+    },
+    {
+      "name": "a timestamped return date groups with a plain one",
+      "source": "synthetic",
+      "threads": [
+        {
+          "id": "11111111-0000-4000-8000-000000000001",
+          "player_id": "p1",
+          "status": "RESOLVED",
+          "athlete_name": "A",
+          "first_reported_at": "2026-09-20T12:00:00Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": true,
+            "error_days": 0,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 2,
+            "censored": false
+          }
+        },
+        {
+          "id": "11111111-0000-4000-8000-000000000002",
+          "player_id": "p1",
+          "status": "RESOLVED",
+          "athlete_name": "A",
+          "first_reported_at": "2026-09-21T00:00:00Z",
+          "actual_return_date": "2026-09-27T00:00:00.000Z",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": true,
+            "error_days": 0,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 2,
+            "censored": false
+          }
+        }
+      ],
+      "expect": {
+        "within": 1,
+        "n": 1,
+        "excluded_by_reason": {},
+        "collapsed": 1,
+        "legacy": 0,
+        "signed_error_median": 0,
+        "signed_error_n": 1,
+        "window_weeks_median": 1,
+        "observation_ids": [
+          "11111111-0000-4000-8000-000000000001"
+        ]
+      }
+    },
+    {
+      "name": "legacy record (no scoreable key) is derived from within_range and flagged",
+      "source": "synthetic",
+      "threads": [
+        {
+          "id": "11111111-0000-4000-8000-000000000001",
+          "player_id": "p1",
+          "status": "RESOLVED",
+          "athlete_name": "A",
+          "first_reported_at": "2026-09-20T12:00:00Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "within_range": true,
+            "error_days": -10,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 0,
+            "otm_max_weeks": 5,
+            "censored": null
+          }
+        }
+      ],
+      "expect": {
+        "within": 1,
+        "n": 1,
+        "excluded_by_reason": {},
+        "collapsed": 0,
+        "legacy": 1,
+        "signed_error_median": -10,
+        "signed_error_n": 1,
+        "window_weeks_median": 5,
+        "observation_ids": [
+          "11111111-0000-4000-8000-000000000001"
+        ]
+      }
+    },
+    {
+      "name": "scoreable:false outranks a verdict",
+      "source": "synthetic",
+      "threads": [
+        {
+          "id": "11111111-0000-4000-8000-000000000001",
+          "player_id": "p1",
+          "status": "RESOLVED",
+          "athlete_name": "A",
+          "first_reported_at": "2026-09-20T12:00:00Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": true,
+            "error_days": null,
+            "unscoreable_reason": "calendar_censored",
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 2,
+            "censored": true
+          }
+        }
+      ],
+      "expect": {
+        "within": 0,
+        "n": 0,
+        "excluded_by_reason": {
+          "calendar_censored": 1
+        },
+        "collapsed": 0,
+        "legacy": 0,
+        "signed_error_median": null,
+        "signed_error_n": 0,
+        "window_weeks_median": null,
+        "observation_ids": []
+      }
+    },
+    {
+      "name": "VOID and ACTIVE are not the population; RETIRED with no return is excluded; no record is excluded",
+      "source": "synthetic",
+      "threads": [
+        {
+          "id": "11111111-0000-4000-8000-000000000001",
+          "player_id": "p1",
+          "status": "VOID",
+          "athlete_name": "A",
+          "first_reported_at": "2026-09-20T12:00:00Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": null
+        },
+        {
+          "id": "11111111-0000-4000-8000-000000000002",
+          "player_id": "p1",
+          "status": "ACTIVE",
+          "athlete_name": "A",
+          "first_reported_at": "2026-09-20T12:00:00Z",
+          "actual_return_date": null,
+          "accuracy_record": null
+        },
+        {
+          "id": "11111111-0000-4000-8000-000000000003",
+          "player_id": "p1",
+          "status": "RETIRED",
+          "athlete_name": "A",
+          "first_reported_at": "2026-09-20T12:00:00Z",
+          "actual_return_date": null,
+          "accuracy_record": null
+        },
+        {
+          "id": "11111111-0000-4000-8000-000000000004",
+          "player_id": "p4",
+          "status": "RESOLVED",
+          "athlete_name": "A",
+          "first_reported_at": "2026-09-20T12:00:00Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": null
+        }
+      ],
+      "expect": {
+        "within": 0,
+        "n": 0,
+        "excluded_by_reason": {
+          "retired": 1,
+          "no_record": 1
+        },
+        "collapsed": 0,
+        "legacy": 0,
+        "signed_error_median": null,
+        "signed_error_n": 0,
+        "window_weeks_median": null,
+        "observation_ids": []
+      }
+    },
+    {
+      "name": "a scored record with a null error still counts for the headline but not the secondary n",
+      "source": "synthetic",
+      "threads": [
+        {
+          "id": "11111111-0000-4000-8000-000000000001",
+          "player_id": "p1",
+          "status": "RESOLVED",
+          "athlete_name": "A",
+          "first_reported_at": "2026-09-20T12:00:00Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": true,
+            "error_days": null,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 2,
+            "otm_max_weeks": 6,
+            "censored": false
+          }
+        },
+        {
+          "id": "11111111-0000-4000-8000-000000000002",
+          "player_id": "p2",
+          "status": "RESOLVED",
+          "athlete_name": "A",
+          "first_reported_at": "2026-09-20T12:00:00Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": false,
+            "error_days": 7,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 2,
+            "censored": false
+          }
+        }
+      ],
+      "expect": {
+        "within": 1,
+        "n": 2,
+        "excluded_by_reason": {},
+        "collapsed": 0,
+        "legacy": 0,
+        "signed_error_median": 7,
+        "signed_error_n": 1,
+        "window_weeks_median": 2.5,
+        "observation_ids": [
+          "11111111-0000-4000-8000-000000000001",
+          "11111111-0000-4000-8000-000000000002"
+        ]
+      }
+    },
+    {
+      "name": "out of scope: a PREMIER_LEAGUE close is not counted; a row with no sport is kept",
+      "source": "synthetic",
+      "threads": [
+        {
+          "id": "11111111-0000-4000-8000-000000000001",
+          "player_id": "p1",
+          "status": "RESOLVED",
+          "sport": "PREMIER_LEAGUE",
+          "athlete_name": "A",
+          "first_reported_at": "2026-09-20T12:00:00Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": true,
+            "error_days": 1,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 2,
+            "censored": false
+          }
+        },
+        {
+          "id": "11111111-0000-4000-8000-000000000002",
+          "player_id": "p2",
+          "status": "RESOLVED",
+          "sport": null,
+          "athlete_name": "B",
+          "first_reported_at": "2026-09-20T12:00:00Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": false,
+            "error_days": -3,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 2,
+            "censored": false
+          }
+        }
+      ],
+      "expect": {
+        "within": 0,
+        "n": 1,
+        "excluded_by_reason": {},
+        "collapsed": 0,
+        "legacy": 0,
+        "signed_error_median": -3,
+        "signed_error_n": 1,
+        "window_weeks_median": 1,
+        "observation_ids": [
+          "11111111-0000-4000-8000-000000000002"
+        ]
+      }
+    },
+    {
+      "name": "live corpus 2026-10-03 (NFL+NBA RESOLVED+RETIRED)",
+      "source": "live",
+      "recorded_at": "2026-10-03T12:56:48.814Z",
+      "threads": [
+        {
+          "id": "006ad955-7fe0-4196-9d63-3a5f32e54ba4",
+          "player_id": "5912650e-6393-4bba-b132-36db8e5d5d7c",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "British Brooks",
+          "first_reported_at": "2026-08-08T21:31:53.202Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": true
+          }
+        },
+        {
+          "id": "05453b40-1577-42cc-a828-49aba829dee1",
+          "player_id": "3f3e0081-cc67-49c5-9d99-9793f54132b5",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Sione Vaki",
+          "first_reported_at": "2026-08-08T21:30:08.896Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "calendar_censored",
+            "otm_min_weeks": 0,
+            "otm_max_weeks": 2,
+            "censored": true
+          }
+        },
+        {
+          "id": "0ae0822d-4fd9-4eee-a210-988dad837756",
+          "player_id": "89f1e6d4-2512-464e-9e44-0175a79261e8",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Teddye Buchanan",
+          "first_reported_at": "2026-09-11T22:29:15.408Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": true,
+            "error_days": -45,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 39,
+            "otm_max_weeks": 56,
+            "censored": false
+          }
+        },
+        {
+          "id": "0d78bc46-21e5-4bf6-bce8-a5aee36381bb",
+          "player_id": "1da24da7-68de-4bc5-8b6a-9e2ee1f8094b",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Javon Bullard",
+          "first_reported_at": "2026-08-11T15:22:59.684Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": true
+          }
+        },
+        {
+          "id": "0f67d36e-57a1-4632-a0a6-442f50368ac9",
+          "player_id": "a72a7bd3-e103-4781-af97-f5b8a4acf496",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Alec Pierce",
+          "first_reported_at": "2026-09-24T18:25:01.208Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": true
+          }
+        },
+        {
+          "id": "102463e7-69f8-4630-90e5-c6983b052518",
+          "player_id": "cb07fe0c-f80c-4767-ba55-7181bf66539c",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Garrett Williams",
+          "first_reported_at": "2026-09-15T05:41:16.593Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": false
+          }
+        },
+        {
+          "id": "15b7932c-f407-4bc6-9734-02ecc32039e6",
+          "player_id": "cdfda676-b647-4aad-87d5-db17c3baf079",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Sam Darnold",
+          "first_reported_at": "2026-09-10T06:04:26.434Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": true,
+            "error_days": -69,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 24,
+            "censored": false
+          }
+        },
+        {
+          "id": "199ec4d3-b583-40bb-a35f-20f1e59396d6",
+          "player_id": "19f68944-0148-4754-bd51-ca49f596b33b",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Javon Hargrave",
+          "first_reported_at": "2026-09-19T18:50:35.948Z",
+          "actual_return_date": "2026-09-24",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": false
+          }
+        },
+        {
+          "id": "1aed6168-2d5d-432d-82ad-e6b3221378d0",
+          "player_id": "d2c027b5-0375-45b8-a1ea-7fda75f0ecf3",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Brock Bowers",
+          "first_reported_at": "2026-09-09T22:14:21.138Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": false,
+            "error_days": -23,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 4,
+            "otm_max_weeks": 8,
+            "censored": false
+          }
+        },
+        {
+          "id": "1b7f3bae-ca14-4700-9336-9c19f686a354",
+          "player_id": "c6a26cb6-7386-4355-a805-e1fb2a043ecf",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Nico Collins",
+          "first_reported_at": "2026-09-04T06:53:33.131Z",
+          "actual_return_date": "2026-09-04",
+          "accuracy_record": null
+        },
+        {
+          "id": "215b61b3-fda4-4f75-a77d-d6cad7879d62",
+          "player_id": "984a0736-6d20-4844-b924-af83ebb08d85",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Alfred Collins",
+          "first_reported_at": "2026-09-09T08:25:41.734Z",
+          "actual_return_date": "2026-09-10",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": true
+          }
+        },
+        {
+          "id": "21cb82b8-9e80-4d9a-ac8e-5464547404e2",
+          "player_id": "e8b2db99-672b-41d5-a501-999d2dfce4aa",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Odafe Oweh",
+          "first_reported_at": "2026-09-11T19:21:15.811Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "calendar_censored",
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 6,
+            "censored": true
+          }
+        },
+        {
+          "id": "2d8ed8a2-969d-4b63-a5e0-fc0bdfd70308",
+          "player_id": "8b431d0f-c31a-4a05-a199-33dc1539b8c7",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Malachi Fields",
+          "first_reported_at": "2026-08-26T17:22:28.055Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": true
+          }
+        },
+        {
+          "id": "30d32ec3-da84-4da4-9b32-d6087971705b",
+          "player_id": "a72a7bd3-e103-4781-af97-f5b8a4acf496",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Alec Pierce",
+          "first_reported_at": "2026-09-23T10:51:07.413Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": true
+          }
+        },
+        {
+          "id": "37c7e72e-ca2d-4b91-be95-94cfd313ed10",
+          "player_id": "b68b43d4-0479-41c6-8cbf-914c5786ae8e",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Travis Etienne Jr.",
+          "first_reported_at": "2026-08-20T15:49:19.657Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": true
+          }
+        },
+        {
+          "id": "39fa2a25-9962-46ad-ab8e-da7f43cd4836",
+          "player_id": "e0b1bd96-0933-4492-a636-a2676b8e46a0",
+          "status": "RETIRED",
+          "sport": "NFL",
+          "athlete_name": "Spencer Shrader",
+          "first_reported_at": "2026-05-31T23:18:59.913Z",
+          "actual_return_date": null,
+          "accuracy_record": null
+        },
+        {
+          "id": "40e77cfb-173f-45eb-8e8c-bfb640163b4e",
+          "player_id": "6a17d636-0f7b-4d84-94e7-0c94156b2ba8",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Tez Johnson",
+          "first_reported_at": "2026-08-10T08:10:23.248Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": true
+          }
+        },
+        {
+          "id": "49d2f994-cb08-4d1a-926b-f80315884fa6",
+          "player_id": "606bac6e-5589-4669-888d-ac66fef7a5b3",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Marcus Mariota",
+          "first_reported_at": "2026-08-16T18:12:25.792Z",
+          "actual_return_date": "2026-09-20",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": false,
+            "error_days": 21,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 3,
+            "censored": false
+          }
+        },
+        {
+          "id": "4c3bc8fa-79ee-405d-901f-41ea82870a71",
+          "player_id": "caa66519-b4a4-49d3-8b2c-0851a2b8ab86",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Nick Bosa",
+          "first_reported_at": "2026-09-08T07:57:16.826Z",
+          "actual_return_date": "2026-09-10",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": true,
+            "error_days": 36,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 39,
+            "otm_max_weeks": 52,
+            "censored": false
+          }
+        },
+        {
+          "id": "50f3b70f-2e96-43e8-90c7-13f81596ed78",
+          "player_id": "707d8893-9616-4701-9cd7-c69ee1ce99ae",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Wade Woodaz",
+          "first_reported_at": "2026-08-23T22:55:44.477Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": false,
+            "error_days": -25,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 4,
+            "otm_max_weeks": 10,
+            "censored": true
+          }
+        },
+        {
+          "id": "53c7d917-3a6f-43a3-a0bf-d1ce478f45bd",
+          "player_id": "a55ab21b-b4ad-4efe-8682-8cada40e53fc",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Odell Beckham Jr.",
+          "first_reported_at": "2026-08-27T17:44:50.425Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": true
+          }
+        },
+        {
+          "id": "54d39bf8-7929-4562-9def-8768571b5601",
+          "player_id": "700551ce-7cea-44ab-8a88-2e8d3a92b74d",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Josh Downs",
+          "first_reported_at": "2026-08-08T21:32:12.985Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": true
+          }
+        },
+        {
+          "id": "574ce108-6f5b-4e4d-9d08-728f7f4c2b6c",
+          "player_id": "5c7ed94e-96a7-4581-9251-8b6087dc87db",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "C.J. Stroud",
+          "first_reported_at": "2026-09-04T00:44:39.497Z",
+          "actual_return_date": "2026-09-04",
+          "accuracy_record": null
+        },
+        {
+          "id": "598c151b-f95d-4c52-a338-f4854e1ac9fa",
+          "player_id": "aca89095-e951-4045-b25f-b3b4dca870ec",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Rueben Bain Jr.",
+          "first_reported_at": "2026-08-27T11:40:54.605Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "calendar_censored",
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 12,
+            "censored": true
+          }
+        },
+        {
+          "id": "5e7664eb-8c68-435d-86a9-483127664839",
+          "player_id": "36a16c95-9539-4034-83f6-d5d6f1a166bb",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Lukas Van Ness",
+          "first_reported_at": "2026-09-19T18:49:55.388Z",
+          "actual_return_date": "2026-09-20",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": true
+          }
+        },
+        {
+          "id": "614456e3-5fe0-44a0-a976-7cd151741f0b",
+          "player_id": "b277221d-58a6-4cdf-9c67-6f8063de2c95",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Patrick Mahomes",
+          "first_reported_at": "2026-08-10T01:45:02.423Z",
+          "actual_return_date": "2026-09-15",
+          "accuracy_record": {
+            "within_range": true,
+            "error_days": -44,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 39,
+            "otm_max_weeks": 52,
+            "censored": null
+          }
+        },
+        {
+          "id": "625ed96c-1ec5-47ca-be43-f427d1a99d3a",
+          "player_id": "76e0a69c-9c80-462b-86ad-dab327a2383e",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Malik Nabers",
+          "first_reported_at": "2026-09-22T03:08:40.786Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": false,
+            "error_days": -11,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 4,
+            "censored": true
+          }
+        },
+        {
+          "id": "635cf3e9-37bc-4dd9-954c-c8e4aa203ec5",
+          "player_id": "31653087-6690-4d7d-8832-979db1ac978c",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "DJ Moore",
+          "first_reported_at": "2026-09-18T18:09:03.377Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "calendar_censored",
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 8,
+            "censored": true
+          }
+        },
+        {
+          "id": "7296514a-afde-4e7e-bd32-a3c036bf91ab",
+          "player_id": "925357a7-f1d7-4305-9647-4b290ac951d1",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Xavier Hutchinson",
+          "first_reported_at": "2026-08-20T03:14:57.889Z",
+          "actual_return_date": "2026-08-30",
+          "accuracy_record": null
+        },
+        {
+          "id": "776eb137-6ad5-46a6-b056-ae755e53d457",
+          "player_id": "644641d2-fe4b-4ddb-ab44-fa595ffa34a8",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "DK Metcalf",
+          "first_reported_at": "2026-08-18T00:26:56.831Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": true
+          }
+        },
+        {
+          "id": "88541335-25b1-4434-8bea-3ceb1818c7b9",
+          "player_id": "b9f5c220-2f0c-4ea1-bff5-440c243f89a1",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Brian Burns",
+          "first_reported_at": "2026-09-23T23:44:46.083Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": false,
+            "error_days": -27,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 8,
+            "censored": true
+          }
+        },
+        {
+          "id": "94a88d35-13bd-4c23-856f-fcfa1312795d",
+          "player_id": "3e406298-cb45-4481-bd6e-f4bec4c3c32c",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Trey Hendrickson",
+          "first_reported_at": "2026-10-03T02:41:25.826Z",
+          "actual_return_date": "2026-09-20",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": true
+          }
+        },
+        {
+          "id": "954c2246-c4d6-4afb-813e-40fc443f34b2",
+          "player_id": "5c7ed94e-96a7-4581-9251-8b6087dc87db",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "C.J. Stroud",
+          "first_reported_at": "2026-09-05T13:26:56.302Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": true
+          }
+        },
+        {
+          "id": "9846b719-113d-4fba-9593-bfe3b7ae69f3",
+          "player_id": "9f37e534-37b3-4e47-bacf-6b217392af51",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "A.J. Brown",
+          "first_reported_at": "2026-08-08T21:35:38.795Z",
+          "actual_return_date": "2026-09-09",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": true
+          }
+        },
+        {
+          "id": "99d80ee2-ca30-4f79-836b-a35092af1541",
+          "player_id": "25b90f0b-c31f-4f82-8c31-a8fe9ea6d1e8",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Michael Penix Jr.",
+          "first_reported_at": "2026-09-08T20:04:22.531Z",
+          "actual_return_date": "2026-09-24",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": true,
+            "error_days": -6,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 39,
+            "otm_max_weeks": 52,
+            "censored": false
+          }
+        },
+        {
+          "id": "9bea991b-328f-4b25-b29e-f0c28819099c",
+          "player_id": "999a95e8-0751-416b-bac4-f03947369983",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "J.K. Dobbins",
+          "first_reported_at": "2026-09-21T01:39:17.152Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "calendar_censored",
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 10,
+            "censored": true
+          }
+        },
+        {
+          "id": "9cb9b1e4-e931-46c9-afe0-31fd46c246e9",
+          "player_id": "36a16c95-9539-4034-83f6-d5d6f1a166bb",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Lukas Van Ness",
+          "first_reported_at": "2026-09-21T14:18:24.689Z",
+          "actual_return_date": "2026-09-20",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": true
+          }
+        },
+        {
+          "id": "a4f36b45-c10b-4ae5-89c0-3c22d2544ad7",
+          "player_id": "a72a7bd3-e103-4781-af97-f5b8a4acf496",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Alec Pierce",
+          "first_reported_at": "2026-09-23T04:29:27.782Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": true
+          }
+        },
+        {
+          "id": "ab5937ee-e15e-4ea2-9c58-58e7a4802aae",
+          "player_id": "fbf998ec-7632-4d10-aac5-ba5ef2a740ef",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Saquon Barkley",
+          "first_reported_at": "2026-09-21T01:48:33.259Z",
+          "actual_return_date": "2026-09-28",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "calendar_censored",
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 8,
+            "censored": true
+          }
+        },
+        {
+          "id": "ae8ef532-c366-458d-ae76-81d6e01666b3",
+          "player_id": "36e165ac-b888-4a4e-874c-47f57d62b10f",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Wan'Dale Robinson",
+          "first_reported_at": "2026-08-27T23:51:50.403Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": true
+          }
+        },
+        {
+          "id": "b1a61d6d-7255-4d54-9a47-d31ac7c6c243",
+          "player_id": "cc881b6f-6b1a-420a-8544-4c97fe38fbf3",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Caleb Williams",
+          "first_reported_at": "2026-08-11T15:18:10.044Z",
+          "actual_return_date": "2026-08-16",
+          "accuracy_record": {
+            "within_range": true,
+            "error_days": -10,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 0,
+            "otm_max_weeks": 5,
+            "censored": null
+          }
+        },
+        {
+          "id": "b31f5c9a-d528-4dee-8edb-63ede8c42abb",
+          "player_id": "c6a26cb6-7386-4355-a805-e1fb2a043ecf",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Nico Collins",
+          "first_reported_at": "2026-09-04T00:43:25.479Z",
+          "actual_return_date": "2024-11-10",
+          "accuracy_record": null
+        },
+        {
+          "id": "b50addcd-7379-4e71-a7bc-d64ed4354bb9",
+          "player_id": "5b76031d-0c41-4dbb-98e5-c906f625698e",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Alvin Kamara",
+          "first_reported_at": "2026-08-20T03:19:37.095Z",
+          "actual_return_date": "2026-09-20",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": true,
+            "error_days": 2,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 3,
+            "otm_max_weeks": 6,
+            "censored": false
+          }
+        },
+        {
+          "id": "b64e1ff8-089e-4fd6-adc7-a3503cfeed44",
+          "player_id": "a72a7bd3-e103-4781-af97-f5b8a4acf496",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Alec Pierce",
+          "first_reported_at": "2026-08-18T00:16:33.727Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "calendar_censored",
+            "otm_min_weeks": 0,
+            "otm_max_weeks": 6,
+            "censored": true
+          }
+        },
+        {
+          "id": "b77ec389-cff1-4f9c-a823-7855edc684c1",
+          "player_id": "f11adab3-7abc-4618-95dd-3b79719453e3",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Dax Hill",
+          "first_reported_at": "2026-08-14T05:10:57.085Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": true
+          }
+        },
+        {
+          "id": "c39dbd17-2ce6-4e60-9dd3-74295b270b40",
+          "player_id": "8b6da05b-8459-451e-82fd-f342379d2f67",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Breece Hall",
+          "first_reported_at": "2026-08-17T18:08:56.426Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "calendar_censored",
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 6,
+            "censored": true
+          }
+        },
+        {
+          "id": "c7a65fe9-a478-4214-9f5f-8480e8e90bf5",
+          "player_id": "ee4474b3-a886-4e17-a88d-87ba91d8319b",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Jordan Addison",
+          "first_reported_at": "2026-08-08T21:34:44.012Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": true
+          }
+        },
+        {
+          "id": "d5001ade-0231-4e8b-bc5c-d250ebcd1c58",
+          "player_id": "b6d529f5-be6d-4ad2-84e1-f62856745c79",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Jonathan Greenard",
+          "first_reported_at": "2026-09-30T18:45:36.150Z",
+          "actual_return_date": "2026-09-28",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": false
+          }
+        },
+        {
+          "id": "d58c473a-bc75-40b0-98ad-6f399bd96893",
+          "player_id": "9f5f3957-8c3c-488a-808e-884172e246fa",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Ashton Jeanty",
+          "first_reported_at": "2026-08-24T05:12:33.181Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "calendar_censored",
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 4,
+            "censored": true
+          }
+        },
+        {
+          "id": "d6e6fc80-b5a1-40be-8287-4e415ebe7165",
+          "player_id": "0d6840b5-84c6-49ef-87e2-765a4e7f3424",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Darnell Mooney",
+          "first_reported_at": "2026-08-27T17:45:54.615Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": true
+          }
+        },
+        {
+          "id": "dd44419f-5f8e-4022-b818-5d86a1bd986d",
+          "player_id": "b6d529f5-be6d-4ad2-84e1-f62856745c79",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Jonathan Greenard",
+          "first_reported_at": "2026-08-21T04:23:57.035Z",
+          "actual_return_date": "2026-09-28",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": false,
+            "error_days": -86,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 16,
+            "otm_max_weeks": 26,
+            "censored": false
+          }
+        },
+        {
+          "id": "e69a972d-a55d-4db5-88d0-efd4947a4f7d",
+          "player_id": "9fb4f2f9-9fe1-4e83-b883-b34caaca2466",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Billy Bowman Jr.",
+          "first_reported_at": "2026-09-13T17:24:34.923Z",
+          "actual_return_date": "2026-09-24",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": false
+          }
+        },
+        {
+          "id": "e6a5534f-ad56-4a52-8c9f-f0a4523603a6",
+          "player_id": "db1f45d1-6d36-43bd-9447-b368771b2d0d",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "George Kittle",
+          "first_reported_at": "2026-09-02T15:03:08.714Z",
+          "actual_return_date": "2026-09-10",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": false,
+            "error_days": -76,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 39,
+            "otm_max_weeks": 52,
+            "censored": true
+          }
+        },
+        {
+          "id": "e8045535-be09-483a-8e22-876cf7fdbcff",
+          "player_id": "632526c5-0760-4d23-88d0-6f8b9ba83a88",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Jalen Coker",
+          "first_reported_at": "2026-09-15T05:45:36.756Z",
+          "actual_return_date": "2026-09-20",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "calendar_censored",
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 8,
+            "censored": true
+          }
+        },
+        {
+          "id": "e91dfa6c-6f7e-45c9-a45c-428335bd1c25",
+          "player_id": "c6a26cb6-7386-4355-a805-e1fb2a043ecf",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Nico Collins",
+          "first_reported_at": "2026-09-05T01:14:09.975Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": true
+          }
+        },
+        {
+          "id": "eb22e778-9005-49a6-8da6-76509506386a",
+          "player_id": "b9f5c220-2f0c-4ea1-bff5-440c243f89a1",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Brian Burns",
+          "first_reported_at": "2026-09-22T09:31:57.121Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": false,
+            "error_days": -4,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 2,
+            "censored": true
+          }
+        },
+        {
+          "id": "eb714d47-0e5a-407f-a370-52822d1d206a",
+          "player_id": "0d6840b5-84c6-49ef-87e2-765a4e7f3424",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Darnell Mooney",
+          "first_reported_at": "2026-08-26T17:23:14.603Z",
+          "actual_return_date": "2026-08-15",
+          "accuracy_record": null
+        },
+        {
+          "id": "ed89524d-c316-4159-9608-3f3b50aa5e18",
+          "player_id": "e62481e5-9b43-4981-b075-9f74f7c3b208",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Joe Burrow",
+          "first_reported_at": "2026-09-18T05:57:25.506Z",
+          "actual_return_date": "2026-09-20",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": false,
+            "error_days": -6,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 2,
+            "censored": true
+          }
+        },
+        {
+          "id": "f07073f0-a762-4681-905d-e5571ccb8d74",
+          "player_id": "9331b4ed-c8ed-4220-811b-1282df070503",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Zay Flowers",
+          "first_reported_at": "2026-09-14T17:01:27.636Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": true,
+            "error_days": 4,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 1,
+            "otm_max_weeks": 2,
+            "censored": false
+          }
+        },
+        {
+          "id": "f29c5c61-fec2-4f04-aac8-e7337ce7b434",
+          "player_id": "cb604307-8496-41b9-a5ee-8192fd8033a9",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Joseph Ossai",
+          "first_reported_at": "2026-09-11T19:15:48.829Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": true,
+            "within_range": true,
+            "error_days": -26,
+            "unscoreable_reason": null,
+            "otm_min_weeks": 4,
+            "otm_max_weeks": 12,
+            "censored": false
+          }
+        },
+        {
+          "id": "fcf0f7bc-440a-47c5-af7b-16289487f4f1",
+          "player_id": "e233425c-1a2f-4c83-bab3-78459d650cc5",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Chop Robinson",
+          "first_reported_at": "2026-09-19T06:32:18.392Z",
+          "actual_return_date": "2026-09-27",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": false
+          }
+        },
+        {
+          "id": "febaf473-023a-48c8-861e-cc8ad2044c1d",
+          "player_id": "a72a7bd3-e103-4781-af97-f5b8a4acf496",
+          "status": "RESOLVED",
+          "sport": "NFL",
+          "athlete_name": "Alec Pierce",
+          "first_reported_at": "2026-09-25T06:54:17.758Z",
+          "actual_return_date": "2026-09-13",
+          "accuracy_record": {
+            "scoreable": false,
+            "within_range": null,
+            "error_days": null,
+            "unscoreable_reason": "no_projection",
+            "otm_min_weeks": null,
+            "otm_max_weeks": null,
+            "censored": true
+          }
+        }
+      ],
+      "expect": {
+        "within": 9,
+        "n": 17,
+        "excluded_by_reason": {
+          "no_projection": 22,
+          "calendar_censored": 10,
+          "no_record": 5,
+          "retired": 1
+        },
+        "collapsed": 4,
+        "legacy": 2,
+        "signed_error_median": -11,
+        "signed_error_n": 17,
+        "window_weeks_median": 6,
+        "observation_ids": [
+          "0ae0822d-4fd9-4eee-a210-988dad837756",
+          "15b7932c-f407-4bc6-9734-02ecc32039e6",
+          "1aed6168-2d5d-432d-82ad-e6b3221378d0",
+          "49d2f994-cb08-4d1a-926b-f80315884fa6",
+          "4c3bc8fa-79ee-405d-901f-41ea82870a71",
+          "50f3b70f-2e96-43e8-90c7-13f81596ed78",
+          "614456e3-5fe0-44a0-a976-7cd151741f0b",
+          "625ed96c-1ec5-47ca-be43-f427d1a99d3a",
+          "99d80ee2-ca30-4f79-836b-a35092af1541",
+          "b1a61d6d-7255-4d54-9a47-d31ac7c6c243",
+          "b50addcd-7379-4e71-a7bc-d64ed4354bb9",
+          "dd44419f-5f8e-4022-b818-5d86a1bd986d",
+          "e6a5534f-ad56-4a52-8c9f-f0a4523603a6",
+          "eb22e778-9005-49a6-8da6-76509506386a",
+          "ed89524d-c316-4159-9608-3f3b50aa5e18",
+          "f07073f0-a762-4681-905d-e5571ccb8d74",
+          "f29c5c61-fec2-4f04-aac8-e7337ce7b434"
+        ]
+      }
+    }
+  ]
+}

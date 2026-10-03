@@ -283,3 +283,101 @@ Those threads are re-scored by reopening them (`web_thread_reopen`, whose
 `thread_reopened` audit row keeps the original record verbatim) and letting the
 detector close them again through the one scoring path. There is no hand-edited
 record and no second formula.
+
+---
+
+## Amendment 2 — 2026-10-03
+
+**Made at 18 scored threads (17 returns), before any accuracy number has
+been published anywhere.** Nothing above this line has been edited. This
+section supersedes the text above where the two differ, and says so point by
+point.
+
+**One disclosure that Amendment 1 did not need.** A2.1 was decided after a
+duplicate had already been scored, and its effect on the current data is
+known. It removes exactly one observation: Brian Burns, whose single return
+was a miss on each of two threads. Today that moves the reading from 9 of 18
+to 9 of 17; after the physician re-score in A2.3, it moves 8 of 17 to 8 of 16. The rule was chosen on the reasoning below, and it would have been
+chosen whichever way that one row had gone. A reader is entitled to know the
+order of events, so here it is.
+
+Unchanged: the definition of "returned", the `within_range` headline, the
+scored window (A1.1), the estimate rule (A1.2), the interval rule (A1.3), the
+n ≥ 30 publication bar and the G1 kill switch.
+
+### A2.1 — One return is one observation
+
+The headline is "Returns inside the published window: X of Y". The scorer,
+however, writes one `accuracy_record` per closed **thread**, and those two
+units diverge whenever one injury is carried on more than one thread.
+
+That happens. The thread matcher keys on body part, laterality and an
+injury-type substring, so a "sprain" report and a later "surgery" report about
+the same ankle can open two threads. Brian Burns' left ankle did exactly this:
+both threads closed on the 2026-09-27 game, and the one return was counted
+twice.
+
+**Closed threads for the same athlete (`player_id`) with the same
+`actual_return_date` are one observation.**
+- Its verdict is the scoreable record of the group's **earliest-opened**
+  thread, ordered by `first_reported_at` and then by thread id.
+- When no member of the group is scoreable, the group is **one** exclusion,
+  under its earliest thread's reason.
+
+Exclusions are counted per return as well, so the excluded count published
+beside the headline is in the same unit as the headline itself.
+
+- **Why earliest-opened:** it is A1.1's principle applied one level up. It
+  selects the first claim made, before anyone knew how the recovery would go.
+  It is also decidable from the thread list alone.
+- **Nothing is re-scored.** The verdict, the error and the window are the
+  record that `computeAccuracyRecord` froze at close. A2.1 decides only which
+  records count as the same observation, so there is still one formula.
+- **Where it is implemented:** `summarizeAccuracy`, in
+  `src/utils/accuracy-observations.ts`, with a byte-identical copy in the
+  frontend's `lib/`. Both are pinned by
+  `tests/fixtures/accuracy-observation-cases.json`.
+  `src/scripts/accuracy-report.ts` prints the result in this file's terms.
+
+### A2.2 — Dated note: a return that predates the report (no definition changed)
+
+The detector now **holds** a candidate return for date review, rather than
+closing on it, when the game was played **before the thread's own first
+report**, comparing sport-local calendar dates.
+
+The reasoning: a thread is opened by a report that the athlete is injured now,
+so an earlier stat line cannot be the return from that injury. Either the
+stored `injury_date` belongs to an older injury, or the athlete was hurt in
+that game.
+
+This is a date-sanity hold of the same kind as the too-early bar (A1.3's
+second note). The definition of "returned" is unchanged.
+
+Seven closes made before the hold existed were of this kind. All seven are
+`no_projection`, and **no scored record was among them**, so the hold changed
+no reading. `src/scripts/return-detect-dryrun.ts` gates that claim for every
+detector close (Section H).
+
+The seven are:
+- Alec Pierce ×4, injury 03-01, return 09-13, reported 09-23 to 09-25. Each
+  close let the next report mint a fresh thread.
+- Lukas Van Ness ×2.
+- Jonathan Greenard `d5001ade`, a re-injury in the 09-28 game, reported 09-30.
+- Trey Hendrickson.
+
+They stay closed. They carry no published estimate, so reopening them gains
+nothing for this metric, and under A2.1 they collapse into their returns.
+
+### A2.3 — Physician closes are re-scored too
+
+A1.4 applies to every close. The detector's closes were re-scored by
+reopening them, but a physician's close cannot go that way:
+`web_thread_reopen` erases the return date the physician entered.
+
+Physician closes are therefore re-scored by the physician closing the thread
+again **with the same date**. `src/scripts/rescore-md-closes.ts` does this, and
+it runs only at the physician's direction. The new record comes from the same
+`computeAccuracyRecord`.
+
+Until that has run, records without a `scoreable` key are derived as this file
+already says, and `accuracy-report.ts` lists them separately as legacy.
