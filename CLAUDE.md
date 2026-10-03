@@ -271,6 +271,32 @@ athlete's tier.
 shadow decides and logs but changes nothing at all, including the cases
 that look obviously safe.
 
+### A shared name is not an identity
+
+`web_resolve_player` by name returns `confidence: 'ambiguous'` when two rostered
+athletes share it, and still attaches a player: `rows[0]` of a query with **no
+ORDER BY**, so which one is arbitrary and can change between cycles. Never read
+an identity off an ambiguous player.
+
+`anchorsEntity` (deduplicator.ts) is the one predicate for all three entity
+sites: entity dedup, `resolveThreadAndDates`, and `maintainEntity`. They used to
+disagree. Dedup refused an ambiguous player, and the thread manager minted on it
+anyway. So each cycle missed the thread the previous one had made: by
+2026-10-03, eleven ACTIVE "Justin Jefferson" ankle threads, ten of them on the
+Browns LB, and every one a close waiting for the return detector the first time
+he records a stat line. An ambiguous event now runs thread-less, and
+`identity_ambiguous` routes it to MD review as before.
+
+The ESPN injuries feed now carries `espn_athlete_id`, so most collisions never
+become ambiguous at all. The row has **no `athlete.id`**. The id is only in the
+profile URLs in `athlete.links` (`/id/4262921/`), on 815 of 815 live rows.
+`espnAthleteIdFromLinks` refuses to pick when the links disagree. Re-verify with
+`src/scripts/player-identity-dryrun.ts --all-rows`. The numbers that must be
+zero are rows whose single name match flips to a different player under the id,
+and ids that resolve to a differently-named player. On 2026-10-03: 0 and 0, 9
+rows went ambiguous → exact, and in 4 of them the name lookup had attached the
+WRONG player (Jefferson, Davante Adams, Michael Carter, Jaylon Jones).
+
 ### The athlete tier chain
 
 `lookupAthleteTier` (significance.ts) asks four sources in a fixed order and stops

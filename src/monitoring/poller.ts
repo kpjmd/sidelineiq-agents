@@ -31,7 +31,12 @@ import {
   isGatingCarryover,
   type CarryoverSignals,
 } from '../agents/injury-intelligence/carryover.js';
-import { checkForExisting, parseListPostsResponse, type DedupResult } from './deduplicator.js';
+import {
+  anchorsEntity,
+  checkForExisting,
+  parseListPostsResponse,
+  type DedupResult,
+} from './deduplicator.js';
 import {
   publishInjuryPost,
   getMDReviewThreshold,
@@ -784,6 +789,9 @@ export async function maintainEntity(
   opts?: { entityId?: string; otmProjection?: OtmProjection },
 ): Promise<void> {
   if (!isServerAvailable('web')) return;
+  // The call site checks this too; repeated because this is exported and is
+  // the other place a thread gets minted.
+  if (!anchorsEntity(player)) return;
   try {
     let entityId = opts?.entityId ?? dedup.entityId;
     // A reused entity (created pre-publish by the Injury Thread Manager, or
@@ -1037,7 +1045,11 @@ export async function resolveThreadAndDates(
   dateWriteFailed: boolean;
 } | null> {
   const player = validation.resolvedPlayer;
-  if (!player) return null;
+  // Not merely `!player`: an ambiguous player is an arbitrary one of several
+  // same-named athletes, and dedup has already declined to match on it, so
+  // minting here created a fresh wrong-athlete thread every cycle. See
+  // anchorsEntity.
+  if (!anchorsEntity(player)) return null;
   const metadata = validation.metadata;
   const carryover = detectCarryoverSignals(event);
   try {
@@ -1737,7 +1749,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
       // failure, `thread` stays undefined → OTM runs exactly as before.
       let thread: InjuryThreadContext | undefined;
       let threadEntityId: string | undefined;
-      if (dateResolutionEnabled && isServerAvailable('web') && validation.resolvedPlayer) {
+      if (dateResolutionEnabled && isServerAvailable('web') && anchorsEntity(validation.resolvedPlayer)) {
         const resolved = await resolveThreadAndDates(event, validation, dedup);
         if (resolved) {
           thread = resolved.thread;
@@ -1963,7 +1975,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
       // On entity match (status-update pass-through) → append a TRACKING
       // update tied to the new post so the timeline reflects it. When the thread
       // was resolved pre-OTM, reuse its entity id and freeze the OTM projection.
-      if (result.post_id && validation.resolvedPlayer) {
+      if (result.post_id && anchorsEntity(validation.resolvedPlayer)) {
         await maintainEntity(
           event,
           validation.resolvedPlayer,
