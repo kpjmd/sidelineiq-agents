@@ -1084,7 +1084,9 @@ audit row, a date, a projection or an accuracy record. Do not reach for
 `close-backfill-shells.ts` instead: its eligibility predicate requires
 `first_reported_at` inside the 2026-05-31 `BACKFILL_WINDOW` and its default
 `void_reason` names that script, so borrowing it writes a false sentence into an
-immutable audit row.
+immutable audit row. Both scripts pass `closed_by: 'system'` and record their
+own identity in a separate `actor: 'automation'` audit row; void-thread.ts used
+to pass `'ops:void-thread'`, which stamped five 2026-09 VOIDs as `actor=md`.
 
 ### Body parts that are also English words
 
