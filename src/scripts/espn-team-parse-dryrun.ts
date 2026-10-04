@@ -20,12 +20,13 @@
  * a new forced review where the roster disagrees with ESPN is the check doing
  * its job (a stale roster or an ESPN mis-file), not a regression.
  *
- * Two resolutions per row, both read-only `web_resolve_player`:
- *   - by NAME — what the poller does today. parse() carries no espn_athlete_id
- *     for feed rows, so this is the production-faithful arm, and it is the one
- *     the before/after outcomes are scored on.
- *   - by ESPN athlete ID — the ground truth for "what team does OUR roster say
- *     this athlete is on". Read out of `athlete.links[].href` (`/id/<n>/`).
+ * Resolution is read-only `web_resolve_player` with exactly the poller's call
+ * shape: name plus the event's `espn_athlete_id`, which parse() reads out of
+ * `athlete.links` (espnAthleteIdFromLinks). The id is tried first, so for a row
+ * that carries one this IS "what team does OUR roster say this athlete is on",
+ * the ground truth the third must-be-zero number is judged against. A name-only
+ * lookup also runs, for information only: it is what the poller did before the
+ * feed carried the id, and it shows which rows the id rescues from 'ambiguous'.
  *
  * Not modelled: the athlete re-anchor (needs the classifier). For a feed row it
  * overwrites event.team WITH the roster team, so it can only turn a mismatch
@@ -67,7 +68,6 @@ interface RawRecord {
     displayName?: string;
     fullName?: string;
     team?: RawTeam;
-    links?: Array<{ href?: string }>;
   };
 }
 interface RawGroup {
@@ -88,13 +88,6 @@ const SOURCES: Record<'NFL' | 'NBA', () => ESPNNFLSource | ESPNNBASource> = {
 
 type Parser = { parse: (f: unknown) => RawInjuryEvent[]; url: string };
 
-function athleteIdOf(r: RawRecord): string | undefined {
-  for (const l of r.athlete?.links ?? []) {
-    const m = l.href?.match(/\/id\/(\d+)(?:\/|$)/);
-    if (m) return m[1];
-  }
-  return undefined;
-}
 
 /** Joins a parsed event back to its raw row (for the athlete id). */
 const rowKey = (team: string | undefined, name: string, at: Date | null): string =>
@@ -285,7 +278,6 @@ async function main(): Promise<void> {
       let rawRows = 0;
       let rowsWithAthleteTeam = 0;
       const disagree: Array<[string, string, string, string]> = [];
-      const idByKey = new Map<string, string | undefined>();
       const athleteTeamByKey = new Map<string, string | undefined>();
       for (const g of groups) {
         const k = Object.keys(g).sort().join(',');
@@ -297,7 +289,6 @@ async function main(): Promise<void> {
           const name = r.athlete?.displayName ?? r.athlete?.fullName ?? '';
           if (at && at !== g.displayName) disagree.push([name, g.displayName ?? '?', at, r.status ?? '']);
           const key = rowKey(g.displayName, name, r.date ? new Date(r.date) : null);
-          idByKey.set(key, athleteIdOf(r));
           athleteTeamByKey.set(key, at);
         }
       }
@@ -334,6 +325,7 @@ async function main(): Promise<void> {
         newE: RawInjuryEvent;
         espnId?: string;
         athleteTeam?: string;
+        byProd: ResolvedPlayerInfo | null;
         byName: ResolvedPlayerInfo | null;
         byId: ResolvedPlayerInfo | null;
         before: Outcome;
@@ -342,21 +334,23 @@ async function main(): Promise<void> {
       let done = 0;
       const rows = await pool(newEvents.map((e, i) => [oldEvents[i], e] as const), concurrency, async ([oldE, newE]) => {
         const key = rowKey(newE.team, newE.athlete_name, newE.reported_at);
-        const espnId = idByKey.get(key);
+        const espnId = newE.espn_athlete_id;
+        let byProd: ResolvedPlayerInfo | null = null;
         let byName: ResolvedPlayerInfo | null = null;
-        let byId: ResolvedPlayerInfo | null = null;
         try {
-          byName = await resolve(newE.athlete_name, sport);
-          byId = espnId ? await resolve(newE.athlete_name, sport, espnId) : null;
+          byProd = await resolve(newE.athlete_name, sport, espnId);
+          byName = espnId ? await resolve(newE.athlete_name, sport) : byProd;
         } catch (err) {
           zero.resolveFailures++;
           console.error(`  RESOLVE FAILED ${err instanceof Error ? err.message : String(err)}`);
           return null;
         }
-        const before = outcomeOf(await validateEvent(oldE, byName, { now }));
-        const after = outcomeOf(await validateEvent(newE, byName, { now }));
+        // Truth is the id lookup — and only when there IS an id.
+        const byId = espnId ? byProd : null;
+        const before = outcomeOf(await validateEvent(oldE, byProd, { now }));
+        const after = outcomeOf(await validateEvent(newE, byProd, { now }));
         if (++done % 100 === 0) process.stderr.write(`  … ${sport} ${done}/${newEvents.length}\n`);
-        const row: Row = { oldE, newE, espnId, athleteTeam: athleteTeamByKey.get(key), byName, byId, before, after };
+        const row: Row = { oldE, newE, espnId, athleteTeam: athleteTeamByKey.get(key), byProd, byName, byId, before, after };
         return row;
       });
       const scored = rows.filter((r): r is Row => r !== null);
@@ -373,9 +367,10 @@ async function main(): Promise<void> {
         return [...m].map(([k, n]) => `${k}=${n}`).join(' ');
       };
       console.log(`  scored ${scored.length} of ${newEvents.length} (resolve failures ${newEvents.length - scored.length})`);
-      console.log(`  rows with no ESPN athlete id in links: ${noId}`);
-      console.log(`  by name (production): ${byConf((r) => r.byName)}`);
-      console.log(`  by ESPN id (truth):    ${byConf((r) => r.byId)}`);
+      console.log(`  rows with no espn_athlete_id from parse(): ${noId}`);
+      console.log(`  as the poller resolves (production): ${byConf((r) => r.byProd)}`);
+      console.log(`  by name only (pre-id, info):          ${byConf((r) => r.byName)}`);
+      console.log(`  by ESPN id (truth):                    ${byConf((r) => r.byId)}`);
       const idDrift = scored.filter((r) => r.byName && r.byId && r.byName.player_id !== r.byId.player_id);
       console.log(`  name lookup lands elsewhere than id lookup (ambiguous or another player): ${idDrift.length}`);
       for (const r of idDrift) {
@@ -436,7 +431,7 @@ async function main(): Promise<void> {
         `    ${r.newE.athlete_name.padEnd(24)} ${r.before.verdict}→${r.after.verdict}  ` +
         `+[${r.after.forcing.filter((c) => !r.before.forcing.includes(c)).concat(r.after.hard.filter((c) => !r.before.hard.includes(c))).join(',')}]\n` +
         `      ESPN group="${r.newE.team}"  athlete.team="${r.athleteTeam ?? '-'}"  ` +
-        `roster(name)="${rosterTeamOf(r.byName)}"  roster(id ${r.espnId ?? '-'})="${rosterTeamOf(r.byId)}"  ` +
+        `roster(prod)="${rosterTeamOf(r.byProd)}"  roster(id ${r.espnId ?? '-'})="${rosterTeamOf(r.byId)}"  ` +
         `status=${r.newE.athlete_status ?? '-'} reported=${r.newE.reported_at.toISOString().slice(0, 10)}`;
       if (newDrops.length) {
         console.log('\n  NEW HARD DROPS:');

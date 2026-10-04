@@ -19,6 +19,15 @@
 // VOID, not RESOLVED: a shell never described a real injury, so there is no
 // projection to score. web_thread_close writes the thread_voided audit row.
 //
+// closed_by is the literal 'system' and is not configurable. closeThread maps
+//   actor: closed_by && closed_by !== "system" ? "md" : "system"
+// and EXEMPTS any non-'system' caller from its system-caller refusals, so the
+// old default 'ops:void-thread' stamped every retraction as a physician's act
+// and let it close a thread that was not ACTIVE. Five live thread_voided rows
+// (2026-09-12 → 2026-09-16) carry actor=md for that reason; audit_log is
+// immutable, so they stay. Which script did it is recorded in a SECOND row,
+// actor 'automation', the same split close-backfill-shells.ts already uses.
+//
 // Usage:
 //   npx tsx src/scripts/void-thread.ts --entity-id=<uuid> --reason="..."
 //   npx tsx src/scripts/void-thread.ts --entity-id=<uuid> --reason="..." --apply --confirm
@@ -35,10 +44,25 @@
 // projection or an accuracy record.
 
 import 'dotenv/config';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { initializeMCPClients, callTool, disconnectAll } from '../utils/mcp-client-manager.js';
 import { isMCPError, extractMCPErrorMessage } from '../utils/publishing-pipeline.js';
 
-const DEFAULT_CLOSED_BY = 'ops:void-thread';
+/** MUST be the literal 'system' — see the header. Pinned by a test. */
+export const CLOSED_BY = 'system';
+/** Provenance for the companion audit row; never passed as closed_by. */
+export const ACTOR_ID = 'void-thread';
+
+/** The exact web_thread_close payload. Extracted so a test can pin closed_by. */
+export function buildCloseArgs(entityId: string, reason: string) {
+  return {
+    entity_id: entityId,
+    outcome: 'VOID' as const,
+    void_reason: reason,
+    closed_by: CLOSED_BY,
+  };
+}
 
 interface MCPResult {
   content?: Array<{ text?: string }>;
@@ -72,7 +96,7 @@ interface Entity {
   void_reason: string | null;
 }
 
-function parseArgs(argv: string[]) {
+export function parseArgs(argv: string[]) {
   const flag = (name: string): string | null => {
     const prefix = `--${name}=`;
     const hit = argv.find((a) => a.startsWith(prefix));
@@ -81,7 +105,9 @@ function parseArgs(argv: string[]) {
   return {
     entityId: flag('entity-id'),
     reason: flag('reason'),
-    closedBy: flag('closed-by') ?? DEFAULT_CLOSED_BY,
+    // Kept only so a stale invocation is REFUSED rather than silently ignored:
+    // any value it could carry other than 'system' would stamp a physician.
+    closedByGiven: argv.some((a) => a === '--closed-by' || a.startsWith('--closed-by=')),
     apply: argv.includes('--apply'),
     confirm: argv.includes('--confirm'),
     allowDated: argv.includes('--allow-dated'),
@@ -118,8 +144,17 @@ export function blockers(
   return out;
 }
 
-async function run(): Promise<void> {
+export async function run(): Promise<void> {
   const opts = parseArgs(process.argv.slice(2));
+  if (opts.closedByGiven) {
+    console.error(
+      "[void-thread] --closed-by is no longer accepted. closed_by is always 'system': any other " +
+        'value is recorded as a physician and bypasses the system-caller refusals. A retraction a ' +
+        'physician makes belongs in the review UI, not this script.',
+    );
+    process.exitCode = 1;
+    return;
+  }
   if (!opts.entityId) {
     console.error('[void-thread] --entity-id=<uuid> is required');
     process.exitCode = 1;
@@ -200,12 +235,7 @@ async function run(): Promise<void> {
   }
 
   const closed = unwrap<{ entity: Entity }>(
-    await callTool('web', 'web_thread_close', {
-      entity_id: entity.id,
-      outcome: 'VOID',
-      void_reason: opts.reason,
-      closed_by: opts.closedBy,
-    }),
+    await callTool('web', 'web_thread_close', buildCloseArgs(entity.id, opts.reason)),
   );
   if (!closed?.entity) {
     console.error('[void-thread] web_thread_close returned no entity — verify by hand');
@@ -226,6 +256,25 @@ async function run(): Promise<void> {
     return;
   }
   console.log(`[void-thread] ${entity.id} is VOID. void_reason stored:\n  ${after.entity.void_reason}`);
+
+  // closeThread's own row is actor 'system' with no script identity. This one
+  // says which tool did it. The VOID has already landed, so a failure here is
+  // reported, not fatal — but it is checked, because a rejected append is a
+  // normal value carrying isError, never a throw.
+  const appended = await callTool('web', 'web_audit_append', {
+    actor: 'automation',
+    actor_id: ACTOR_ID,
+    entity_type: 'injury_thread',
+    entity_id: entity.id,
+    action: 'ops_thread_voided',
+    payload: { allow_dated: opts.allowDated, injury_date: entity.injury_date },
+  });
+  if (isMCPError(appended)) {
+    console.error(
+      `[void-thread] VOID landed but the provenance audit row was rejected: ${extractMCPErrorMessage(appended)}`,
+    );
+    process.exitCode = 1;
+  }
 }
 
 async function main(): Promise<void> {
@@ -237,7 +286,10 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  console.error('[void-thread] fatal:', err);
-  process.exit(1);
-});
+// Only run when invoked directly, so the tests can import the pure parts.
+if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {
+  main().catch((err) => {
+    console.error('[void-thread] fatal:', err);
+    process.exit(1);
+  });
+}
