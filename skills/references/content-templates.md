@@ -1,7 +1,7 @@
 # Content Templates Reference
 ## ParatrOs — Publishing Intelligence Layer
 
-> **Status:** Session 3 Draft — Pending Physician Founder Sign-Off
+> **Status:** Signed off by the physician founder, 2026-10-03
 > **Scope:** Full post templates for BREAKING / TRACKING / DEEP_DIVE / CONFLICT_FLAG across X, Farcaster, and Web. Platform character limits. Signature conventions. Hashtag and formatting rules.
 > **Integrates with:** SKILL.md (Section 4: Voice, Platform Adaptation, Content Type Rules)
 
@@ -754,7 +754,7 @@ Consistency builds credibility.]
 
 ---
 
-*Reference file drafted Session 3. Pending physician founder sign-off before deployment to `sidelineiq-agents/skills/`.*
+*Reference file drafted Session 3. Signed off by the physician founder, 2026-10-03.*
 
 *Revised 2026-09-15 on physician founder review: added the `subject_kind:
 INJURY_TYPE` headline variants. The file previously showed only
@@ -762,7 +762,7 @@ INJURY_TYPE` headline variants. The file previously showed only
 alone while the trending-type scheduler was already producing topic-led posts —
 and it is the topic-led form that carries the AequOs CTA.*
 
-*Revised 2026-09-17 for the ParatrOs rename, pending physician founder
+*Revised 2026-09-17 for the ParatrOs rename, reviewed by the physician founder
 review: the OrthoTriage Master persona is retired. Bylines, signatures and
 template text now name the platform (ParatrOs) or speak as "we"; "OTM"
 survives only as the name of the internal classification taxonomy. The web

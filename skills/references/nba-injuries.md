@@ -1,7 +1,7 @@
 # NBA Injuries Reference
 ## ParatrOs — Sport-Specific Intelligence Layer (OTM framework)
 
-> **Status:** Session 3 Draft — Pending Physician Founder Sign-Off
+> **Status:** Signed off by the physician founder, 2026-10-03
 > **Scope:** NBA-specific injury prevalence, load management vs. injury distinction rules, back-to-back and playoff context, seasonal load patterns, and underreported injury flags
 > **Integrates with:** SKILL.md (Section 2: RTP Framework, Section 3: NBA Demand Profile), rtp-probability-tables.md
 
@@ -265,4 +265,4 @@ The NBA's most clinically significant underreported injury pattern follows a rec
 
 ---
 
-*Reference file drafted Session 3. Pending physician founder sign-off before deployment to `sidelineiq-agents/skills/references/`.*
+*Reference file drafted Session 3. Signed off by the physician founder, 2026-10-03.*

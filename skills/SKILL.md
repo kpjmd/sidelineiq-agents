@@ -1,6 +1,6 @@
 ---
 name: Sports Injury Intelligence Skill
-version: 0.1.1-draft
+version: 0.1.1
 author: ParatrOs — Physician Founder Review Required
 description: >
   Invoke this skill whenever the Injury Intelligence Agent processes a
@@ -9,7 +9,7 @@ description: >
   team timeline conflict flagging, content generation by type, and
   ParatrOs voice and platform adaptation.
   Do not generate injury intelligence content without this skill active.
-status: DRAFT — Pending physician founder sign-off
+status: SIGNED OFF — Physician founder, 2026-10-03
 reviewed_by: Physician Founder (board-certified orthopedic surgeon)
 sections:
   - "1. Injury Classification Taxonomy"
@@ -596,6 +596,6 @@ guidance is redirected to AequOs without exception.
   (other than AequOs as the platform's own referral destination)
 
 ---
-*End of SKILL.md v0.1.0-draft*
+*End of SKILL.md v0.1.1*
 *Next: references/rtp-probability-tables.md and sport-specific reference files*
-*Status: Awaiting physician founder clinical sign-off*
+*Status: Signed off by the physician founder, 2026-10-03*

@@ -1,7 +1,7 @@
 # NFL Injuries Reference
 ## ParatrOs — Sport-Specific Intelligence Layer (OTM framework)
 
-> **Status:** Session 3 Draft — Pending Physician Founder Sign-Off
+> **Status:** Signed off by the physician founder, 2026-10-03
 > **Scope:** NFL-specific injury prevalence, practice report interpretation, position-group archetypes, and underreported injury flags
 > **Integrates with:** SKILL.md (Section 2: RTP Framework, Section 3: NFL Demand Profile), rtp-probability-tables.md
 
@@ -347,4 +347,4 @@ These injury types are consistently misrepresented in media coverage. OTM is tra
 
 ---
 
-*Reference file drafted Session 3. Pending physician founder sign-off before deployment to `sidelineiq-agents/skills/references/`.*
+*Reference file drafted Session 3. Signed off by the physician founder, 2026-10-03.*

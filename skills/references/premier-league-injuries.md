@@ -1,7 +1,7 @@
 # Premier League Injuries Reference
 ## ParatrOs — Sport-Specific Intelligence Layer (OTM framework)
 
-> **Status:** Session 3 Draft — Pending Physician Founder Sign-Off
+> **Status:** Signed off by the physician founder, 2026-10-03
 > **Scope:** PL-specific injury prevalence, fixture congestion context, international duty handling, pitch condition modifiers, and underreported injury flags
 > **Integrates with:** SKILL.md (Section 2: RTP Framework, Section 3: PL Demand Profile), rtp-probability-tables.md
 
@@ -330,4 +330,4 @@ Modern PL pitches use **Desso GrassMaster** construction (97% natural grass, 3% 
 
 ---
 
-*Reference file drafted Session 3. Pending physician founder sign-off before deployment to `sidelineiq-agents/skills/references/`.*
+*Reference file drafted Session 3. Signed off by the physician founder, 2026-10-03.*

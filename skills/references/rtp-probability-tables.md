@@ -89,4 +89,4 @@ For use in DEEP_DIVE numeric probability content only.
 | Meniscus partial resection    | 3     | T2   | 4–8 weeks          |                                    |
 
 ---
-*Status: Awaiting physician founder sign-off*
+*Status: Signed off by the physician founder, 2026-10-03*
