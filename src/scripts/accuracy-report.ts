@@ -18,8 +18,8 @@
  *
  * Publication rules are printed, not enforced: no number below n = 20 leaves
  * the admin view, G1 (the kill switch) is evaluable only at n ≥ 30, and a page
- * that publishes one must not cite skills/ as a clinical standard while
- * SKILL.md and its references are unsigned.
+ * that publishes one carries these definitions beside it. (skills/ was signed
+ * off by the physician founder on 2026-10-03.)
  *
  * Usage:
  *   npx tsx src/scripts/accuracy-report.ts
@@ -206,9 +206,8 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    '\n  Governance: skills/SKILL.md and its 6 reference files are DRAFT — pending physician founder\n' +
-      '  sign-off. A public page describes what the system does (these definitions, these counts) and\n' +
-      '  must not cite skills/ as a clinical standard until they are signed.\n',
+    '\n  Governance: skills/SKILL.md and its 6 reference files were signed off by the physician founder\n' +
+      '  on 2026-10-03. A public page still publishes these definitions, unchanged, beside the number.\n',
   );
 }
 

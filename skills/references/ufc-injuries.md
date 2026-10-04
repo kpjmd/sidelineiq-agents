@@ -1,7 +1,7 @@
 # UFC / MMA Injuries Reference
 ## ParatrOs — Sport-Specific Intelligence Layer (OTM framework)
 
-> **Status:** Session 3 Draft — Pending Physician Founder Sign-Off
+> **Status:** Signed off by the physician founder, 2026-10-03
 > **Scope:** UFC/MMA-specific injury prevalence, fighting style modifiers, commission suspension taxonomy, weight cut context, short-notice replacement flags, and underreported injury patterns
 > **Integrates with:** SKILL.md (Section 2: RTP Framework, Section 3: UFC Demand Profile), rtp-probability-tables.md
 
@@ -328,4 +328,4 @@ Fighters frequently disclose injuries sustained during or before a fight only af
 
 ---
 
-*Reference file drafted Session 3. Pending physician founder sign-off before deployment to `sidelineiq-agents/skills/references/`.*
+*Reference file drafted Session 3. Signed off by the physician founder, 2026-10-03.*
