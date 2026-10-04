@@ -9,7 +9,20 @@ interface ESPNInjuryFeed {
   injuries?: ESPNTeamInjuries[];
 }
 
+/**
+ * One team's block of the injuries table.
+ *
+ * The live shape (verified 2026-10-03, NFL and NBA) is `{ id, displayName,
+ * injuries }` — the team is named ON THE GROUP. There is no `team` object. The
+ * nested `team` is kept only as a fallback for the shape this was first written
+ * against; nothing has served it since at least 2026-08-19, and reading only it
+ * set `team: 'Unknown'` on every row (753 of 753 NFL), which the fact validator
+ * then filled from the roster — so the team check never compared anything for
+ * a feed row. See parse().
+ */
 interface ESPNTeamInjuries {
+  id?: string;
+  displayName?: string;
   team?: {
     displayName?: string;
     shortDisplayName?: string;
@@ -25,6 +38,13 @@ interface ESPNInjuryRecord {
    * The row carries NO `athlete.id` (verified 2026-10-03: 0 of 800 NFL rows).
    * ESPN's athlete id is only inside the profile URLs in `links`, and every row
    * has one — see espnAthleteIdFromLinks.
+   *
+   * `athlete.team` also exists on the live feed and is deliberately NOT
+   * declared: it is STALE across trades. 7 of 61 live NBA rows (2026-10-03)
+   * sit in one team's group while athlete.team names the club they left —
+   * Brandon Ingram in the Clippers group with athlete.team "Toronto Raptors",
+   * under a comment about the Clippers. The group agreed with the prose in all
+   * seven. Not declaring it keeps it out of reach of the team fallback chain.
    */
   athlete?: {
     displayName?: string;
@@ -249,7 +269,13 @@ export abstract class ESPNInjurySource implements SportDataSource {
 
     for (const group of teamGroups) {
       const t = group.team;
+      // The group's own displayName first — it is the live shape, and it is the
+      // team that currently lists the athlete. An unresolvable team falls back
+      // to 'Unknown', which the fact validator treats as a gap and fills from
+      // the roster: the safe direction, and exactly what happened before this
+      // was read at all. Never fall back to athlete.team (see ESPNInjuryRecord).
       const teamName =
+        sanitizeTeamName(group.displayName) ??
         sanitizeTeamName(t?.displayName) ??
         sanitizeTeamName(t?.shortDisplayName) ??
         (t?.location && t?.name ? `${t.location} ${t.name}` : undefined) ??
