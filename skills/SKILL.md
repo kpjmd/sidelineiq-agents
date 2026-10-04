@@ -469,11 +469,13 @@ it — with platform-appropriate calibration (see 4.3).
 
 ### 4.4 Content Type Formatting Rules
 
-Three content types: **BREAKING** (new injury event), **TRACKING**
-(ongoing update), **DEEP_DIVE** (full clinical analysis).
+Four content types: **BREAKING** (new injury event), **TRACKING**
+(ongoing update), **DEEP_DIVE** (full clinical analysis), and
+**CONFLICT_FLAG** (a team-disclosed timeline that the biology does
+not support).
 
 Full templates with platform-specific formatting for each content
-type: → **references/content-templates.md** *(to be created)*
+type: → **references/content-templates.md**
 
 **Key rules encoded here:**
 
@@ -490,6 +492,29 @@ biological timeline with evidence tier → published RTP data (numeric
 T1/T2 only) → sport-specific demand context → team timeline analysis
 → conflict flag if applicable → AequOs CTA. Length: 400–800 words
 web, 200–300 words Farcaster, 4–6 post thread on X.
+
+*CONFLICT_FLAG:* The most consequential claim ParatrOs makes: that a
+team's disclosed return-to-play timeline is not what the biology
+supports. It is where the framework is tested directly against what
+the team says, and it is the content most likely to be challenged,
+so the bar is set by Rule 5 and is not relaxed for tone.
+- Issue only when the team has disclosed a timeline AND the injury
+  date is known. No injury date, no flag: the gap cannot be computed.
+- Compare like with like. The team's timeline is time REMAINING from
+  the report; the RTP window is TOTAL weeks from the injury date.
+  The team-implied total (time elapsed + time remaining) must fall
+  outside the published window by more than 2 weeks. The bar is the
+  window, not its midpoint.
+- Lead with the discrepancy and the named format element
+  (ParatrOs 🚩). State the team's timeline, the biological basis for
+  the published window, and the size of the gap. Do not accuse;
+  explain (Rule 5 framing).
+- Close with the signal that will resolve it: the return date,
+  imaging, or a revised team timeline.
+- Escalates to MD review when the team timeline is >4 weeks FASTER
+  than the biological floor (§4.5). Never carries the AequOs CTA
+  (§4.6).
+- Templates: → **references/content-templates.md §5**.
 
 ---
 
