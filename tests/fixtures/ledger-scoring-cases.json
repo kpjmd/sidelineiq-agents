@@ -1,0 +1,154 @@
+{
+  "scoring_version": 1,
+  "_recorded_from": "hand-computed synthetic cases (the arithmetic is stated, not recorded from the implementation); live cases are appended by src/scripts/ledger-scoreboard.ts --emit-fixture once entries exist",
+  "_recorded_at": "2026-10-04",
+  "_note": "Shared by sidelineiq-agents (src/ledger/scoring.ts) and sidelineiq-frontend (lib/ledger-scoring.ts). The two implementations are byte-identical and this file is what stops them drifting: copy it to both repos together. scoring_version must equal LEDGER_SCORING_VERSION in both.",
+  "cases": [
+    {
+      "name": "two entries; one revision counts for F2/F3/F4 but not for F1 (published after the IR freeze)",
+      "source": "synthetic",
+      "forecasts": [
+        { "entry_id": "PT-2026-001", "version": 1, "published_at": "2026-09-20T22:00:00.000Z", "f1_ir": 0.2, "f2_next": 0.1, "f3_4wk": 0.6, "f4_point": 3, "f4_low": 2, "f4_high": 5, "f5_reinjury": 0.2 },
+        { "entry_id": "PT-2026-001", "version": 2, "published_at": "2026-09-24T12:00:00.000Z", "f1_ir": "0.9000", "f2_next": "0.0000", "f3_4wk": "0.1000", "f4_point": "6", "f4_low": "4", "f4_high": "8", "f5_reinjury": "0.3000" },
+        { "entry_id": "PT-2026-002", "version": 1, "published_at": "2026-09-27T20:00:00.000Z", "f1_ir": 0.1, "f2_next": 0.7, "f3_4wk": 0.9, "f4_point": 1, "f4_low": 0, "f4_high": 2, "f5_reinjury": 0.1 }
+      ],
+      "resolutions": [
+        { "entry_id": "PT-2026-001", "field": "F1", "status": "resolved", "outcome": 1, "freeze_at": "2026-09-23T04:00:00.000Z" },
+        { "entry_id": "PT-2026-001", "field": "F2", "status": "resolved", "outcome": 0, "freeze_at": "2026-09-27T17:00:00.000Z" },
+        { "entry_id": "PT-2026-001", "field": "F3", "status": "resolved", "outcome": "0", "freeze_at": "2026-10-19T04:00:00.000Z" },
+        { "entry_id": "PT-2026-001", "field": "F4", "status": "resolved", "outcome": 6, "freeze_at": "2026-11-01T18:00:00.000Z" },
+        { "entry_id": "PT-2026-001", "field": "F5", "status": "open", "outcome": null, "freeze_at": null },
+        { "entry_id": "PT-2026-002", "field": "F1", "status": "resolved", "outcome": 0, "freeze_at": "2026-10-05T04:00:00.000Z" },
+        { "entry_id": "PT-2026-002", "field": "F2", "status": "resolved", "outcome": 1, "freeze_at": "2026-10-04T17:00:00.000Z" },
+        { "entry_id": "PT-2026-002", "field": "F3", "status": "resolved", "outcome": 1, "freeze_at": "2026-10-04T17:00:00.000Z" },
+        { "entry_id": "PT-2026-002", "field": "F4", "status": "resolved", "outcome": 0, "freeze_at": "2026-10-04T17:00:00.000Z" },
+        { "entry_id": "PT-2026-002", "field": "F5", "status": "void", "outcome": null, "freeze_at": "2026-10-04T17:00:00.000Z", "void_reason": "traded" }
+      ],
+      "expect": {
+        "initial": {
+          "brier": { "F1": { "n": 2, "brier": 0.325 }, "F2": { "n": 2, "brier": 0.05 }, "F3": { "n": 2, "brier": 0.185 }, "F5": { "n": 0, "brier": null } },
+          "f4": { "n": 2, "mae": 2, "coverage": 0.5 }
+        },
+        "latest": {
+          "brier": { "F1": { "n": 2, "brier": 0.325 }, "F2": { "n": 2, "brier": 0.045 }, "F3": { "n": 2, "brier": 0.01 }, "F5": { "n": 0, "brier": null } },
+          "f4": { "n": 2, "mae": 0.5, "coverage": 1 }
+        },
+        "revision_delta": { "brier": { "F1": 0, "F2": -0.005, "F3": -0.175, "F5": null }, "f4_mae": -1.5 },
+        "voids": [{ "entry_id": "PT-2026-002", "field": "F5", "void_reason": "traded" }],
+        "exclusions": [],
+        "open_fields": 1,
+        "entries_scored": 2,
+        "latest_versions": { "PT-2026-001/F1": 1, "PT-2026-001/F2": 2, "PT-2026-001/F3": 2, "PT-2026-001/F4": 2, "PT-2026-002/F2": 1 },
+        "calibration_initial_F2": [
+          { "lo": 0.1, "hi": 0.2, "n": 1, "forecast_mean": 0.1, "observed_rate": 0, "published": false },
+          { "lo": 0.7, "hi": 0.8, "n": 1, "forecast_mean": 0.7, "observed_rate": 1, "published": false }
+        ]
+      }
+    },
+    {
+      "name": "exclusions are named, never silently dropped: no v1, v1 after freeze, non-binary outcome, missing F5 value",
+      "source": "synthetic",
+      "forecasts": [
+        { "entry_id": "PT-2026-010", "version": 2, "published_at": "2026-09-24T12:00:00.000Z", "f1_ir": 0.5, "f2_next": 0.5, "f3_4wk": 0.5, "f4_point": 2, "f4_low": 1, "f4_high": 3, "f5_reinjury": 0.1 },
+        { "entry_id": "PT-2026-011", "version": 1, "published_at": "2026-09-27T18:00:00.000Z", "f1_ir": 0.5, "f2_next": 0.5, "f3_4wk": 0.5, "f4_point": 2, "f4_low": 1, "f4_high": 3, "f5_reinjury": null }
+      ],
+      "resolutions": [
+        { "entry_id": "PT-2026-010", "field": "F2", "status": "resolved", "outcome": 1, "freeze_at": "2026-09-27T17:00:00.000Z" },
+        { "entry_id": "PT-2026-011", "field": "F2", "status": "resolved", "outcome": 1, "freeze_at": "2026-09-27T17:00:00.000Z" },
+        { "entry_id": "PT-2026-011", "field": "F1", "status": "resolved", "outcome": 0.5, "freeze_at": "2026-10-05T04:00:00.000Z" },
+        { "entry_id": "PT-2026-011", "field": "F5", "status": "resolved", "outcome": 0, "freeze_at": "2026-11-01T18:00:00.000Z" },
+        { "entry_id": "PT-2026-011", "field": "F4", "status": "resolved", "outcome": 1.5, "freeze_at": "2026-11-01T18:00:00.000Z" },
+        { "entry_id": "PT-2026-011", "field": "F3", "status": "resolved", "outcome": 1, "freeze_at": null }
+      ],
+      "expect": {
+        "initial": {
+          "brier": { "F1": { "n": 0, "brier": null }, "F2": { "n": 0, "brier": null }, "F3": { "n": 0, "brier": null }, "F5": { "n": 0, "brier": null } },
+          "f4": { "n": 0, "mae": null, "coverage": null }
+        },
+        "latest": {
+          "brier": { "F1": { "n": 0, "brier": null }, "F2": { "n": 0, "brier": null }, "F3": { "n": 0, "brier": null }, "F5": { "n": 0, "brier": null } },
+          "f4": { "n": 0, "mae": null, "coverage": null }
+        },
+        "revision_delta": { "brier": { "F1": null, "F2": null, "F3": null, "F5": null }, "f4_mae": null },
+        "voids": [],
+        "exclusions": [
+          { "entry_id": "PT-2026-010", "field": "F2", "reason": "no_v1" },
+          { "entry_id": "PT-2026-011", "field": "F1", "reason": "outcome_not_binary" },
+          { "entry_id": "PT-2026-011", "field": "F2", "reason": "v1_after_freeze" },
+          { "entry_id": "PT-2026-011", "field": "F3", "reason": "no_freeze_at" },
+          { "entry_id": "PT-2026-011", "field": "F4", "reason": "outcome_not_integer" },
+          { "entry_id": "PT-2026-011", "field": "F5", "reason": "no_forecast_value" }
+        ],
+        "open_fields": 0,
+        "entries_scored": 0,
+        "latest_versions": {},
+        "calibration_initial_F2": []
+      }
+    },
+    {
+      "name": "a calibration bucket publishes at n ≥ 5; Brier reported to three decimals",
+      "source": "synthetic",
+      "forecasts": [
+        { "entry_id": "PT-2026-021", "version": 1, "published_at": "2026-09-20T22:00:00.000Z", "f1_ir": 0, "f2_next": 0.15, "f3_4wk": 0, "f4_point": 0, "f4_low": 0, "f4_high": 0, "f5_reinjury": 0 },
+        { "entry_id": "PT-2026-022", "version": 1, "published_at": "2026-09-20T22:00:00.000Z", "f1_ir": 0, "f2_next": 0.15, "f3_4wk": 0, "f4_point": 0, "f4_low": 0, "f4_high": 0, "f5_reinjury": 0 },
+        { "entry_id": "PT-2026-023", "version": 1, "published_at": "2026-09-20T22:00:00.000Z", "f1_ir": 0, "f2_next": 0.15, "f3_4wk": 0, "f4_point": 0, "f4_low": 0, "f4_high": 0, "f5_reinjury": 0 },
+        { "entry_id": "PT-2026-024", "version": 1, "published_at": "2026-09-20T22:00:00.000Z", "f1_ir": 0, "f2_next": 0.15, "f3_4wk": 0, "f4_point": 0, "f4_low": 0, "f4_high": 0, "f5_reinjury": 0 },
+        { "entry_id": "PT-2026-025", "version": 1, "published_at": "2026-09-20T22:00:00.000Z", "f1_ir": 0, "f2_next": 0.15, "f3_4wk": 0, "f4_point": 0, "f4_low": 0, "f4_high": 0, "f5_reinjury": 0 },
+        { "entry_id": "PT-2026-026", "version": 1, "published_at": "2026-09-20T22:00:00.000Z", "f1_ir": 0, "f2_next": 0.15, "f3_4wk": 0, "f4_point": 0, "f4_low": 0, "f4_high": 0, "f5_reinjury": 0 },
+        { "entry_id": "PT-2026-027", "version": 1, "published_at": "2026-09-20T22:00:00.000Z", "f1_ir": 0, "f2_next": 1, "f3_4wk": 0, "f4_point": 0, "f4_low": 0, "f4_high": 0, "f5_reinjury": 0 }
+      ],
+      "resolutions": [
+        { "entry_id": "PT-2026-021", "field": "F2", "status": "resolved", "outcome": 1, "freeze_at": "2026-09-27T17:00:00.000Z" },
+        { "entry_id": "PT-2026-022", "field": "F2", "status": "resolved", "outcome": 0, "freeze_at": "2026-09-27T17:00:00.000Z" },
+        { "entry_id": "PT-2026-023", "field": "F2", "status": "resolved", "outcome": 0, "freeze_at": "2026-09-27T17:00:00.000Z" },
+        { "entry_id": "PT-2026-024", "field": "F2", "status": "resolved", "outcome": 0, "freeze_at": "2026-09-27T17:00:00.000Z" },
+        { "entry_id": "PT-2026-025", "field": "F2", "status": "resolved", "outcome": 0, "freeze_at": "2026-09-27T17:00:00.000Z" },
+        { "entry_id": "PT-2026-026", "field": "F2", "status": "resolved", "outcome": 0, "freeze_at": "2026-09-27T17:00:00.000Z" },
+        { "entry_id": "PT-2026-027", "field": "F2", "status": "resolved", "outcome": 1, "freeze_at": "2026-09-27T17:00:00.000Z" }
+      ],
+      "expect": {
+        "initial": {
+          "brier": { "F1": { "n": 0, "brier": null }, "F2": { "n": 7, "brier": 0.119 }, "F3": { "n": 0, "brier": null }, "F5": { "n": 0, "brier": null } },
+          "f4": { "n": 0, "mae": null, "coverage": null }
+        },
+        "latest": {
+          "brier": { "F1": { "n": 0, "brier": null }, "F2": { "n": 7, "brier": 0.119 }, "F3": { "n": 0, "brier": null }, "F5": { "n": 0, "brier": null } },
+          "f4": { "n": 0, "mae": null, "coverage": null }
+        },
+        "revision_delta": { "brier": { "F1": null, "F2": 0, "F3": null, "F5": null }, "f4_mae": null },
+        "voids": [],
+        "exclusions": [],
+        "open_fields": 0,
+        "entries_scored": 7,
+        "latest_versions": { "PT-2026-021/F2": 1 },
+        "calibration_initial_F2": [
+          { "lo": 0.1, "hi": 0.2, "n": 6, "forecast_mean": 0.15, "observed_rate": 0.167, "published": true },
+          { "lo": 0.9, "hi": 1, "n": 1, "forecast_mean": 1, "observed_rate": 1, "published": false }
+        ]
+      }
+    },
+    {
+      "name": "empty ledger",
+      "source": "synthetic",
+      "forecasts": [],
+      "resolutions": [],
+      "expect": {
+        "initial": {
+          "brier": { "F1": { "n": 0, "brier": null }, "F2": { "n": 0, "brier": null }, "F3": { "n": 0, "brier": null }, "F5": { "n": 0, "brier": null } },
+          "f4": { "n": 0, "mae": null, "coverage": null }
+        },
+        "latest": {
+          "brier": { "F1": { "n": 0, "brier": null }, "F2": { "n": 0, "brier": null }, "F3": { "n": 0, "brier": null }, "F5": { "n": 0, "brier": null } },
+          "f4": { "n": 0, "mae": null, "coverage": null }
+        },
+        "revision_delta": { "brier": { "F1": null, "F2": null, "F3": null, "F5": null }, "f4_mae": null },
+        "voids": [],
+        "exclusions": [],
+        "open_fields": 0,
+        "entries_scored": 0,
+        "latest_versions": {},
+        "calibration_initial_F2": []
+      }
+    }
+  ]
+}
