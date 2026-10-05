@@ -308,28 +308,45 @@ export async function generateReply(
   }
 }
 
-// ── Publish ──────────────────────────────────────────────────────────
+// ── Propose (D6, 2026-10-04) ─────────────────────────────────────────
+//
+// This agent used to post its own replies here. It no longer calls a social
+// tool at all: the drafted text is filed as a proposal (web_propose_reply) and
+// the physician posts or discards it from /admin/ledger/replies. The only code
+// that posts a reply is src/ledger/publish-reply.ts, reachable from
+// POST /admin/ledger/reply/:id with an APPROVED proposal. A test greps this
+// file for the two social publish tool names; neither may reappear.
 
-interface PublishReplyResult {
-  replyId: string;
+interface ProposeReplyResult {
+  proposalId: string;
+  status: 'created' | 'duplicate';
 }
 
-async function publishReply(mention: SocialMention, replyText: string): Promise<PublishReplyResult> {
-  if (mention.platform === 'twitter') {
-    const raw = await callTool('twitter', 'twitter_publish_tweet', {
-      text: replyText,
-      reply_to_id: mention.mentionId,
-    });
-    const parsed = JSON.parse((raw as { content: Array<{ text: string }> }).content[0].text) as { id: string };
-    return { replyId: parsed.id };
-  } else {
-    const raw = await callTool('farcaster', 'farcaster_publish_cast', {
-      text: replyText,
-      parent_cast_hash: mention.mentionId,
-    });
-    const parsed = JSON.parse((raw as { content: Array<{ text: string }> }).content[0].text) as { hash: string };
-    return { replyId: parsed.hash };
-  }
+/** The mcp names the platform 'x'; this repo's SocialPlatform says 'twitter'. */
+export function proposalPlatform(platform: SocialMention['platform']): 'x' | 'farcaster' {
+  return platform === 'twitter' ? 'x' : 'farcaster';
+}
+
+/** A link the physician can open to read the mention in context. */
+export function mentionUrl(mention: Pick<SocialMention, 'platform' | 'mentionId'>): string {
+  return mention.platform === 'twitter'
+    ? `https://x.com/i/web/status/${mention.mentionId}`
+    : `https://warpcast.com/~/conversations/${mention.mentionId}`;
+}
+
+export async function proposeReply(mention: SocialMention, replyText: string): Promise<ProposeReplyResult> {
+  const raw = await callTool('web', 'web_propose_reply', {
+    platform: proposalPlatform(mention.platform),
+    mention_id: mention.mentionId,
+    mention_url: mentionUrl(mention),
+    mention_author: mention.authorHandle,
+    mention_text: mention.text,
+    proposed_text: replyText,
+  });
+  const res = raw as { isError?: boolean; content: Array<{ text: string }> };
+  if (res.isError) throw new Error(`web_propose_reply: ${res.content?.[0]?.text ?? 'unknown error'}`);
+  const parsed = JSON.parse(res.content[0].text) as { proposal: { id: string }; status: 'created' | 'duplicate' };
+  return { proposalId: parsed.proposal.id, status: parsed.status };
 }
 
 // ── Orchestrator ─────────────────────────────────────────────────────
@@ -338,9 +355,11 @@ export interface MentionProcessResult {
   mentionId: string;
   platform: SocialMention['platform'];
   intent: MentionIntent;
-  action: 'replied' | 'queued_correction' | 'ignored';
+  /** 'proposed': filed for the physician; nothing was posted. */
+  action: 'proposed' | 'queued_correction' | 'ignored';
   replyText?: string;
-  replyId?: string;
+  /** The reply_proposals row id, when one was filed. */
+  proposalId?: string;
 }
 
 export async function processMention(mention: SocialMention): Promise<MentionProcessResult> {
@@ -399,42 +418,40 @@ export async function processMention(mention: SocialMention): Promise<MentionPro
       }
     }
 
-    // Still post the gracious acknowledgment reply
-    let replyId: string | undefined;
+    // File the acknowledgment as a proposal; the physician decides whether it goes out.
+    let proposalId: string | undefined;
     if (!isDryRun) {
       try {
-        const result = await publishReply(mention, replyText);
-        replyId = result.replyId;
+        proposalId = (await proposeReply(mention, replyText)).proposalId;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        console.warn(`[ReplyAgent] Failed to publish correction reply: ${message}`);
+        console.warn(`[ReplyAgent] Failed to file correction reply proposal: ${message}`);
       }
     } else {
-      console.log(`[ReplyAgent] [DRY RUN] Would reply to @${mention.authorHandle}: "${replyText}"`);
+      console.log(`[ReplyAgent] [DRY RUN] Would propose a reply to @${mention.authorHandle}: "${replyText}"`);
     }
 
-    await logProcessedMention(mention, intent, confidence, 'QUEUED_CORRECTION', replyText, replyId ?? null);
-    return { mentionId: mention.mentionId, platform: mention.platform, intent, action: 'queued_correction', replyText, replyId };
+    await logProcessedMention(mention, intent, confidence, 'QUEUED_CORRECTION', replyText, null);
+    return { mentionId: mention.mentionId, platform: mention.platform, intent, action: 'queued_correction', replyText, proposalId };
   }
 
-  // Step 5: All other non-IGNORE intents → publish reply
-  let replyId: string | undefined;
+  // Step 5: All other non-IGNORE intents → file a proposal for the physician
+  let proposalId: string | undefined;
   if (!isDryRun) {
     try {
-      const result = await publishReply(mention, replyText);
-      replyId = result.replyId;
+      proposalId = (await proposeReply(mention, replyText)).proposalId;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.warn(`[ReplyAgent] Failed to publish reply to @${mention.authorHandle}: ${message}`);
+      console.warn(`[ReplyAgent] Failed to file reply proposal for @${mention.authorHandle}: ${message}`);
       await logProcessedMention(mention, intent, confidence, 'IGNORED', replyText, null);
       return { mentionId: mention.mentionId, platform: mention.platform, intent, action: 'ignored' };
     }
   } else {
-    console.log(`[ReplyAgent] [DRY RUN] Would reply to @${mention.authorHandle} (${intent}): "${replyText}"`);
+    console.log(`[ReplyAgent] [DRY RUN] Would propose a reply to @${mention.authorHandle} (${intent}): "${replyText}"`);
   }
 
-  await logProcessedMention(mention, intent, confidence, 'REPLIED', replyText, replyId ?? null);
-  return { mentionId: mention.mentionId, platform: mention.platform, intent, action: 'replied', replyText, replyId };
+  await logProcessedMention(mention, intent, confidence, 'PROPOSED', replyText, null);
+  return { mentionId: mention.mentionId, platform: mention.platform, intent, action: 'proposed', replyText, proposalId };
 }
 
 // ── DB Logging ───────────────────────────────────────────────────────
