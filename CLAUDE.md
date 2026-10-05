@@ -1439,6 +1439,57 @@ is 25000) selects the long-form builders:
 CONFLICT_FLAG is still covered by the fail-closed guard precisely because that
 is one env var away from being live again.
 
+## The Prognosis Ledger
+
+A separate product from the autonomous injury posts: physician-signed NFL
+forecasts, five fields per entry, immutable versioned rows with an entry id
+`PT-YYYY-NNN` and a `row_hash`, scored against public outcomes. The spec is
+`docs/paratrOs Prognosis Ledger — Working Spec.md` and WINS over code; do not
+edit it in a code session. The scoring rules are pre-registered in
+`docs/ledger-preregistration.md` and may not change after a number is published.
+Code lives under `src/ledger/`; the tables and tools are mcp migration 026 and
+`web_*_ledger_*` / `web_*_reply*`.
+
+- **Forecasting is never automated; resolution ingest is.** The five numbers,
+  revisions, the mechanism line and every third-party reply require the
+  physician's recorded confirmation (`confirmed_by`, `confirmed_at`, an audit
+  row). The ingest may only PROPOSE (`web_propose_ledger_resolution`); the reply
+  agent may only PROPOSE (`web_propose_reply`). Nothing in this repo may call a
+  social tool with ledger content except the one publish function (Stage 2),
+  whose first line refuses a row without `entry_id`, `version`, `row_hash` and
+  `confirmed_by`.
+- **Two AI lines exist on purpose.** `BRAND_SIGNATURE` (brand.ts, "AI-generated
+  analysis. Physician-founded.") is the line on the autonomous posts, which no
+  physician reviews. `src/ledger/copy.ts` is the one source for the ledger's
+  disclaimer, AI disclosure ("Drafted with AI assistance. Every forecast is
+  reviewed and signed by Keith P. Johnson, MD."), credit and bio. The spec: a
+  card that has not been reviewed does not carry the credential. Never merge
+  them, never put the credential on an injury post.
+- **Three byte-identical twins, each pinned by a fixture in every repo that
+  holds a copy**: `row-hash.ts` (agents, mcp, frontend; `ledger-hash-cases.json`,
+  recorded by `ledger-hash-fixture.ts`), `scoring.ts` (agents, frontend;
+  `ledger-scoring-cases.json`, hand-computed synthetic cases), `copy.ts` (agents,
+  frontend; `ledger-copy.json`, recorded by `ledger-copy-fixture.ts`). Change
+  one, bump its `*_VERSION`, re-record, copy across.
+- **`published_at` is INSIDE the hash (D7)** and is stamped by the mcp at the
+  moment of confirmation, truncated to milliseconds. Probabilities hash as
+  4-decimal strings because the Neon driver returns NUMERIC as text. The card
+  prints the first 8 hex characters.
+- **Rules (`src/ledger/rules.ts`) run on nflverse-shaped rows**: `games.csv` is
+  the game universe (byes are absent weeks, never counted), `snap_counts` decide
+  "played" (≥1 snap of any kind), `injuries` decide F5's same site, `players.csv`
+  crosswalks ESPN/PFR/GSIS ids. ESPN's transactions feed decides F1 and voids,
+  from prose, always as a quoted proposal. A game the snap file does not cover
+  at all is `awaiting_snap_counts`, never a miss. A void applies per field and
+  only when the transaction is dated strictly before the field resolved. A
+  field whose freeze point preceded v1 is `forecast_after_freeze`, void.
+- **Scoring (`src/ledger/scoring.ts`)**: one injury, one observation per field;
+  initial and latest boards over the SAME n; latest = last version with
+  `published_at < freeze_at`; exclusions are named, never dropped; the card
+  scoreboard line appears at ≥ 20 entries scored; calibration buckets publish at
+  n ≥ 5. SKILL.md's "numbers never on social" governs the injury posts, not
+  this product; `skills/` is untouched.
+
 ## MCP Server Connections
 
 This repo connects to sidelineiq-mcp-servers via HTTP:

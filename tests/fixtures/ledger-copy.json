@@ -1,0 +1,56 @@
+{
+  "copy_version": 1,
+  "_recorded_from": "src/scripts/ledger-copy-fixture.ts --emit-fixture (recorded from src/ledger/copy.ts, never typed)",
+  "_recorded_at": "2026-10-05",
+  "_note": "Shared by sidelineiq-agents (src/ledger/copy.ts) and sidelineiq-frontend (lib/ledger-copy.ts). The two modules are byte-identical and this file is what stops them drifting: copy it to both repos together. copy_version must equal LEDGER_COPY_VERSION in both. Counsel edits land in copy.ts, then re-record.",
+  "constants": {
+    "PHYSICIAN_CREDENTIAL": "Keith P. Johnson, MD",
+    "LEDGER_BRAND": "ParatrOs",
+    "PUBLISHER_OF_RECORD": "Enovyr LLC, d/b/a ParatrOs",
+    "LEDGER_URL_DISPLAY": "paratros.com/ledger",
+    "LEDGER_PATH": "/ledger",
+    "AEQUOS_LINK": "https://aequos.io?ref=paratros"
+  },
+  "copy": {
+    "credit": "Forecast reviewed by Keith P. Johnson, MD",
+    "publisher": "Published by ParatrOs",
+    "ai_disclosure": "Drafted with AI assistance. Every forecast is reviewed and signed by Keith P. Johnson, MD.",
+    "reliance": "Informational. Provided as-is, without warranty. No reliance for any purpose.",
+    "card_disclaimer": "Educational commentary on publicly reported injuries. Keith P. Johnson, MD has not examined this athlete, reviewed imaging, or spoken with any treating clinician. Estimates are population-based and are not medical advice, a diagnosis, or a prediction about any individual's care. No reliance: see paratros.com/ledger.",
+    "full_disclaimer": "Educational commentary on publicly reported injuries. Keith P. Johnson, MD has not examined this athlete, reviewed imaging, or spoken with any treating clinician. Estimates are population-based and are not medical advice, a diagnosis, or a prediction about any individual's care. No reliance: see paratros.com/ledger. Published by Enovyr LLC, d/b/a ParatrOs; not affiliated with any team, league, player, agent or sportsbook. Forecasts are informational, provided as-is without warranty, and no one should rely on them for any decision. No physician-patient relationship is created by this content or by replies to it. Personal medical questions go to your own physician.",
+    "bio": "AI sports injury intelligence. Every forecast reviewed by Keith P. Johnson, MD.",
+    "canned_personal_reply": "I can't comment on individual situations here. See your own physician, or https://aequos.io?ref=paratros.",
+    "source_tiers": {
+      "A": "team/official or confirmed surgery",
+      "B": "national or beat reporter",
+      "C": "film only"
+    },
+    "estimate_noun": "ledger estimate"
+  },
+  "forbidden_public_words": [
+    "diagnosis",
+    "diagnose",
+    "diagnosed",
+    "prognosis",
+    "assessment",
+    "recommend",
+    "recommends",
+    "recommended",
+    "recommendation",
+    "should",
+    "odds",
+    "pick",
+    "picks",
+    "play of the day",
+    "fade",
+    "lock",
+    "parlay",
+    "spread",
+    "sportsbook",
+    "autonomous",
+    "ai physician",
+    "lying",
+    "spinning",
+    "wrong"
+  ]
+}
