@@ -1490,6 +1490,61 @@ Code lives under `src/ledger/`; the tables and tools are mcp migration 026 and
   n ≥ 5. SKILL.md's "numbers never on social" governs the injury posts, not
   this product; `skills/` is untouched.
 
+### Stage 2 — publishing and provenance (2026-10-05)
+
+- **`src/ledger/publish.ts` is the ONLY function that may reach a social tool
+  with ledger content**, and `src/ledger/publish-reply.ts` the only one for a
+  third-party reply. `tests/ledger-publish.test.ts` greps `src/ledger/` and the
+  reply agent for the two publish tool names; nothing else may carry them. Both
+  are reachable only through `src/ledger/admin-routes.ts`, registered in
+  `index.ts` AFTER the Bearer guard (pinned).
+- **The first line is `assertPublishable(row)`** (`publishable.ts`): status
+  `published`, `entry_id`, `version`, `row_hash`, `published_at`, `confirmed_by`
+  present, AND the stored hash re-derives from the stored fields. Every text
+  builder in `post-text.ts` takes the narrowed type, so a draft cannot be
+  rendered by construction. The row is always read from the database
+  (`web_get_ledger_forecast`); the request body carries no content.
+- **Order, fail-closed: commit → X card reply → X self-reply → Farcaster mirror
+  → `web_record_ledger_provenance`.** No commit, no post (`[Ledger] COMMIT
+  FAILED`, 500). A different row already at `forecasts/<entry_id>/v<n>.json` is
+  `[Ledger] COMMIT CONFLICT` (409) and nothing posts; the SAME row already there
+  is `already_committed` and the run continues — `github-commit.ts` GETs before
+  it PUTs, because a blind retry would need the blob sha, which is how an edit
+  happens. A social failure after the commit is `mirrored:false` and `[Ledger]
+  SOCIAL FAILED`; re-running the same id fills only the gaps (every provenance
+  column is COALESCE, set once).
+- **The GitHub helper retries 5xx / 429 / 403-rate-limit / network, never a plain
+  4xx.** The token lives in `LEDGER_GITHUB_TOKEN`, travels only in the request
+  header, and is never logged or printed by any script. `LEDGER_GITHUB_REPO` is
+  the PUBLIC ledger repo (`kpjmd/paratros-ledger`) — a commit to this service's
+  own repo would redeploy it on every publish.
+- **`LEDGER_PUBLISH_DRY_RUN=true` renders everything and sends nothing**; a
+  per-request `dry_run:true` does the same and the env wins. The first real
+  entry is published with the env on, inspected, then with it off.
+- **Farcaster's limit is 320 BYTES**, not the 320 characters Neynar's zod
+  counts. `buildFarcasterText` measures UTF-8 bytes, uses ASCII separators, and
+  drops mechanism → injury date → truncates the injury wording; the five fields,
+  id, version, hash8 and the physician credit are never shortened. The entry
+  URL rides as an embed (outside the budget) and unfurls the card, which
+  carries the disclaimer strip and the AI line.
+- **The X self-reply links the ledger index and the row's commit URL** (S2-1);
+  the card reply carries the entry URL last so X unfurls the card. X has no
+  media upload tool; the card IS the unfurl. `reply_to_url` is frozen after
+  publish, so an unparseable one is refused (422) unless `force_standalone`;
+  a null one posts standalone (a ledger-only entry).
+- **Replies: the record precedes the act (mcp migration 027).** The reply agent
+  only files `web_propose_reply`; the MD approves or discards
+  (`web_decide_reply`, which cannot say `posted`); the agents route posts only
+  an APPROVED proposal and first CLAIMS it (`web_record_reply_post claim`, one
+  guarded UPDATE — a second claim is an error, which is the double-click lock),
+  then records `posted` with the platform id or `failed` releasing the claim.
+- **nflverse ids are looked up by ESPN id only** (`nflverse-players.ts`,
+  `GET /admin/ledger/nflverse-ids`), cached 24h in-process; "unresolved" (no
+  row / missing ids) and "unavailable" (fetch failed, HTTP 503) are different
+  answers and must never read alike. Never by name.
+- Pre-flight for a published row: `npx tsx src/scripts/ledger-publish-dryrun.ts
+  --forecast-id <uuid>` (or `--fixture`). Posts nothing.
+
 ## MCP Server Connections
 
 This repo connects to sidelineiq-mcp-servers via HTTP:
