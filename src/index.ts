@@ -35,6 +35,7 @@ import type {
 import { refreshTierSnapshotsIfStale } from './agents/injury-intelligence/tier-snapshots.js';
 import { isRetiredPostStatus } from './utils/web-posts.js';
 import { siteOrigin } from './config/brand.js';
+import { registerLedgerAdminRoutes } from './ledger/admin-routes.js';
 
 const app = express();
 const PORT = process.env.PORT || 3100;
@@ -97,6 +98,12 @@ function requireAdminSecret(
 for (const prefix of ['/admin', '/poll', '/test', '/seed']) {
   app.use(prefix, requireAdminSecret);
 }
+
+// Prognosis Ledger: POST /admin/ledger/publish/:id, POST /admin/ledger/reply/:id,
+// GET /admin/ledger/nflverse-ids. Registered AFTER the guard above on purpose —
+// tests/ledger-admin-routes.test.ts pins the order. The handlers live in
+// src/ledger/admin-routes.ts so they can be unit-tested without booting this file.
+registerLedgerAdminRoutes(app);
 
 app.get('/health', (_req, res) => {
   res.json({

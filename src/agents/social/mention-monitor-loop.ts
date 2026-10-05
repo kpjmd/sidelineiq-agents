@@ -288,7 +288,7 @@ async function runMentionCycle(): Promise<void> {
 
   console.log(`[MentionMonitor] Total mentions before guardrails: ${allMentions.length}`);
 
-  const stats = { processed: 0, replied: 0, ignored: 0, queued_correction: 0, filtered: 0 };
+  const stats = { processed: 0, proposed: 0, ignored: 0, queued_correction: 0, filtered: 0 };
 
   for (const mention of allMentions) {
     // Guardrail 3: Max replies per run
@@ -324,7 +324,7 @@ async function runMentionCycle(): Promise<void> {
     stats.processed++;
     try {
       const result = await processMention(mention);
-      if (result.action === 'replied') stats.replied++;
+      if (result.action === 'proposed') stats.proposed++;
       else if (result.action === 'queued_correction') stats.queued_correction++;
       else stats.ignored++;
     } catch (err) {
@@ -335,7 +335,7 @@ async function runMentionCycle(): Promise<void> {
   }
 
   console.log(
-    `[MentionMonitor] Cycle complete — filtered=${stats.filtered} processed=${stats.processed} replied=${stats.replied} queued_correction=${stats.queued_correction} ignored=${stats.ignored}`
+    `[MentionMonitor] Cycle complete — filtered=${stats.filtered} processed=${stats.processed} proposed=${stats.proposed} queued_correction=${stats.queued_correction} ignored=${stats.ignored}`
   );
 }
 
