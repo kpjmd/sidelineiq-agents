@@ -384,7 +384,8 @@ describe('only two files in src/ledger call a social tool', () => {
     const { readdirSync, readFileSync } = await import('node:fs');
     const { fileURLToPath } = await import('node:url');
     const dir = fileURLToPath(new URL('../src/ledger/', import.meta.url));
-    const offenders = readdirSync(dir)
+    // Recursive: src/ledger/ingest/ (Stage 3) is covered too.
+    const offenders = (readdirSync(dir, { recursive: true }) as string[])
       .filter((f) => f.endsWith('.ts') && !['publish.ts', 'publish-reply.ts'].includes(f))
       .filter((f) => /twitter_publish_|farcaster_publish_/.test(readFileSync(dir + f, 'utf8')));
     expect(offenders).toEqual([]);
