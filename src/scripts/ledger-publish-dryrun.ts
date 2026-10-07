@@ -11,8 +11,8 @@
  *     reads the STORED published row through web_get_ledger_forecast and renders it
  *
  *   add --force-standalone to render the card as a standalone post and the
- *   self-reply citing reply_to_url (what force_standalone sends; X refuses a
- *   reply to a post whose author never mentioned us)
+ *   self-reply citing reply_to_url — what is sent when X refuses the reply (a
+ *   report whose author never mentioned us; automatic) or force_standalone is set
  *
  * The live form is the pre-flight for the first real entry (plan S2-4): confirm
  * the row in /admin/ledger, run this against its id, read the three texts, then
