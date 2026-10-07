@@ -10,6 +10,10 @@
  *     npx tsx src/scripts/ledger-publish-dryrun.ts --forecast-id <uuid>
  *     reads the STORED published row through web_get_ledger_forecast and renders it
  *
+ *   add --force-standalone to render the card as a standalone post and the
+ *   self-reply citing reply_to_url (what force_standalone sends; X refuses a
+ *   reply to a post whose author never mentioned us)
+ *
  * The live form is the pre-flight for the first real entry (plan S2-4): confirm
  * the row in /admin/ledger, run this against its id, read the three texts, then
  * decide whether the real run may go.
@@ -71,11 +75,14 @@ async function main(): Promise<void> {
     console.error(`NOT PUBLISHABLE: ${err instanceof Error ? err.message : String(err)}`);
     process.exit(1);
   }
-  const texts = renderLedgerTexts(row, row.commit_url);
+  const standalone = args.includes('--force-standalone');
+  const texts = renderLedgerTexts(row, row.commit_url, standalone ? row.reply_to_url : null);
   const file = buildForecastFile(row);
   const rule = (title: string) => console.log(`\n── ${title} ${'─'.repeat(Math.max(0, 70 - title.length))}`);
 
-  rule(`X card reply (${texts.x_card.length} chars, reply_to_url=${row.reply_to_url ?? 'none'})`);
+  rule(standalone
+    ? `X card STANDALONE (${texts.x_card.length} chars; report cited in the self-reply: ${row.reply_to_url ?? 'none'})`
+    : `X card reply (${texts.x_card.length} chars, reply_to_url=${row.reply_to_url ?? 'none'})`);
   console.log(texts.x_card);
   rule(`X self-reply (${texts.x_self_reply.length} chars)`);
   console.log(texts.x_self_reply);
