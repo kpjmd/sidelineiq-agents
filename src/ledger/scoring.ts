@@ -32,7 +32,7 @@ export type BrierField = 'F1' | 'F2' | 'F3' | 'F5';
 export const BRIER_FIELDS: readonly BrierField[] = ['F1', 'F2', 'F3', 'F5'];
 export type AnyField = BrierField | 'F4';
 
-/** A forecast row as `web_ledger_list_entries` returns it (NUMERIC may arrive as strings). */
+/** A forecast row as `web_list_ledger_entries` / `web_export_ledger` return it (NUMERIC may arrive as strings). */
 export interface ScoringForecastRow {
   entry_id: string;
   version: number | string;

@@ -1,7 +1,7 @@
 {
-  "copy_version": 1,
+  "copy_version": 2,
   "_recorded_from": "src/scripts/ledger-copy-fixture.ts --emit-fixture (recorded from src/ledger/copy.ts, never typed)",
-  "_recorded_at": "2026-10-05",
+  "_recorded_at": "2026-10-07",
   "_note": "Shared by sidelineiq-agents (src/ledger/copy.ts) and sidelineiq-frontend (lib/ledger-copy.ts). The two modules are byte-identical and this file is what stops them drifting: copy it to both repos together. copy_version must equal LEDGER_COPY_VERSION in both. Counsel edits land in copy.ts, then re-record.",
   "constants": {
     "PHYSICIAN_CREDENTIAL": "Keith P. Johnson, MD",
@@ -25,7 +25,15 @@
       "B": "national or beat reporter",
       "C": "film only"
     },
-    "estimate_noun": "ledger estimate"
+    "estimate_noun": "ledger estimate",
+    "resolution_card_heading": "ParatrOs ledger: resolved this week",
+    "scoreboard_card_heading": "ParatrOs ledger: monthly scoreboard",
+    "initial_board_label": "Initial forecasts (headline)",
+    "latest_board_label": "Latest revision before each freeze point",
+    "revision_delta_label": "Revision delta (latest minus initial; negative means updating helped)",
+    "void_label": "Void, not scored",
+    "scoreboard_floor_note": "The card scoreboard line appears once 20 entries are scored.",
+    "export_note": "Every entry, resolution and void, for anyone to recompute: paratros.com/ledger"
   },
   "forbidden_public_words": [
     "diagnosis",

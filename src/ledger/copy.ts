@@ -24,7 +24,7 @@
  * here and nowhere else. No imports, so the frontend twin is a plain copy.
  */
 
-export const LEDGER_COPY_VERSION = 1;
+export const LEDGER_COPY_VERSION = 2;
 
 /** D8 (2026-10-04): name and degree only. No specialty, no certification claim. */
 export const PHYSICIAN_CREDENTIAL = 'Keith P. Johnson, MD';
@@ -77,6 +77,20 @@ export const LEDGER_COPY = Object.freeze({
   }),
   /** What a forecast is called in public copy until a documented method exists. */
   estimate_noun: 'ledger estimate',
+  /**
+   * v2 (Stage 3): fixed text of the weekly resolution card and the monthly
+   * scoreboard card (spec "Card content spec → Resolution and scoreboard cards";
+   * "Publication"). Both cards also carry credit, publisher, AI line, URL and
+   * the disclaimer strip above.
+   */
+  resolution_card_heading: `${LEDGER_BRAND} ledger: resolved this week`,
+  scoreboard_card_heading: `${LEDGER_BRAND} ledger: monthly scoreboard`,
+  initial_board_label: 'Initial forecasts (headline)',
+  latest_board_label: 'Latest revision before each freeze point',
+  revision_delta_label: 'Revision delta (latest minus initial; negative means updating helped)',
+  void_label: 'Void, not scored',
+  scoreboard_floor_note: 'The card scoreboard line appears once 20 entries are scored.',
+  export_note: `Every entry, resolution and void, for anyone to recompute: ${LEDGER_URL_DISPLAY}`,
 });
 
 export type SourceTier = keyof typeof LEDGER_COPY.source_tiers;
