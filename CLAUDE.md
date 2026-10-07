@@ -1559,6 +1559,50 @@ Code lives under `src/ledger/`; the tables and tools are mcp migration 026 and
 - Pre-flight for a published row: `npx tsx src/scripts/ledger-publish-dryrun.ts
   --forecast-id <uuid>` (or `--fixture`). Posts nothing.
 
+### Stage 3 — resolution ingest (2026-10-07)
+
+- **The ingest PROPOSES; it can never resolve.** `src/ledger/ingest/loop.ts` reads
+  `web_export_ledger`, the three nflverse tables and ESPN's transactions, runs the
+  pre-registered `rules.ts`, and in `LEDGER_INGEST_MODE=on` files
+  `web_propose_ledger_resolution` and nothing else. `tests/ledger-ingest-loop.test.ts`
+  greps `src/ledger/ingest/` for the confirm, correction, linkage, publish and social
+  tools. Default mode is **shadow**. The physician confirms on
+  `/admin/ledger/resolutions` (`web_decide_ledger_proposal`), which locks the row.
+- **Every read precedes the first write, and every failed read aborts the cycle with
+  zero writes — 404 included.** There is no row-level fetch on these sources: a
+  nflverse file is the whole page, and a missing transactions page read as "no
+  transactions" would propose F1 = 0 for a player who went on IR.
+- **games.csv is in `nflverse/nfldata` (`data/games.csv`), not in a nflverse-data
+  release** — the Stage 1 plan's URL is a 404. Snap counts and injuries ARE release
+  assets. All three are env-overridable.
+- **ESPN transactions**: `?limit=50&page=N&season=YYYY`, where `season` is a CALENDAR
+  year and `pageIndex` is ignored. ESPN spells LAR/WSH; nflverse spells LA/WAS. The
+  prose traps (designated/activated to return FROM IR is not a placement; waived
+  from IR is a release; plural position tokens like "Cs") are each a test case.
+- **The one name read** is transaction attribution: full name inside the sentence,
+  scoped to the entry's team (S3-4). The sentence travels as evidence. No snap,
+  schedule or injury-report fact is keyed on a name: parsed rows carry no name column.
+- **A row's `team` may be a club NAME** (PT-2026-001 stores "Baltimore Ravens").
+  `resolveEntryTeam` maps it through ESPN's own club names and records
+  `team_source`. A team the schedule does not know holds EVERY field, F1 included —
+  F1's attribution is team-scoped, so a 0 there would mean "we never looked".
+- **Linkage ids after publish (mcp migration 028)**: `espn_athlete_id`, `gsis_id`,
+  `pfr_id`, `nflverse_team`, `season` are now set-once on a published row, like the
+  provenance columns, and none is hashed. `web_record_ledger_linkage` (MD only) sets
+  them on every published version and files a `ledger_corrections` row in the same
+  statement. Look the ids up by ESPN id (`/admin/ledger/nflverse-ids`), never by name.
+- `POST /admin/ledger/ingest` runs one pass; a request can make it shadow, never
+  `on`, and env `off` still allows a shadow pass. `GET /admin/ledger/scoreboard`
+  returns both boards, the card line and the resolution-card / scoreboard-card TEXT
+  (posted by hand; no image yet); `?format=csv` is the recomputable export.
+- Re-verify with `npx tsx src/scripts/ledger-ingest-dryrun.ts --live` (needs
+  `MCP_AUTH_SECRET`; read-only, every propose intercepted) or `--fixture`. The numbers
+  that must be zero: proposals without freeze-point evidence, proposals on a field
+  not open, decisions differing across two runs, writes under an injected 404/503 on
+  any source, gamebook fields without a pfr_id (F5 without a gsis_id), name-keyed
+  facts. `src/scripts/ledger-scoreboard.ts` prints the boards; `--emit-fixture`
+  APPENDS a live scoring case.
+
 ## MCP Server Connections
 
 This repo connects to sidelineiq-mcp-servers via HTTP:
