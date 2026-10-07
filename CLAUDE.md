@@ -1541,11 +1541,17 @@ Code lives under `src/ledger/`; the tables and tools are mcp migration 026 and
 - **X refuses an API reply to a post whose author never mentioned us** — the
   403 reads "You can only reply to or quote posts where you are mentioned or
   are the author." So a card under an insider's report is structurally refused
-  (PT-2026-001, 2026-10-07), whatever its length. `force_standalone` covers it
-  even when `reply_to_url` parses: an audit row `ledger_x_standalone` is written
-  FIRST (no audit, no card), the card posts on its own, and the self-reply cites
-  the report (`Report: <url>`, tracker stripped, never the last line). A
-  self-reply refused under the same rule is retried once without that line.
+  (PT-2026-001, 2026-10-07), whatever its length. The spec is reply-first, so
+  the card still TRIES the reply and falls back to standalone **automatically on
+  exactly that wording** (`X_REPLY_RESTRICTED_RE`); any other X error stays
+  failed. Do not pre-decide from the URL's handle: it is decorative, and the
+  "mentioned" exception is invisible to it. An audit row `ledger_x_standalone`
+  (`reason: reply_refused`, X's wording as `prior_error`) is written FIRST — no
+  audit, no card — and the self-reply cites the report (`Report: <url>`, tracker
+  stripped, never the last line). `force_standalone` now only skips the attempt
+  (required for an unparseable URL). X accepted the self-reply on PT-2026-001
+  even though it registered as a QUOTE of the report — a quote inside a reply to
+  our own post is allowed; the no-citation retry is there in case that changes.
 - **nflverse ids are looked up by ESPN id only** (`nflverse-players.ts`,
   `GET /admin/ledger/nflverse-ids`), cached 24h in-process; "unresolved" (no
   row / missing ids) and "unavailable" (fetch failed, HTTP 503) are different

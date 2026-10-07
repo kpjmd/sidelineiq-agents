@@ -13,11 +13,12 @@
  *   2. commit forecasts/<entry_id>/v<n>.json to the ledger repository. No
  *      commit → no post. A different row already at that path → conflict, stop.
  *   3. X: the card text as a reply to the report post; then the self-reply with
- *      the ledger index and the commit URL. With force_standalone the card posts
- *      on its own instead (an audit row records that decision FIRST), and the
- *      self-reply cites the report URL: X's API refuses a reply to or quote of a
- *      post whose author has not mentioned us, so a card under an insider's
- *      report is structurally refused (PT-2026-001, 2026-10-07).
+ *      the ledger index and the commit URL. Reply-first (spec "Channel scope"),
+ *      but X's API refuses a reply to or quote of a post whose author has not
+ *      mentioned us (PT-2026-001, 2026-10-07). On exactly that refusal the card
+ *      falls back to a standalone post automatically; force_standalone skips
+ *      the attempt. Either way an audit row records the decision FIRST (no
+ *      audit, no card), and the self-reply cites the report URL.
  *   4. Farcaster: the compact mirror with the entry URL embedded.
  *   5. web_record_ledger_provenance with whatever succeeded (COALESCE converges,
  *      so a re-run after a partial failure fills only the gaps).
@@ -56,12 +57,12 @@ export interface PublishDeps {
 export interface PublishOptions {
   dryRun?: boolean;
   /**
-   * Post the card standalone instead of as a reply to reply_to_url: required
-   * when the URL is unparseable, and the operator's answer when X refuses the
-   * reply ("You can only reply to or quote posts where you are mentioned or
-   * are the author"). The row's reply_to_url is frozen, so this is a request
-   * option, never an edit. Audited before the card posts; the self-reply cites
-   * the report URL.
+   * Skip the reply attempt and post the card standalone: required when
+   * reply_to_url is unparseable. Not needed when X refuses the reply ("You can
+   * only reply to or quote posts where you are mentioned or are the author") —
+   * that falls back to standalone on its own. The row's reply_to_url is frozen,
+   * so this is a request option, never an edit. Audited before the card posts;
+   * the self-reply cites the report URL.
    */
   forceStandalone?: boolean;
 }
@@ -78,7 +79,7 @@ export interface LedgerPublishOutcome {
   x: { text: string; reply_to_id: string | null; status: StepStatus | 'already_recorded'; post_id?: string; error?: string };
   x_self_reply: { text: string; status: StepStatus | 'already_recorded'; id?: string; error?: string };
   /** Present when the card posts standalone although the row names a report post. */
-  standalone?: { forced: true; report_url: string; audited: boolean; error?: string };
+  standalone?: { reason: 'force_standalone' | 'reply_refused'; report_url: string; audited: boolean; prior_error?: string; error?: string };
   farcaster: { text: string; embeds: Array<{ url: string }>; channel_id: string | null; byte_length: number; status: StepStatus | 'already_recorded'; hash?: string; error?: string };
   provenance: { recorded: boolean; error?: string };
   warnings: string[];
@@ -131,8 +132,8 @@ async function fetchRow(deps: PublishDeps, forecastId: string): Promise<LedgerFo
 /** X's wording for its reply/quote restriction (mcp twitter client surfaces it). */
 export const X_REPLY_RESTRICTED_RE = /only reply to or quote posts where you are mentioned/i;
 
-async function postSelfReply(deps: PublishDeps, text: string, cardTweetId: string): Promise<string> {
-  const raw = await deps.callTool('twitter', 'twitter_publish_tweet', { text, reply_to_id: cardTweetId });
+async function postTweet(deps: PublishDeps, text: string, replyToId: string | null): Promise<string> {
+  const raw = await deps.callTool('twitter', 'twitter_publish_tweet', { text, ...(replyToId ? { reply_to_id: replyToId } : {}) });
   if (isMCPError(raw)) throw new Error(extractMCPErrorMessage(raw));
   const id = parseToolText<{ id?: string }>(raw)?.id;
   if (!id) throw new Error('tweet id missing from response');
@@ -158,7 +159,8 @@ async function auditStandalone(deps: PublishDeps, row: PublishedLedgerRow, outco
         version: row.version,
         reply_to_url: standalone.report_url,
         reply_to_id_parsed: tweetIdFromUrl(standalone.report_url),
-        reason: 'force_standalone',
+        reason: standalone.reason,
+        ...(standalone.prior_error ? { prior_error: standalone.prior_error } : {}),
       },
     });
     if (isMCPError(raw)) throw new Error(extractMCPErrorMessage(raw));
@@ -208,6 +210,7 @@ export async function publishLedgerForecast(forecastId: string, opts: PublishOpt
       deps.log(`[Ledger] ${tag}: reply_to_url present, standalone post forced by request`);
     }
     if (replyToId === null) reportUrl = published.reply_to_url;
+    else warnings.push('if X refuses the reply (the report author never mentioned us), the card posts standalone and the self-reply cites the report');
   } else {
     warnings.push('no reply_to_url; the card posts standalone (ledger-only entry)');
     deps.log(`[Ledger] ${tag}: standalone post (no reply_to_url)`);
@@ -239,7 +242,7 @@ export async function publishLedgerForecast(forecastId: string, opts: PublishOpt
     farcaster: { text: texts.farcaster, embeds: [{ url: texts.entry_url }], channel_id: channelId, byte_length: texts.farcaster_bytes, status: 'dry_run' },
     provenance: { recorded: false },
     warnings,
-    ...(reportUrl ? { standalone: { forced: true as const, report_url: reportUrl, audited: false } } : {}),
+    ...(reportUrl ? { standalone: { reason: 'force_standalone' as const, report_url: reportUrl, audited: false } } : {}),
   };
 
   if (dryRun) {
@@ -269,7 +272,6 @@ export async function publishLedgerForecast(forecastId: string, opts: PublishOpt
     deps.log(`[Ledger] COMMITTED ${tag} ${committed.status} ${committed.sha} ${committed.html_url}`);
   }
   const commitUrl = outcome.commit.url as string;
-  outcome.x_self_reply.text = buildXSelfReplyText(published, commitUrl, reportUrl);
 
   // 3. X: card reply, then the self-reply.
   if (published.x_post_id) {
@@ -281,18 +283,33 @@ export async function publishLedgerForecast(forecastId: string, opts: PublishOpt
     outcome.x = { ...outcome.x, status: 'failed', error: `standalone decision not audited: ${outcome.standalone.error}` };
   } else {
     try {
-      const raw = await deps.callTool('twitter', 'twitter_publish_tweet', {
-        text: texts.x_card,
-        ...(replyToId ? { reply_to_id: replyToId } : {}),
-      });
-      if (isMCPError(raw)) throw new Error(extractMCPErrorMessage(raw));
-      const id = parseToolText<{ id?: string }>(raw)?.id;
-      if (!id) throw new Error('tweet id missing from response');
-      outcome.x = { ...outcome.x, status: 'ok', post_id: id };
+      outcome.x = { ...outcome.x, status: 'ok', post_id: await postTweet(deps, texts.x_card, replyToId) };
     } catch (err) {
-      outcome.x = { ...outcome.x, status: 'failed', error: err instanceof Error ? err.message : String(err) };
+      const message = err instanceof Error ? err.message : String(err);
+      if (replyToId && published.reply_to_url && X_REPLY_RESTRICTED_RE.test(message)) {
+        // X's reply restriction, not a fault: fall back to standalone, audited first.
+        replyToId = null;
+        reportUrl = published.reply_to_url;
+        outcome.x = { ...outcome.x, reply_to_id: null };
+        outcome.standalone = { reason: 'reply_refused', report_url: reportUrl, audited: false, prior_error: message };
+        warnings.push('X refused the reply (the report author never mentioned us); posted standalone, report cited in the self-reply');
+        deps.log(`[Ledger] ${tag}: X refused the reply (author never mentioned us), posting standalone`);
+        if (!(await auditStandalone(deps, published, outcome, tag))) {
+          outcome.x = { ...outcome.x, status: 'failed', error: `standalone decision not audited: ${outcome.standalone.error}` };
+        } else {
+          try {
+            outcome.x = { ...outcome.x, status: 'ok', post_id: await postTweet(deps, texts.x_card, null) };
+          } catch (err2) {
+            outcome.x = { ...outcome.x, status: 'failed', error: err2 instanceof Error ? err2.message : String(err2) };
+          }
+        }
+      } else {
+        outcome.x = { ...outcome.x, status: 'failed', error: message };
+      }
     }
   }
+  // Built after the card step: a refusal above turns on the report citation.
+  outcome.x_self_reply.text = buildXSelfReplyText(published, commitUrl, reportUrl);
   const cardTweetId = outcome.x.post_id ?? null;
   if (published.x_self_reply_id) {
     outcome.x_self_reply = { ...outcome.x_self_reply, status: 'already_recorded', id: published.x_self_reply_id };
@@ -302,7 +319,7 @@ export async function publishLedgerForecast(forecastId: string, opts: PublishOpt
     try {
       let id: string;
       try {
-        id = await postSelfReply(deps, outcome.x_self_reply.text, cardTweetId);
+        id = await postTweet(deps, outcome.x_self_reply.text, cardTweetId);
       } catch (err) {
         // X may read the cited report URL as a quote of a post that did not
         // mention us and refuse it under the same rule as the reply. The card
@@ -313,7 +330,7 @@ export async function publishLedgerForecast(forecastId: string, opts: PublishOpt
         warnings.push('self-reply citing the report was refused as a quote; posted without the report line');
         deps.log(`[Ledger] ${tag}: self-reply report citation refused by X, retrying without it`);
         outcome.x_self_reply.text = bare;
-        id = await postSelfReply(deps, bare, cardTweetId);
+        id = await postTweet(deps, bare, cardTweetId);
       }
       outcome.x_self_reply = { ...outcome.x_self_reply, status: 'ok', id };
     } catch (err) {
