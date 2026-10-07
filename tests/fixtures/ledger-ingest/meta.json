@@ -1,0 +1,13 @@
+{
+  "_recorded_from": "src/scripts/ledger-ingest-dryrun.ts --live --emit-fixture (live responses; CSV rows trimmed to the entries' teams, never typed)",
+  "_recorded_at": "2026-10-07T18:50:02.341Z",
+  "as_of": "2026-10-07T18:50:02.341Z",
+  "teams": [
+    "BAL"
+  ],
+  "urls": {
+    "games": "https://github.com/nflverse/nfldata/raw/master/data/games.csv",
+    "snapsTemplate": "https://github.com/nflverse/nflverse-data/releases/download/snap_counts/snap_counts_{season}.csv",
+    "injuriesTemplate": "https://github.com/nflverse/nflverse-data/releases/download/injuries/injuries_{season}.csv"
+  }
+}
