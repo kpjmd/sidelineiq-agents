@@ -5,6 +5,8 @@
  * each handler maps one module's result to a status code.
  *
  *   POST /admin/ledger/publish/:id   {dry_run?, force_standalone?}  → publish.ts
+ *     force_standalone: post the card on its own (unparseable reply_to_url, or
+ *     X refusing the reply because the report author never mentioned us)
  *   POST /admin/ledger/reply/:id                                     → publish-reply.ts
  *   GET  /admin/ledger/nflverse-ids?espn_id=                         → nflverse-players.ts
  */

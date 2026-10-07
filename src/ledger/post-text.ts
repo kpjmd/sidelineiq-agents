@@ -104,11 +104,19 @@ export const COMMIT_URL_PENDING = '<commit url, set after the commit>';
 /**
  * The self-reply under the card (S2-1): the ledger index, the row's commit as
  * the proof of when the number went out, and the reliance line.
+ *
+ * `reportUrl` is set only when the card was posted STANDALONE although the row
+ * names a report post: X's API refuses a reply to (or quote of) a post unless
+ * the author mentioned us ("You can only reply to or quote posts where you are
+ * mentioned or are the author"), so a card under an insider's report is
+ * structurally refused and the report is cited here instead. It is never the
+ * last line, so X does not render it as a quote card.
  */
-export function buildXSelfReplyText(row: PublishedLedgerRow, commitUrl: string | null): string {
+export function buildXSelfReplyText(row: PublishedLedgerRow, commitUrl: string | null, reportUrl: string | null = null): string {
   return [
     `Every forecast, scored against public outcomes: ${ledgerIndexUrl()}`,
     `Row ${provenanceLine(row)} committed: ${commitUrl ?? COMMIT_URL_PENDING}`,
+    ...(reportUrl ? [`Report: ${citeableReportUrl(reportUrl)}`] : []),
     LEDGER_COPY.reliance,
   ].join('\n');
 }
@@ -184,6 +192,17 @@ export function tweetIdFromUrl(url: string | null | undefined): string | null {
   return m ? m[1] : null;
 }
 
+/**
+ * The report URL as the self-reply cites it: a tweet URL loses its query and
+ * fragment (X's `?s=20` share tracker); anything else is cited verbatim. The
+ * stored reply_to_url is frozen and the audit row records it raw.
+ */
+export function citeableReportUrl(url: string): string {
+  if (tweetIdFromUrl(url) === null) return url;
+  const u = new URL(url.trim());
+  return `${u.origin}${u.pathname}`;
+}
+
 export interface RenderedLedgerTexts {
   x_card: string;
   x_self_reply: string;
@@ -194,10 +213,13 @@ export interface RenderedLedgerTexts {
   forbidden: string[];
 }
 
-/** Render every text at once and run the spec's vocabulary rule over them. */
-export function renderLedgerTexts(row: PublishedLedgerRow, commitUrl: string | null): RenderedLedgerTexts {
+/**
+ * Render every text at once and run the spec's vocabulary rule over them.
+ * `reportUrl`: see buildXSelfReplyText — set only for a standalone card.
+ */
+export function renderLedgerTexts(row: PublishedLedgerRow, commitUrl: string | null, reportUrl: string | null = null): RenderedLedgerTexts {
   const x_card = buildXCardText(row);
-  const x_self_reply = buildXSelfReplyText(row, commitUrl);
+  const x_self_reply = buildXSelfReplyText(row, commitUrl, reportUrl);
   const farcaster = buildFarcasterText(row);
   const forbidden = [...new Set([...findForbiddenWords(x_card), ...findForbiddenWords(x_self_reply), ...findForbiddenWords(farcaster)])];
   return { x_card, x_self_reply, farcaster, farcaster_bytes: utf8Bytes(farcaster), entry_url: entryUrl(row), forbidden };

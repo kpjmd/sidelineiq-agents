@@ -109,6 +109,19 @@ describe('self-reply (S2-1: ledger index + the commit URL + the reliance line)',
     expect(ledgerIndexUrl()).toBe('https://www.paratros.com/ledger');
     expect(t).toContain('committed: https://github.com/kpjmd/paratros-ledger/commit/abc');
     expect(t).toContain(LEDGER_COPY.reliance);
+    expect(t).not.toContain('Report:');
+  });
+
+  it('a standalone card cites the report URL, never as the last line, and the vocabulary rule covers it', () => {
+    const row = published();
+    const report = 'https://x.com/AdamSchefter/status/1972000000000000001';
+    const t = buildXSelfReplyText(row, 'https://github.com/kpjmd/paratros-ledger/commit/abc', report);
+    const lines = t.split('\n');
+    expect(lines).toContain(`Report: ${report}`);
+    expect(lines[lines.length - 1]).toBe(LEDGER_COPY.reliance);
+    expect(renderLedgerTexts(row, null, report).x_self_reply).toContain(`Report: ${report}`);
+    expect(buildXSelfReplyText(row, null, `${report}?s=20#x`)).toContain(`Report: ${report}\n`);
+    expect(renderLedgerTexts(row, null, 'https://example.com/should-pick').forbidden).toEqual(expect.arrayContaining(['should', 'pick']));
   });
 });
 

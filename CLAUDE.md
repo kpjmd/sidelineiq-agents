@@ -1538,6 +1538,14 @@ Code lives under `src/ledger/`; the tables and tools are mcp migration 026 and
   an APPROVED proposal and first CLAIMS it (`web_record_reply_post claim`, one
   guarded UPDATE — a second claim is an error, which is the double-click lock),
   then records `posted` with the platform id or `failed` releasing the claim.
+- **X refuses an API reply to a post whose author never mentioned us** — the
+  403 reads "You can only reply to or quote posts where you are mentioned or
+  are the author." So a card under an insider's report is structurally refused
+  (PT-2026-001, 2026-10-07), whatever its length. `force_standalone` covers it
+  even when `reply_to_url` parses: an audit row `ledger_x_standalone` is written
+  FIRST (no audit, no card), the card posts on its own, and the self-reply cites
+  the report (`Report: <url>`, tracker stripped, never the last line). A
+  self-reply refused under the same rule is retried once without that line.
 - **nflverse ids are looked up by ESPN id only** (`nflverse-players.ts`,
   `GET /admin/ledger/nflverse-ids`), cached 24h in-process; "unresolved" (no
   row / missing ids) and "unavailable" (fetch failed, HTTP 503) are different

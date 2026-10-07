@@ -46,6 +46,7 @@ function harness(row: unknown, opts: { github?: GithubCommitDeps | null; env?: N
     if (tool === 'twitter_publish_tweet') return mcpText({ id: `tweet-${++tweetN}`, url: 'https://x.com/paratros/status/1' });
     if (tool === 'farcaster_publish_cast') return mcpText({ hash: '0xcast', url: 'https://warpcast.com/paratros/0xcast' });
     if (tool === 'web_record_ledger_provenance') return mcpText({ forecast: { ...(row as object), ...params } });
+    if (tool === 'web_audit_append') return mcpText({ id: 'audit-1', ts: '2026-10-07T00:00:00Z' });
     throw new Error(`unexpected tool ${tool}`);
   };
   const deps: PublishDeps = {
@@ -210,6 +211,97 @@ describe('the real run', () => {
     const out = await publishLedgerForecast(FORECAST_ID, {}, h.deps);
     expect(out.provenance).toMatchObject({ recorded: false, error: 'Input validation error: x' });
     expect(h.logs.some((l) => l.includes('PROVENANCE WRITE FAILED'))).toBe(true);
+  });
+});
+
+const X_REFUSAL = 'Twitter API forbidden: Authorization Error — You can only reply to or quote posts where you are mentioned or are the author.';
+
+describe('force_standalone with a parseable reply_to_url (X refuses replies to posts that never mentioned us)', () => {
+  const REPORT = 'https://x.com/AdamSchefter/status/1972000000000000001';
+
+  it('audits the decision first, posts the card with no reply_to_id, and cites the report in the self-reply', async () => {
+    const h = harness(publishedRow({ reply_to_url: REPORT }));
+    const out = await publishLedgerForecast(FORECAST_ID, { forceStandalone: true }, h.deps);
+    const tools = h.calls.map((c) => c.tool);
+    expect(tools.indexOf('web_audit_append')).toBeLessThan(tools.indexOf('twitter_publish_tweet'));
+    const audit = h.calls.find((c) => c.tool === 'web_audit_append')!;
+    expect(audit.params).toMatchObject({ actor: 'system', actor_id: 'ledger-publish', entity_type: 'ledger_forecast', entity_id: FORECAST_ID, action: 'ledger_x_standalone' });
+    expect(audit.params.payload).toMatchObject({ reply_to_url: REPORT, reply_to_id_parsed: '1972000000000000001', reason: 'force_standalone' });
+    const [card, self] = h.calls.filter((c) => c.tool === 'twitter_publish_tweet');
+    expect(card.params).not.toHaveProperty('reply_to_id');
+    expect(self.params.reply_to_id).toBe('tweet-1');
+    const selfText = self.params.text as string;
+    expect(selfText).toContain('https://www.paratros.com/ledger');
+    expect(selfText).toContain(`committed: ${COMMIT_URL}`);
+    expect(selfText).toContain(`Report: ${REPORT}`);
+    expect(selfText.trim().endsWith(REPORT)).toBe(false);
+    expect(out.x.reply_to_id).toBeNull();
+    expect(out.standalone).toEqual({ forced: true, report_url: REPORT, audited: true });
+    expect(out.mirrored).toBe(true);
+    expect(h.logs.some((l) => l.includes('standalone post forced by request'))).toBe(true);
+  });
+
+  it('without the flag the reply is still attempted, nothing is audited, and the self-reply carries no report line', async () => {
+    const h = harness(publishedRow({ reply_to_url: REPORT }), { responses: { twitter_publish_tweet: [mcpError(X_REFUSAL)] } });
+    const out = await publishLedgerForecast(FORECAST_ID, {}, h.deps);
+    expect(h.calls.find((c) => c.tool === 'twitter_publish_tweet')!.params.reply_to_id).toBe('1972000000000000001');
+    expect(h.calls.some((c) => c.tool === 'web_audit_append')).toBe(false);
+    expect(out.x.status).toBe('failed');
+    expect(out.standalone).toBeUndefined();
+    expect(out.x_self_reply.text).not.toContain('Report:');
+  });
+
+  it('NO AUDIT, NO CARD: a rejected audit write posts nothing to X; Farcaster and provenance still run', async () => {
+    const h = harness(publishedRow({ reply_to_url: REPORT }), { responses: { web_audit_append: [mcpError('Input validation error: x')] } });
+    const out = await publishLedgerForecast(FORECAST_ID, { forceStandalone: true }, h.deps);
+    expect(socialTools(h)).toEqual(['farcaster_publish_cast']);
+    expect(out.x.status).toBe('failed');
+    expect(out.x.error).toMatch(/not audited/);
+    expect(out.x_self_reply.status).toBe('skipped');
+    expect(out.standalone).toMatchObject({ audited: false, error: 'Input validation error: x' });
+    expect(h.logs.some((l) => l.includes('[Ledger] STANDALONE AUDIT FAILED'))).toBe(true);
+  });
+
+  it('a dry run renders the standalone variant and sends nothing, audit included', async () => {
+    const h = harness(publishedRow({ reply_to_url: REPORT }));
+    const out = await publishLedgerForecast(FORECAST_ID, { forceStandalone: true, dryRun: true }, h.deps);
+    expect(h.calls.map((c) => c.tool)).toEqual(['web_get_ledger_forecast']);
+    expect(out.x.reply_to_id).toBeNull();
+    expect(out.x_self_reply.text).toContain(`Report: ${REPORT}`);
+    expect(out.standalone).toEqual({ forced: true, report_url: REPORT, audited: false });
+  });
+
+  it('a re-run with x_post_id recorded neither audits nor reposts the card; the gap self-reply cites the report', async () => {
+    const h = harness(publishedRow({ reply_to_url: REPORT, commit_sha: 'c0ffee1234567', commit_url: COMMIT_URL, x_post_id: 'card-9', farcaster_hash: '0xcast' }));
+    const out = await publishLedgerForecast(FORECAST_ID, { forceStandalone: true }, h.deps);
+    expect(h.calls.map((c) => c.tool)).toEqual(['web_get_ledger_forecast', 'twitter_publish_tweet', 'web_record_ledger_provenance']);
+    expect(h.calls[1].params).toMatchObject({ reply_to_id: 'card-9' });
+    expect(out.x.status).toBe('already_recorded');
+    expect(h.calls[2].params).toEqual({ forecast_id: FORECAST_ID, x_self_reply_id: 'tweet-1' });
+  });
+
+  it('a self-reply refused as a quote of the report retries once without the report line', async () => {
+    const h = harness(publishedRow({ reply_to_url: REPORT }), {
+      responses: { twitter_publish_tweet: [mcpText({ id: 'card-1' }), mcpError(X_REFUSAL)] },
+    });
+    const out = await publishLedgerForecast(FORECAST_ID, { forceStandalone: true }, h.deps);
+    const tweets = h.calls.filter((c) => c.tool === 'twitter_publish_tweet');
+    expect(tweets).toHaveLength(3);
+    expect(tweets[1].params.text).toContain('Report:');
+    expect(tweets[2].params.text).not.toContain('Report:');
+    expect(tweets[2].params.text).toContain(`committed: ${COMMIT_URL}`);
+    expect(out.x_self_reply.status).toBe('ok');
+    expect(out.x_self_reply.text).not.toContain('Report:');
+    expect(out.warnings.some((w) => w.includes('refused as a quote'))).toBe(true);
+  });
+
+  it('any other self-reply failure is not retried', async () => {
+    const h = harness(publishedRow({ reply_to_url: REPORT }), {
+      responses: { twitter_publish_tweet: [mcpText({ id: 'card-1' }), mcpError('Twitter API rate limit exceeded')] },
+    });
+    const out = await publishLedgerForecast(FORECAST_ID, { forceStandalone: true }, h.deps);
+    expect(h.calls.filter((c) => c.tool === 'twitter_publish_tweet')).toHaveLength(2);
+    expect(out.x_self_reply).toMatchObject({ status: 'failed', error: 'Twitter API rate limit exceeded' });
   });
 });
 
