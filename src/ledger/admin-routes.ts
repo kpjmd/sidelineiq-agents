@@ -9,12 +9,23 @@
  *     reply_to_url). X refusing the reply falls back to standalone on its own.
  *   POST /admin/ledger/reply/:id                                     → publish-reply.ts
  *   GET  /admin/ledger/nflverse-ids?espn_id=                         → nflverse-players.ts
+ *   POST /admin/ledger/ingest        {mode?: 'shadow'}               → ingest/loop.ts
+ *     Runs one ingest pass. A request can only make it LESS permissive: it
+ *     runs shadow when asked, and shadow when the env says off (a read-only
+ *     pass is what the Tuesday hand-check needs). It never forces `on`.
+ *   GET  /admin/ledger/scoreboard?since=YYYY-MM-DD[&format=csv]      → scoreboard.ts
+ *     Both boards, calibration, revision delta, voids, the card line, and the
+ *     resolution-card / scoreboard-card TEXT. format=csv is the raw export.
  */
 import type express from 'express';
 import { callTool, isServerAvailable } from '../utils/mcp-client-manager.js';
 import { publishLedgerForecast, publishDepsFromEnv, LedgerPublishRefused, type PublishDeps } from './publish.js';
 import { publishApprovedReply, ReplyPublishRefused, type ReplyPublishDeps } from './publish-reply.js';
 import { lookupNflverseIds, NflverseUnavailableError } from './nflverse-players.js';
+import { isMCPError, extractMCPErrorMessage } from '../utils/publishing-pipeline.js';
+import { runLedgerIngestCycle, ledgerIngestMode, type LedgerIngestMode, type LedgerIngestSummary } from './ingest/loop.js';
+import { buildScoreboardReport, ledgerCsv, type LedgerExportPayload } from './scoreboard.js';
+import { addDays, etCalendarDate, isIsoDate } from './dates.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -22,6 +33,25 @@ export interface LedgerRouteDeps {
   publishDeps: () => PublishDeps;
   replyDeps: () => ReplyPublishDeps;
   lookup: typeof lookupNflverseIds;
+  ingest: (mode: LedgerIngestMode) => Promise<LedgerIngestSummary>;
+  envIngestMode: () => LedgerIngestMode;
+  exportLedger: () => Promise<LedgerExportPayload>;
+  now: () => Date;
+}
+
+async function exportLedgerViaMcp(): Promise<LedgerExportPayload> {
+  if (!isServerAvailable('web')) throw new Error('web MCP server unavailable');
+  const raw = await callTool('web', 'web_export_ledger', {});
+  if (isMCPError(raw)) throw new Error(`web_export_ledger failed: ${extractMCPErrorMessage(raw)}`);
+  const text = (raw as { content?: Array<{ text?: string }> })?.content?.[0]?.text;
+  if (!text) throw new Error('web_export_ledger returned no content');
+  return JSON.parse(text) as LedgerExportPayload;
+}
+
+/** The mode a request may run: never more permissive than the env, shadow when asked or when the env is off. */
+export function requestIngestMode(env: LedgerIngestMode, requested: unknown): LedgerIngestMode {
+  if (requested === 'shadow' || env === 'off') return 'shadow';
+  return env;
 }
 
 export function defaultLedgerRouteDeps(): LedgerRouteDeps {
@@ -31,6 +61,10 @@ export function defaultLedgerRouteDeps(): LedgerRouteDeps {
     publishDeps: () => publishDepsFromEnv(ct, avail),
     replyDeps: () => ({ callTool: ct, isServerAvailable: avail, log: (line) => console.log(line) }),
     lookup: lookupNflverseIds,
+    ingest: (mode) => runLedgerIngestCycle({ mode }),
+    envIngestMode: () => ledgerIngestMode(),
+    exportLedger: exportLedgerViaMcp,
+    now: () => new Date(),
   };
 }
 
@@ -73,6 +107,41 @@ export function registerLedgerAdminRoutes(app: express.Express, deps: LedgerRout
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[Ledger] reply ${id} failed: ${message}`);
       res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  app.post('/admin/ledger/ingest', async (req, res) => {
+    const body = (req.body ?? {}) as { mode?: unknown };
+    const mode = requestIngestMode(deps.envIngestMode(), body.mode);
+    try {
+      const summary = await deps.ingest(mode);
+      res.status(summary.aborted ? 503 : 200).json({ success: !summary.aborted, ...summary });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[LedgerIngest] manual pass failed: ${message}`);
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  app.get('/admin/ledger/scoreboard', async (req, res) => {
+    const today = etCalendarDate(deps.now());
+    const sinceRaw = typeof req.query.since === 'string' ? req.query.since : '';
+    if (sinceRaw && !isIsoDate(sinceRaw)) {
+      res.status(400).json({ success: false, error: 'since must be YYYY-MM-DD' });
+      return;
+    }
+    // Default window: the last 7 days — the Tuesday pass's week.
+    const since = sinceRaw || addDays(today, -7);
+    try {
+      const payload = await deps.exportLedger();
+      if (req.query.format === 'csv') {
+        res.status(200).type('text/csv').set('Content-Disposition', `attachment; filename="paratros-ledger-${today}.csv"`).send(ledgerCsv(payload));
+        return;
+      }
+      res.status(200).json({ success: true, since, ...buildScoreboardReport(payload, today, since) });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(503).json({ success: false, error: message });
     }
   });
 

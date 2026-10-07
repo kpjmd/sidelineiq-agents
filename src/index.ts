@@ -36,6 +36,7 @@ import { refreshTierSnapshotsIfStale } from './agents/injury-intelligence/tier-s
 import { isRetiredPostStatus } from './utils/web-posts.js';
 import { siteOrigin } from './config/brand.js';
 import { registerLedgerAdminRoutes } from './ledger/admin-routes.js';
+import { startLedgerIngest, stopLedgerIngest } from './ledger/ingest/loop.js';
 
 const app = express();
 const PORT = process.env.PORT || 3100;
@@ -100,7 +101,8 @@ for (const prefix of ['/admin', '/poll', '/test', '/seed']) {
 }
 
 // Prognosis Ledger: POST /admin/ledger/publish/:id, POST /admin/ledger/reply/:id,
-// GET /admin/ledger/nflverse-ids. Registered AFTER the guard above on purpose —
+// GET /admin/ledger/nflverse-ids, POST /admin/ledger/ingest,
+// GET /admin/ledger/scoreboard. Registered AFTER the guard above on purpose —
 // tests/ledger-admin-routes.test.ts pins the order. The handlers live in
 // src/ledger/admin-routes.ts so they can be unit-tested without booting this file.
 registerLedgerAdminRoutes(app);
@@ -733,6 +735,11 @@ async function start(): Promise<void> {
   } else {
     console.log('[Server] RETURN_DETECT_ENABLED=false — return detector not started');
   }
+
+  // Ledger resolution ingest. Default LEDGER_INGEST_MODE is shadow: it reads
+  // and logs, and files nothing until the mode is set to on. Even then it files
+  // PROPOSALS only; the physician confirms every resolution.
+  startLedgerIngest();
 }
 
 function shutdown(): void {
@@ -744,6 +751,7 @@ function shutdown(): void {
   stopRosterSync();
   stopMetricsSnapshot();
   stopReturnDetector();
+  stopLedgerIngest();
   disconnectAll()
     .then(() => process.exit(0))
     .catch(() => process.exit(1));
