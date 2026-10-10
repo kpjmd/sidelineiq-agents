@@ -1668,6 +1668,26 @@ not clinical consultation briefs. Keep reading level accessible.
 See .env.example. Railway manages production secrets.
 Never commit .env files.
 
+### CLASSIFIER_MODEL
+
+`src/config/models.ts` is the one place the Haiku-class model is chosen, for the
+injury classifier and the mention-intent classifier alike. Default
+`claude-haiku-4-5-20251001` (retirement not before 2026-10-15); `claude-haiku-5-5`
+is the allowed alternative and an unrecognized value falls back to the default
+with a `[Config]` warning, never to the raw string. It is a Railway switch because
+the move changes WHICH events publish, not just the bill.
+
+Measured 2026-10-09 on a live NFL cycle (`src/scripts/classifier-ab-dryrun.ts
+--repeat-baseline --repeat-candidate`, ~685 events): Haiku 5.5 is far steadier
+than 4.5 run to run (1.3% vs 7% of triage decisions change on a repeat), calls
+fewer healthy `Active` rows an injury (31 vs a noise floor of 9), and says
+`is_new=true` far more often on ESPN "ruled out" rows (60 flips vs 23 noise), so
+about 60 more events cross a threshold, 7 of them to PROCESS. The composite score
+runs about 4.5 points higher. Watch `deferred=`, `review=` and `[ReturnWatch]`
+after flipping it. Rollback is unsetting the variable, and only works while 4.5
+is still served. Re-verify with the dry run; the gate is the noise-floor bar, not
+zero, because 4.5 disagrees with itself.
+
 ## Relationship to Other Repos
 
 - `sidelineiq-mcp-servers` — Provides MCP tools this agent uses.

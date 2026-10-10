@@ -8,8 +8,8 @@ import type {
   AthleteTierSource,
 } from '../../types.js';
 import { computeSignificance } from './significance.js';
+import { classifierModel } from '../../config/models.js';
 
-const MODEL = 'claude-haiku-4-5-20251001';
 
 const CLASSIFIER_TOOL = {
   name: 'classify_injury_event',
@@ -212,7 +212,12 @@ export function resolveClassifiedSport(raw: unknown, fallback: SportKey): SportK
  * The tier context must be pre-resolved by the caller (poller) using lookupAthleteTier
  * so that Haiku never infers athlete prominence — that judgment is unreliable.
  */
-export async function classifyEvent(raw: RawInjuryEvent, tierContext: TierContext): Promise<ClassificationResult> {
+export async function classifyEvent(
+  raw: RawInjuryEvent,
+  tierContext: TierContext,
+  /** Dry-run A/B only. Production never passes it, so classifierModel() stays the one source. */
+  modelOverride?: string,
+): Promise<ClassificationResult> {
   const anthropic = getClient();
 
   const userMessage = `Classify this injury news item:
@@ -228,7 +233,7 @@ ${raw.is_update ? 'Marker: source flagged this as a status update.' : ''}`;
 
   try {
     const response = await anthropic.messages.create({
-      model: MODEL,
+      model: modelOverride ?? classifierModel(),
       max_tokens: 768,
       system: SYSTEM_PROMPT,
       tools: [CLASSIFIER_TOOL],
