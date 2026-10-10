@@ -54,8 +54,9 @@ UFC/MMA. For each injury event it:
 - Runtime: Node.js 18+
 - Framework: Express.js
 - Language: TypeScript (ES modules)
-- AI: Anthropic Claude API (claude-sonnet-4-20250514 for agent calls,
-  claude-haiku for classification tasks)
+- AI: Anthropic Claude API (claude-sonnet-4-6 for agent and date-resolution
+  calls, claude-sonnet-5-5 for reply generation, claude-haiku-4-5 for
+  classification tasks)
 - Database: Neon Serverless PostgreSQL
 - Database pattern: Tagged template literals ONLY — no ORM
 - Deployment: Railway

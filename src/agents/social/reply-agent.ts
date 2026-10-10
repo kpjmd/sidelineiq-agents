@@ -6,7 +6,7 @@ import { BRAND_NAME, BRAND_SIGNATURE } from '../../config/brand.js';
 // Classification uses Haiku (fast, cheap) — matches classifier.ts pattern
 const CLASSIFICATION_MODEL = 'claude-haiku-4-5-20251001';
 // Reply generation uses Sonnet (quality) — matches agent.ts pattern
-const GENERATION_MODEL = 'claude-sonnet-4-20250514';
+const GENERATION_MODEL = 'claude-sonnet-5-5';
 
 const AI_SKEPTICISM_KEYWORDS = [
   'trust ai', 'just an algorithm', 'chatgpt', 'bot', 'ai-generated',
