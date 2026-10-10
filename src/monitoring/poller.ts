@@ -366,7 +366,7 @@ const INJURY_ANCHOR_RE = /\b(injur\w*|torn?|tear\w*|sprain\w*|fractur\w*|concuss
 // Non-injury signals — drop the event only when no injury anchor is present.
 const NON_INJURY_RE = /\b(load management|personal reasons?|personal leave|family (matter|emergency|reasons?)|contract (extension|signing|negotiation)|suspended|suspension|ejected|ejection|paternity leave|bereavement|rest day)\b/i;
 
-function isObviousNonInjury(event: RawInjuryEvent): boolean {
+export function isObviousNonInjury(event: RawInjuryEvent): boolean {
   if (INJURY_ANCHOR_RE.test(event.injury_description)) return false;
   return NON_INJURY_RE.test(event.injury_description);
 }

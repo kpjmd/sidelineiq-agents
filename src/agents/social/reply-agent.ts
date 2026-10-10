@@ -2,9 +2,9 @@ import Anthropic from '@anthropic-ai/sdk';
 import { callTool, isServerAvailable } from '../../utils/mcp-client-manager.js';
 import type { SocialMention, MentionIntent } from '../../types.js';
 import { BRAND_NAME, BRAND_SIGNATURE } from '../../config/brand.js';
+import { classifierModel } from '../../config/models.js';
 
 // Classification uses Haiku (fast, cheap) — matches classifier.ts pattern
-const CLASSIFICATION_MODEL = 'claude-haiku-4-5-20251001';
 // Reply generation uses Sonnet (quality) — matches agent.ts pattern
 const GENERATION_MODEL = 'claude-sonnet-5-5';
 
@@ -75,7 +75,7 @@ Author: @${mention.authorHandle}`;
 
   try {
     const response = await anthropic.messages.create({
-      model: CLASSIFICATION_MODEL,
+      model: classifierModel(),
       max_tokens: 256,
       system: CLASSIFICATION_SYSTEM_PROMPT,
       tools: [CLASSIFICATION_TOOL],
