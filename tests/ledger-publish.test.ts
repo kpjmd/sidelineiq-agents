@@ -6,7 +6,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { publishLedgerForecast, LedgerPublishRefused, type PublishDeps } from '../src/ledger/publish.js';
 import type { GithubCommitDeps } from '../src/ledger/github-commit.js';
-import { publishedRow, mcpText, mcpError, FORECAST_ID } from './helpers/ledger-published-row.js';
+import { publishedRow, tamperedRow, mcpText, mcpError, FORECAST_ID } from './helpers/ledger-published-row.js';
 
 const COMMIT_URL = 'https://github.com/kpjmd/paratros-ledger/commit/c0ffee1234567';
 
@@ -376,6 +376,80 @@ describe('X refuses the reply (report author never mentioned us): automatic stan
     expect(h.calls.map((c) => c.tool)).toEqual(['web_get_ledger_forecast']);
     expect(out.x.reply_to_id).toBe('1972000000000000001');
     expect(out.warnings.some((w) => w.includes('if X refuses the reply'))).toBe(true);
+  });
+});
+
+describe('tier 2 (ledger only): commit and a text-only Farcaster mirror, no X', () => {
+  const tier2 = (overrides: Parameters<typeof publishedRow>[0] = {}) => publishedRow({ tier: 2, ...overrides });
+
+  it('commit → Farcaster (no embed) → provenance; no twitter tool and no audit is called', async () => {
+    const h = harness(tier2());
+    const out = await publishLedgerForecast(FORECAST_ID, {}, h.deps);
+    expect(out.tier).toBe(2);
+    expect(out.success).toBe(true);
+    expect(out.mirrored).toBe(true);
+    expect(out.commit).toMatchObject({ status: 'committed', sha: 'c0ffee1234567', url: COMMIT_URL });
+    expect(h.calls.map((c) => c.tool)).toEqual(['web_get_ledger_forecast', 'farcaster_publish_cast', 'web_record_ledger_provenance']);
+    const cast = h.calls.find((c) => c.tool === 'farcaster_publish_cast')!.params;
+    expect(cast).not.toHaveProperty('embeds');
+    expect(String(cast.text)).not.toContain('https://');
+    expect(out.farcaster.embeds).toEqual([]);
+    expect(out.x).toMatchObject({ status: 'skipped', reply_to_id: null, reason: expect.stringMatching(/tier 2/) });
+    expect(out.x_self_reply).toMatchObject({ status: 'skipped', reason: expect.stringMatching(/tier 2/) });
+    expect(h.calls.find((c) => c.tool === 'web_record_ledger_provenance')!.params).toEqual({
+      forecast_id: FORECAST_ID,
+      commit_sha: 'c0ffee1234567',
+      commit_url: COMMIT_URL,
+      farcaster_hash: '0xcast',
+    });
+    expect(h.logs.some((l) => l.includes('[Ledger] PUBLISHED') && l.includes('x=skipped'))).toBe(true);
+  });
+
+  it('the tier is read from the stored row and is inside the hash: a tampered tier is refused', async () => {
+    const h = harness(tamperedRow({ tier: 2 }));
+    await expect(publishLedgerForecast(FORECAST_ID, {}, h.deps)).rejects.toMatchObject({ httpStatus: 422 });
+    expect(socialTools(h)).toEqual([]);
+  });
+
+  it('NO COMMIT, NO POST holds for tier 2', async () => {
+    const h = harness(tier2(), { github: githubDown() });
+    await expect(publishLedgerForecast(FORECAST_ID, {}, h.deps)).rejects.toMatchObject({ httpStatus: 500 });
+    expect(socialTools(h)).toEqual([]);
+  });
+
+  it('an unparseable reply_to_url does not block a tier 2 publish; force_standalone is ignored with a warning', async () => {
+    const h = harness(tier2({ reply_to_url: 'https://x.com/AdamSchefter' }));
+    const out = await publishLedgerForecast(FORECAST_ID, { forceStandalone: true }, h.deps);
+    expect(out.standalone).toBeUndefined();
+    expect(out.warnings.some((w) => /force_standalone ignored/.test(w))).toBe(true);
+    expect(socialTools(h)).toEqual(['farcaster_publish_cast']);
+  });
+
+  it('a dry run renders the texts and sends nothing', async () => {
+    const h = harness(tier2(), { env: { LEDGER_PUBLISH_DRY_RUN: 'true' } });
+    const out = await publishLedgerForecast(FORECAST_ID, {}, h.deps);
+    expect(out).toMatchObject({ dry_run: true, tier: 2, commit: { status: 'dry_run' }, x: { status: 'skipped' }, farcaster: { status: 'dry_run', embeds: [] } });
+    expect(h.calls.map((c) => c.tool)).toEqual(['web_get_ledger_forecast']);
+  });
+
+  it('a Farcaster failure is mirrored:false with the commit recorded; a re-run fills only the cast', async () => {
+    const h = harness(tier2(), { responses: { farcaster_publish_cast: [mcpError('neynar 500')] } });
+    const out = await publishLedgerForecast(FORECAST_ID, {}, h.deps);
+    expect(out.mirrored).toBe(false);
+    expect(h.logs.some((l) => l.includes('[Ledger] SOCIAL FAILED') && l.includes('farcaster=') && !l.includes('x='))).toBe(true);
+    const again = harness(tier2({ commit_sha: 'c0ffee1234567', commit_url: COMMIT_URL }));
+    const out2 = await publishLedgerForecast(FORECAST_ID, {}, again.deps);
+    expect(out2.commit.status).toBe('already_recorded');
+    expect(out2.mirrored).toBe(true);
+    expect(socialTools(again)).toEqual(['farcaster_publish_cast']);
+  });
+
+  it('a tier 1 row still embeds the entry URL and posts to X', async () => {
+    const h = harness(publishedRow({ tier: 1 }));
+    const out = await publishLedgerForecast(FORECAST_ID, {}, h.deps);
+    expect(out.tier).toBe(1);
+    expect(socialTools(h)).toEqual(['twitter_publish_tweet', 'twitter_publish_tweet', 'farcaster_publish_cast']);
+    expect(h.calls.find((c) => c.tool === 'farcaster_publish_cast')!.params.embeds).toEqual([{ url: 'https://www.paratros.com/ledger/PT-2026-001' }]);
   });
 });
 

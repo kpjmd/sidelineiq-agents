@@ -1528,6 +1528,12 @@ Code lives under `src/ledger/`; the tables and tools are mcp migration 026 and
   id, version, hash8 and the physician credit are never shortened. The entry
   URL rides as an embed (outside the budget) and unfurls the card, which
   carries the disclaimer strip and the AI line.
+- **Tier 2 is ledger-only: commit → text-only Farcaster mirror → provenance, no
+  X.** `publishLedgerForecast` reads `tier` off the STORED row (it is hashed, so
+  a request cannot change it and promoting to a card is a v2 at tier 1). The
+  cast carries NO entry-URL embed: the embed unfurls the card image, and a Tier
+  2 entry has no card anywhere. Both X steps come back `skipped` with a
+  `reason`; `mirrored` counts only the platforms the tier posts to.
 - **The X self-reply links the ledger index and the row's commit URL** (S2-1);
   the card reply carries the entry URL last so X unfurls the card. X has no
   media upload tool; the card IS the unfurl. `reply_to_url` is frozen after
