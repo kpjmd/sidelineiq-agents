@@ -657,10 +657,13 @@ export function resolveField(field: LedgerField, ctx: LedgerEntryContext, facts:
 
 /**
  * Season-ending flag (spec "Prediction taxonomy"): F3 < 5% and the F4 lower
- * bound exceeds the regular-season games remaining after the injury date.
+ * bound equals or exceeds the regular-season games remaining after the injury
+ * date. EQUALS is the case that matters: a season-ending F4 resolves as exactly
+ * the games remaining (resolveF4, "F4 as games remaining"), so a correctly
+ * entered lower bound can never exceed them. Pre-registration Amendment 1.
  */
 export function seasonEndingFlag(f3_4wk: number, f4_low: number, remainingGames: number): boolean {
-  return f3_4wk < 0.05 && f4_low > remainingGames;
+  return f3_4wk < 0.05 && f4_low >= remainingGames;
 }
 
 /**

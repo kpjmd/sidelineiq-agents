@@ -89,7 +89,7 @@ Five scored fields on every entry, each resolvable from three public sources: th
 | F4 Games missed | Point estimate + 80% interval, regular-season games from injury through the game before first return | First return or season end | Gamebook | MAE on point; 80% interval coverage |
 | F5 Re-injury | P(same-site injury on injury report AND ≥ 1 game missed within 6 games of return) | 6 games after return or season end | Injury report + gamebook | Brier |
 
-Season-ending flag: set when F3 < 5% and the F4 lower bound exceeds remaining regular-season games. Resolves as "did not play again this regular season."
+Season-ending flag: set when F3 < 5% and the F4 lower bound equals or exceeds remaining regular-season games. Resolves as "did not play again this regular season."
 
 Metadata on every entry, not scored: source tier (A/B/C), mechanism line, reported injury as worded by the source, base-rate row used, and a one-line "what would move this." Confidence is expressed only through the F4 interval width; there is no separate confidence label.
 
