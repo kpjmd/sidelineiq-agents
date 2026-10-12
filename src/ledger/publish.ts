@@ -22,6 +22,14 @@
  *   4. Farcaster: the compact mirror with the entry URL embedded.
  *   5. web_record_ledger_provenance with whatever succeeded (COALESCE converges,
  *      so a re-run after a partial failure fills only the gaps).
+ * TIER 2 (spec "Triage rule": "Ledger row with all five fields", no card) runs
+ * the same function with X removed: commit → Farcaster → provenance. The tier
+ * is read from the STORED row, never the request, and it is inside the hash, so
+ * promoting an entry to a card is a v2 at tier 1 (v1's timestamp is unchanged).
+ * Its Farcaster mirror is text only, with no entry-URL embed: the embed unfurls
+ * the card image, and a Tier 2 entry has no card anywhere. It is kept because
+ * the cast is an independent third-party timestamp (spec "Provenance").
+ *
  * A social failure AFTER the commit is reported as mirrored:false and logged
  * `[Ledger] SOCIAL FAILED`; the row is already public by its commit, and the
  * operator re-runs the same id to retry the missing platform.
@@ -72,12 +80,15 @@ type StepStatus = 'ok' | 'failed' | 'skipped' | 'dry_run';
 export interface LedgerPublishOutcome {
   success: boolean;
   dry_run: boolean;
-  /** True only when the commit and all three social posts succeeded (or are already recorded). */
+  /** The stored row's tier: 1 = full card, 2 = ledger only (no X). */
+  tier: 1 | 2;
+  /** True only when the commit and every social post THIS TIER makes succeeded (or are already recorded). */
   mirrored: boolean;
   forecast: { id: string; entry_id: string; version: number; row_hash: string };
   commit: { path: string; message: string; status: CommitOutcome['status'] | 'dry_run' | 'already_recorded'; sha?: string; url?: string; body?: string };
-  x: { text: string; reply_to_id: string | null; status: StepStatus | 'already_recorded'; post_id?: string; error?: string };
-  x_self_reply: { text: string; status: StepStatus | 'already_recorded'; id?: string; error?: string };
+  /** On Tier 2 both X steps are `skipped` with `reason` set and the text is what a card WOULD say. */
+  x: { text: string; reply_to_id: string | null; status: StepStatus | 'already_recorded'; post_id?: string; error?: string; reason?: string };
+  x_self_reply: { text: string; status: StepStatus | 'already_recorded'; id?: string; error?: string; reason?: string };
   /** Present when the card posts standalone although the row names a report post. */
   standalone?: { reason: 'force_standalone' | 'reply_refused'; report_url: string; audited: boolean; prior_error?: string; error?: string };
   farcaster: { text: string; embeds: Array<{ url: string }>; channel_id: string | null; byte_length: number; status: StepStatus | 'already_recorded'; hash?: string; error?: string };
@@ -188,7 +199,9 @@ export async function publishLedgerForecast(forecastId: string, opts: PublishOpt
   }
   const published: PublishedLedgerRow = row;
   const dryRun = isDryRun(deps, opts);
-  const tag = `${published.entry_id} v${published.version}`;
+  const tier: 1 | 2 = Number(published.tier) === 2 ? 2 : 1;
+  const ledgerOnly = tier === 2;
+  const tag = `${published.entry_id} v${published.version}${ledgerOnly ? ' (tier 2)' : ''}`;
   const warnings: string[] = [];
 
   // The reply target is decided before the texts render (a standalone card's
@@ -196,7 +209,13 @@ export async function publishLedgerForecast(forecastId: string, opts: PublishOpt
   // leaves an orphaned commit behind.
   let replyToId: string | null = null;
   let reportUrl: string | null = null;
-  if (published.reply_to_url) {
+  if (ledgerOnly) {
+    // No card, so the reply target is moot: an unparseable reply_to_url does
+    // not block the commit, and force_standalone has nothing to act on.
+    warnings.push('tier 2 (ledger only): commit plus a text-only Farcaster mirror; nothing goes to X');
+    if (opts.forceStandalone) warnings.push('force_standalone ignored: a tier 2 entry posts no card');
+    deps.log(`[Ledger] ${tag}: ledger only, X skipped`);
+  } else if (published.reply_to_url) {
     replyToId = tweetIdFromUrl(published.reply_to_url);
     if (replyToId === null) {
       if (!opts.forceStandalone) {
@@ -230,16 +249,20 @@ export async function publishLedgerForecast(forecastId: string, opts: PublishOpt
 
   const file: ForecastFile = buildForecastFile(published);
   const channelId = deps.env.LEDGER_FARCASTER_CHANNEL || null;
+  // The entry-URL embed unfurls the card image; a Tier 2 cast carries none.
+  const farcasterEmbeds = ledgerOnly ? [] : [{ url: texts.entry_url }];
+  const tierSkip = 'tier 2: ledger only, no card';
 
   const outcome: LedgerPublishOutcome = {
     success: true,
     dry_run: dryRun,
+    tier,
     mirrored: false,
     forecast: { id: published.id, entry_id: published.entry_id, version: published.version, row_hash: published.row_hash },
     commit: { path: file.path, message: file.message, status: 'dry_run', body: dryRun ? file.body : undefined },
-    x: { text: texts.x_card, reply_to_id: replyToId, status: 'dry_run' },
-    x_self_reply: { text: texts.x_self_reply, status: 'dry_run' },
-    farcaster: { text: texts.farcaster, embeds: [{ url: texts.entry_url }], channel_id: channelId, byte_length: texts.farcaster_bytes, status: 'dry_run' },
+    x: ledgerOnly ? { text: texts.x_card, reply_to_id: null, status: 'skipped', reason: tierSkip } : { text: texts.x_card, reply_to_id: replyToId, status: 'dry_run' },
+    x_self_reply: ledgerOnly ? { text: texts.x_self_reply, status: 'skipped', reason: tierSkip } : { text: texts.x_self_reply, status: 'dry_run' },
+    farcaster: { text: texts.farcaster, embeds: farcasterEmbeds, channel_id: channelId, byte_length: texts.farcaster_bytes, status: 'dry_run' },
     provenance: { recorded: false },
     warnings,
     ...(reportUrl ? { standalone: { reason: 'force_standalone' as const, report_url: reportUrl, audited: false } } : {}),
@@ -273,8 +296,10 @@ export async function publishLedgerForecast(forecastId: string, opts: PublishOpt
   }
   const commitUrl = outcome.commit.url as string;
 
-  // 3. X: card reply, then the self-reply.
-  if (published.x_post_id) {
+  // 3. X: card reply, then the self-reply. Tier 2 posts neither.
+  if (ledgerOnly) {
+    // outcome.x / x_self_reply already say skipped; nothing is called.
+  } else if (published.x_post_id) {
     outcome.x = { ...outcome.x, status: 'already_recorded', post_id: published.x_post_id };
   } else if (!deps.isServerAvailable('twitter')) {
     outcome.x = { ...outcome.x, status: 'failed', error: 'Twitter MCP server unavailable' };
@@ -311,7 +336,9 @@ export async function publishLedgerForecast(forecastId: string, opts: PublishOpt
   // Built after the card step: a refusal above turns on the report citation.
   outcome.x_self_reply.text = buildXSelfReplyText(published, commitUrl, reportUrl);
   const cardTweetId = outcome.x.post_id ?? null;
-  if (published.x_self_reply_id) {
+  if (ledgerOnly) {
+    // skipped, as above
+  } else if (published.x_self_reply_id) {
     outcome.x_self_reply = { ...outcome.x_self_reply, status: 'already_recorded', id: published.x_self_reply_id };
   } else if (!cardTweetId) {
     outcome.x_self_reply = { ...outcome.x_self_reply, status: 'skipped', error: 'no card tweet to reply to' };
@@ -347,7 +374,7 @@ export async function publishLedgerForecast(forecastId: string, opts: PublishOpt
     try {
       const raw = await deps.callTool('farcaster', 'farcaster_publish_cast', {
         text: texts.farcaster,
-        embeds: [{ url: texts.entry_url }],
+        ...(farcasterEmbeds.length > 0 ? { embeds: farcasterEmbeds } : {}),
         ...(channelId ? { channel_id: channelId } : {}),
       });
       if (isMCPError(raw)) throw new Error(extractMCPErrorMessage(raw));
@@ -383,16 +410,17 @@ export async function publishLedgerForecast(forecastId: string, opts: PublishOpt
   }
 
   const socialOk = (s: string) => s === 'ok' || s === 'already_recorded';
-  outcome.mirrored = socialOk(outcome.x.status) && socialOk(outcome.x_self_reply.status) && socialOk(outcome.farcaster.status);
+  const xOk = ledgerOnly || (socialOk(outcome.x.status) && socialOk(outcome.x_self_reply.status));
+  outcome.mirrored = xOk && socialOk(outcome.farcaster.status);
   if (!outcome.mirrored) {
     const failed = [
-      outcome.x.status !== 'ok' && outcome.x.status !== 'already_recorded' ? `x=${outcome.x.error ?? outcome.x.status}` : null,
-      !socialOk(outcome.x_self_reply.status) ? `x_self_reply=${outcome.x_self_reply.error ?? outcome.x_self_reply.status}` : null,
+      !ledgerOnly && !socialOk(outcome.x.status) ? `x=${outcome.x.error ?? outcome.x.status}` : null,
+      !ledgerOnly && !socialOk(outcome.x_self_reply.status) ? `x_self_reply=${outcome.x_self_reply.error ?? outcome.x_self_reply.status}` : null,
       !socialOk(outcome.farcaster.status) ? `farcaster=${outcome.farcaster.error ?? outcome.farcaster.status}` : null,
     ].filter(Boolean);
     deps.log(`[Ledger] SOCIAL FAILED ${tag} (row is public by commit ${outcome.commit.sha}): ${failed.join('; ')}`);
   } else {
-    deps.log(`[Ledger] PUBLISHED ${tag}: x=${outcome.x.post_id} self=${outcome.x_self_reply.id} farcaster=${outcome.farcaster.hash}`);
+    deps.log(`[Ledger] PUBLISHED ${tag}: ${ledgerOnly ? 'x=skipped' : `x=${outcome.x.post_id} self=${outcome.x_self_reply.id}`} farcaster=${outcome.farcaster.hash}`);
   }
   return outcome;
 }
