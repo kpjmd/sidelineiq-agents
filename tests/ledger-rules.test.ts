@@ -342,7 +342,15 @@ describe('cross-cutting rules', () => {
   it('season-ending flag needs both halves', () => {
     expect(seasonEndingFlag(0.04, 6, 5)).toBe(true);
     expect(seasonEndingFlag(0.05, 6, 5)).toBe(false);
-    expect(seasonEndingFlag(0.04, 5, 5)).toBe(false);
+    expect(seasonEndingFlag(0.04, 4, 5)).toBe(false);
+  });
+
+  it('season-ending flag is reachable at F4 low == games remaining (Amendment 1)', () => {
+    // Hargrave PT-2026-003: Achilles 2026-10-11, 12 REG games left, F4 12–12.
+    // F4 resolves as exactly the games remaining, so EQUAL is the correct entry.
+    expect(seasonEndingFlag(0.01, 12, 12)).toBe(true);
+    expect(seasonEndingFlag(0.01, 11, 12)).toBe(false);
+    expect(seasonEndingFlag(0.05, 12, 12)).toBe(false);
   });
 
   it('a revision counts only if published strictly before the freeze point', () => {

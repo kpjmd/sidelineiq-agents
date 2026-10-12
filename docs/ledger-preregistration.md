@@ -150,3 +150,27 @@ Revisions never add to n and are never averaged with the original.**
 - `forecast_after_freeze` fields are void, not misses. A number published after the
   event it predicts is not a forecast and must not be allowed to flatter or damage the
   board.
+
+## Amendment 1 — 2026-10-12: season-ending flag at "equals"
+
+**n at amendment: 0.** No field of any entry has resolved or been scored. Four entries
+exist (PT-2026-001 to -004); none has a confirmed resolution.
+
+**What changed.** The season-ending flag (metadata, not scored) now reads: set when
+F3 < 5% and the F4 lower bound **equals or exceeds** the regular-season games remaining
+after `injury_date`. It read "exceeds".
+
+**Why.** F4 resolves at season end as exactly the games remaining (Resolution rules,
+F4). A correctly entered season-ending F4 lower bound therefore EQUALS the games
+remaining and can never exceed it, so under "exceeds" the flag was unreachable by any
+correct forecast. PT-2026-003 (Javon Hargrave, Achilles, 2026-10-11, 12 regular-season
+games remaining, F4 12–12) is the case that exposed it: the physician set the flag by
+hand, and the registered definition said it should be false.
+
+**What it does not change.** No scored number, at any n. The flag is not an input to
+`scoring.ts`, and `season_ending` on a forecast row is entered by the physician, never
+computed — `seasonEndingFlag` in `rules.ts` has no caller outside its tests. No stored
+row, hash or resolution moves.
+
+The working spec's "Prediction taxonomy" line carried the same word. The physician
+amended it to "equals or exceeds" on 2026-10-12, in the same change as this amendment.
