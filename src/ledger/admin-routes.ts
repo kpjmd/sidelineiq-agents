@@ -15,9 +15,12 @@
  *     Runs one ingest pass. A request can only make it LESS permissive: it
  *     runs shadow when asked, and shadow when the env says off (a read-only
  *     pass is what the Tuesday hand-check needs). It never forces `on`.
- *   GET  /admin/ledger/scoreboard?since=YYYY-MM-DD[&format=csv]      → scoreboard.ts
+ *   GET  /admin/ledger/scoreboard?since=YYYY-MM-DD[&as_of=YYYY-MM-DD][&format=csv] → scoreboard.ts
  *     Both boards, calibration, revision delta, voids, the card line, and the
  *     resolution-card / scoreboard-card TEXT. format=csv is the raw export.
+ *     as_of (decision S4-1) applies `ledgerAsOf` at the end of that New York
+ *     day, the same view the public /ledger/scoreboard?as_of= renders, so a
+ *     posted card and the public page cannot disagree.
  */
 import type express from 'express';
 import { callTool, isServerAvailable } from '../utils/mcp-client-manager.js';
@@ -28,6 +31,7 @@ import { isMCPError, extractMCPErrorMessage } from '../utils/publishing-pipeline
 import { runLedgerIngestCycle, ledgerIngestMode, type LedgerIngestMode, type LedgerIngestSummary } from './ingest/loop.js';
 import { buildScoreboardReport, ledgerCsv, type LedgerExportPayload } from './scoreboard.js';
 import { addDays, etCalendarDate, isIsoDate } from './dates.js';
+import { endOfEtDay, ledgerAsOf } from './export-csv.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -132,15 +136,22 @@ export function registerLedgerAdminRoutes(app: express.Express, deps: LedgerRout
       res.status(400).json({ success: false, error: 'since must be YYYY-MM-DD' });
       return;
     }
-    // Default window: the last 7 days — the Tuesday pass's week.
-    const since = sinceRaw || addDays(today, -7);
+    const asOfRaw = typeof req.query.as_of === 'string' ? req.query.as_of : '';
+    if (asOfRaw && (!isIsoDate(asOfRaw) || asOfRaw > today)) {
+      res.status(400).json({ success: false, error: 'as_of must be a YYYY-MM-DD date no later than today (ET)' });
+      return;
+    }
+    const asOf = asOfRaw || today;
+    // Default window: the 7 days before as_of — the Tuesday pass's week.
+    const since = sinceRaw || addDays(asOf, -7);
     try {
-      const payload = await deps.exportLedger();
+      const exported = await deps.exportLedger();
+      const payload = asOfRaw ? ledgerAsOf(exported, endOfEtDay(asOfRaw)) : exported;
       if (req.query.format === 'csv') {
-        res.status(200).type('text/csv').set('Content-Disposition', `attachment; filename="paratros-ledger-${today}.csv"`).send(ledgerCsv(payload));
+        res.status(200).type('text/csv').set('Content-Disposition', `attachment; filename="paratros-ledger-${asOf}.csv"`).send(ledgerCsv(payload));
         return;
       }
-      res.status(200).json({ success: true, since, ...buildScoreboardReport(payload, today, since) });
+      res.status(200).json({ success: true, since, ...buildScoreboardReport(payload, asOf, since) });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       res.status(503).json({ success: false, error: message });
