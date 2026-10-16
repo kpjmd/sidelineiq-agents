@@ -125,4 +125,19 @@ describe('routes', () => {
     expect((await csv.text()).split('\n')[1]).toMatch(/^PT-2026-001,F1,open,/);
     expect((await fetch(`${base}/admin/ledger/scoreboard?since=yesterday`)).status).toBe(400);
   });
+
+  it('as_of (S4-1) is the ledger at the end of that New York day, and never a future day', async () => {
+    // PT-2026-001 v1 published 2026-10-07T00:15Z = 20:15 ET on 10-06.
+    const on = (await (await fetch(`${base}/admin/ledger/scoreboard?as_of=2026-10-06`)).json()) as { as_of: string; since: string; summary: { open_fields: number } };
+    expect(on.as_of).toBe('2026-10-06');
+    expect(on.since).toBe('2026-09-29');
+    expect(on.summary.open_fields).toBe(5);
+    const before = (await (await fetch(`${base}/admin/ledger/scoreboard?as_of=2026-10-05`)).json()) as { summary: { open_fields: number } };
+    expect(before.summary.open_fields).toBe(0);
+    const csv = await fetch(`${base}/admin/ledger/scoreboard?as_of=2026-10-05&format=csv`);
+    expect(csv.headers.get('content-disposition')).toContain('paratros-ledger-2026-10-05.csv');
+    expect((await csv.text()).trim().split('\n')).toHaveLength(1);
+    expect((await fetch(`${base}/admin/ledger/scoreboard?as_of=2026-10-08`)).status).toBe(400);
+    expect((await fetch(`${base}/admin/ledger/scoreboard?as_of=10-06`)).status).toBe(400);
+  });
 });

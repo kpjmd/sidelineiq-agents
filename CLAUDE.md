@@ -1610,6 +1610,26 @@ Code lives under `src/ledger/`; the tables and tools are mcp migration 026 and
   facts. `src/scripts/ledger-scoreboard.ts` prints the boards; `--emit-fixture`
   APPENDS a live scoring case.
 
+### Stage 4 — public site (2026-10-16)
+
+- **The public pages read the mcp directly** (`web_export_ledger`, which returns
+  published forecasts only and no proposals), never this service. `web_get_ledger_entry`
+  DOES return proposals in every state, pending included; the frontend's public wrapper
+  drops the key.
+- **`src/ledger/export-csv.ts` is a fourth byte-identical twin** (frontend
+  `lib/ledger-export-csv.ts`), import-free so it can be. `scoreboard.ts` re-exports
+  `ledgerCsv` from it. Pinned by `tests/fixtures/ledger-csv-cases.json`, RECORDED live by
+  `src/scripts/ledger-csv-fixture.ts --as-of=…` (append-only). `ledgerFromCsv` rebuilds
+  the scoring inputs from the CSV alone, so the "recomputes to the published boards" gate
+  is a test in both repos.
+- **`as_of` (S4-1) keeps every monthly board recomputable**: `ledgerAsOf(payload,
+  endOfEtDay(date))` keeps versions with `published_at` before the end of that New York
+  day and reads a resolution confirmed later as the open row it was then (no outcome, no
+  freeze, no evidence). Exact because published rows and locked resolutions never move.
+  `GET /admin/ledger/scoreboard?as_of=` applies the same view, so the card text posted on
+  a first Tuesday equals `/ledger/scoreboard?as_of=<that day>`. Post the monthly card
+  with `as_of` set. Note the first lock landed 2026-10-14T03:01Z = **10-13** ET.
+
 ## MCP Server Connections
 
 This repo connects to sidelineiq-mcp-servers via HTTP:
