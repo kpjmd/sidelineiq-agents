@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve as resolvePath } from 'node:path';
 import type { RawInjuryEvent, SportKey } from '../../types.js';
 import { hasRosterProvider, isTeamSport } from '../../monitoring/roster-sync.js';
+import { coverageScopeMode, outOfCoverageSection } from '../../monitoring/coverage-scope.js';
 
 export interface ResolvedPlayerInfo {
   player_id: string;
@@ -38,6 +39,9 @@ export type ValidationCode =
   | 'team_mismatch'
   | 'date_future'
   | 'date_stale_breaking'
+  // An unresolved athlete whose story sits in a college/high-school section of
+  // the publisher's site. See src/monitoring/coverage-scope.ts.
+  | 'out_of_coverage'
   // Soft codes
   | 'identity_unresolvable'
   | 'identity_ambiguous'
@@ -673,6 +677,21 @@ export async function validateEvent(
     // — and, more importantly, that this event will get no entity, no thread
     // and no laterality check. That is worth a human look, exactly as it is
     // for the team sports.
+    // Unresolved is not out-of-coverage on its own (roster lag and name drift
+    // make real pros miss), so the drop needs the publisher's own section to
+    // say the story is not professional sport. Only ever reached unresolved.
+    const section = isTeamSport(event.sport) ? outOfCoverageSection(event) : null;
+    const scopeMode = coverageScopeMode();
+    if (section && scopeMode === 'on') {
+      hardFailures.push({
+        code: 'out_of_coverage',
+        detail: `No roster match for "${event.athlete_name}" in ${event.sport} and the source is in a "${section}" section (${event.source_url})`,
+      });
+    } else if (section && scopeMode === 'shadow') {
+      console.log(
+        `[CoverageScope] SHADOW would drop ${event.athlete_name} (${event.sport}) — section=${section} url=${event.source_url}`,
+      );
+    }
     if (hasRosterProvider(event.sport)) {
       softFailures.push({
         code: 'identity_unresolvable',

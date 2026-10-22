@@ -272,6 +272,36 @@ athlete's tier.
 shadow decides and logs but changes nothing at all, including the cases
 that look obviously safe.
 
+### Unresolved is not out of coverage, but college is
+
+Nico Iamaleava, a UCLA quarterback, reached the MD queue on 2026-10-22 as an NFL
+BREAKING post. NewsAPI's NFL query is `"NFL" AND injury…`, and a college story that
+mentions the NFL matches it: on that day 8 of 100 results were in a college section.
+An athlete who resolves to no player is only a SOFT `identity_unresolvable`, and the
+post-OTM team re-check ran only for a RESOLVED player, so OTM's "UCLA" was never
+compared against anything.
+
+**Do not drop on "unresolved" alone.** 5 of the 6 historical `identity_unresolvable`
+posts were real pros (AJ Brown, Shaedon Sharpe, Jalon Walker, Richie Saunders, Jaylon
+Hutchings), missed because of name drift and roster lag. `src/monitoring/coverage-scope.ts`
+therefore requires a positive non-pro signal, and both callers consult it ONLY for an
+unresolved athlete in a team sport. The drop code is `out_of_coverage`, and it is hard:
+- **Before OTM** (`validateEvent`): the source URL has a college or high-school
+  SECTION segment. It matches a whole path segment and never the slug, because
+  `cbssports.com/nfl/news/…-in-college-football/` is a real NFL story. X is skipped,
+  because its first segment is a handle.
+- **After OTM** (poller, beside the resolved-player team re-check): the post's team
+  names no club of the sport. Blank, "Unknown" and "Free Agent" are gaps, not
+  contradictions, so they keep the review route. NFL and NBA only. PL is absent on
+  purpose: its club list is hand-maintained across relegation, and short forms like
+  "Spurs" are routine.
+
+`COVERAGE_SCOPE_MODE=off|shadow|on`, default `on`. Observable: `out_of_scope=` in
+the poll summary, counting both layers. Re-verify with
+`src/scripts/coverage-scope-dryrun.ts`. The numbers that must be zero are drops of a
+rostered athlete and drops of a known real pro. On 2026-10-22, across 817 NFL/NBA
+posts, it dropped Iamaleava and nothing else.
+
 ### A shared name is not an identity
 
 `web_resolve_player` by name returns `confidence: 'ambiguous'` when two rostered
