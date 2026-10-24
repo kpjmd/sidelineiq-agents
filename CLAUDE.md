@@ -831,6 +831,36 @@ publishing a number derived from them.
   ACTIVE thread. The only history is the 2026-09-10 VOIDed backfill shells, and
   those are dateless and unreopenable by design.
 
+### Return Watch has its own bar
+
+`maybeProposeReturnWatch` (`src/monitoring/return-watch.ts`) proposes a
+`RETURN_WATCH_UPDATE` desk candidate when a thread that already has a PUBLISHED
+desk post (at least `RETURN_WATCH_MIN_DAYS_SINCE_PUBLISH` old) gets a TRACKING or
+RESOLUTION update. It used to gate on `computePromotionScore`'s `proposed`, the
+NEW_POST bar of 55 — and 35 of those 100 points are team-vs-OTM conflict, which a
+Return Watch event can never carry. A tier-2 athlete topped out at **53**, so Ben
+Simmons, the first full desk post, could never be proposed, not even on his first
+game back. Do not route it back through `proposed`.
+
+- **RESOLUTION always proposes.** First game back is what Return Watch exists for,
+  and a thread resolves once. No bar, no cooldown, no guard reads — so a failed
+  read can never swallow a return.
+- **TRACKING clears `RETURN_WATCH_TRACKING_MIN_SCORE` (default 40)**: tier 1 and 2
+  with a T1/T2 source, tier 3 with T1 only. The MD's desk pick already answered
+  whether the athlete is worth covering.
+- **TRACKING is guarded** for `RETURN_WATCH_TRACKING_COOLDOWN_DAYS` (default 14):
+  no proposal after a Return Watch update on the post (`desk_list_updates`,
+  `created_at`) or an MD dismissal of one (`web_list_candidates` DISMISSED,
+  `decided_at`), and none while an ACCEPTED one is still pending (the upsert only
+  dedupes PROPOSED). ESPN re-serves an unchanged status every poll cycle, which is
+  what these stop. A failed read, or a full 500-row candidate page, BLOCKS: a
+  proposal is only a prompt.
+
+Every decision logs `[ReturnWatch] … decision=propose|skip reason=…`. Watch that
+volume after a change here. Fixture: `tests/fixtures/return-watch-responses.json`,
+recorded by `src/scripts/record-return-watch-fixture.ts` (free text redacted —
+this repo is public).
+
 ### AequOs Reference Rule
 The commercial AequOs CTA appears ONLY when `content_type = 'DEEP_DIVE'`
 **and** `subject_kind = 'INJURY_TYPE'`, on the final post/cast only, and on the

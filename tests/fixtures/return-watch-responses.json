@@ -1,0 +1,68 @@
+{
+  "_recorded": {
+    "at": "2026-10-24T04:30:50.589Z",
+    "source": "src/scripts/record-return-watch-fixture.ts",
+    "desk_post_id": "67cb7fc3-f428-40c8-be70-c784c7d38500",
+    "redacted_keys": [
+      "headline",
+      "markdown_body",
+      "athlete_name",
+      "slug",
+      "reasons"
+    ]
+  },
+  "desk_list_updates": {
+    "updates": []
+  },
+  "web_list_candidates_DISMISSED": {
+    "candidates": [
+      {
+        "id": "005ad036-68d6-4fd9-bf49-011b07d9d5d5",
+        "entity_id": "4dc417e7-1a0a-4810-a589-9f412b3d8bae",
+        "source_post_id": "63a63faf-d8e3-44ff-ac6e-3d533718e398",
+        "promotion_score": "81.00",
+        "reasons": "<redacted>",
+        "status": "DISMISSED",
+        "proposed_at": "2026-06-13T04:58:20.790Z",
+        "decided_at": "2026-07-16T19:36:47.736Z",
+        "decided_by": "9a2a10ae-96ea-4587-aafa-d519615a9633",
+        "created_at": "2026-06-13T04:58:20.790Z",
+        "updated_at": "2026-07-16T19:36:47.736Z",
+        "candidate_kind": "NEW_POST",
+        "target_desk_post_id": null,
+        "athlete_name": "<redacted>",
+        "injury_type": "fracture",
+        "body_part": "knee",
+        "laterality": "LEFT",
+        "sport": "NBA",
+        "headline": "<redacted>",
+        "slug": "<redacted>"
+      },
+      {
+        "id": "021ce4e5-88a0-4afa-bdac-9acc7116b470",
+        "entity_id": "5ca5989d-a941-4c2d-92b0-946687ffee70",
+        "source_post_id": "3336ba29-ac18-46d1-a788-717942ad3d5e",
+        "promotion_score": "53.00",
+        "reasons": "<redacted>",
+        "status": "DISMISSED",
+        "proposed_at": "2026-09-10T21:42:06.820Z",
+        "decided_at": "2026-09-22T22:03:40.600Z",
+        "decided_by": "9a2a10ae-96ea-4587-aafa-d519615a9633",
+        "created_at": "2026-09-10T21:42:06.820Z",
+        "updated_at": "2026-09-22T22:03:40.600Z",
+        "candidate_kind": "NEW_POST",
+        "target_desk_post_id": null,
+        "athlete_name": "<redacted>",
+        "injury_type": null,
+        "body_part": null,
+        "laterality": "UNSPECIFIED",
+        "sport": "NFL",
+        "headline": "<redacted>",
+        "slug": "<redacted>"
+      }
+    ]
+  },
+  "web_list_candidates_ACCEPTED": {
+    "candidates": []
+  }
+}
