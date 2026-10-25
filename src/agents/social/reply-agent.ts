@@ -5,7 +5,9 @@ import { BRAND_NAME, BRAND_SIGNATURE } from '../../config/brand.js';
 import { classifierModel } from '../../config/models.js';
 
 // Classification uses Haiku (fast, cheap) — matches classifier.ts pattern
-// Reply generation uses Sonnet (quality) — matches agent.ts pattern
+// Reply generation uses Sonnet (quality). Sonnet 5.5 rejects forced tool use
+// (tool_choice "tool"/"any" is a 400), so generation gets its JSON through
+// structured outputs instead of a forced tool call.
 const GENERATION_MODEL = 'claude-sonnet-5-5';
 
 const AI_SKEPTICISM_KEYWORDS = [
@@ -179,46 +181,42 @@ A user is asking for the basis of ${BRAND_NAME}'s analysis. Explain the methodol
   }
 }
 
-const CORRECTION_EXTRACTION_TOOL = {
-  name: 'extract_correction_data',
-  description: 'Generate the reply text and extract structured correction data from a CORRECTION-intent mention.',
-  input_schema: {
-    type: 'object' as const,
-    properties: {
-      reply_text: {
-        type: 'string',
-        description: 'The reply to post publicly.',
-      },
-      correction_field: {
-        type: 'string',
-        description: "The field being corrected (e.g. 'player_team', 'injury_type', 'rtp_weeks').",
-      },
-      old_value: {
-        type: 'string',
-        description: "What OTM originally stated.",
-      },
-      new_value: {
-        type: 'string',
-        description: "The corrected value from the user.",
-      },
+// Structured-output schemas. additionalProperties: false is required by
+// output_config.format.
+const CORRECTION_SCHEMA = {
+  type: 'object',
+  properties: {
+    reply_text: {
+      type: 'string',
+      description: 'The reply to post publicly.',
     },
-    required: ['reply_text', 'correction_field', 'old_value', 'new_value'],
+    correction_field: {
+      type: 'string',
+      description: "The field being corrected (e.g. 'player_team', 'injury_type', 'rtp_weeks').",
+    },
+    old_value: {
+      type: 'string',
+      description: "What OTM originally stated.",
+    },
+    new_value: {
+      type: 'string',
+      description: "The corrected value from the user.",
+    },
   },
+  required: ['reply_text', 'correction_field', 'old_value', 'new_value'],
+  additionalProperties: false,
 };
 
-const REPLY_TOOL = {
-  name: 'generate_reply',
-  description: 'Generate the reply text to post publicly.',
-  input_schema: {
-    type: 'object' as const,
-    properties: {
-      reply_text: {
-        type: 'string',
-        description: 'The reply to post publicly.',
-      },
+const REPLY_SCHEMA = {
+  type: 'object',
+  properties: {
+    reply_text: {
+      type: 'string',
+      description: 'The reply to post publicly.',
     },
-    required: ['reply_text'],
   },
+  required: ['reply_text'],
+  additionalProperties: false,
 };
 
 /**
@@ -271,23 +269,27 @@ export async function generateReply(
 — @${mention.authorHandle}${originalPostContext ? `\n\n${originalPostContext}` : ''}`;
 
   try {
-    const tool = useCorrectionTool ? CORRECTION_EXTRACTION_TOOL : REPLY_TOOL;
+    const schema = useCorrectionTool ? CORRECTION_SCHEMA : REPLY_SCHEMA;
 
+    // max_tokens covers adaptive thinking as well as the JSON.
     const response = await anthropic.messages.create({
       model: GENERATION_MODEL,
-      max_tokens: 512,
+      max_tokens: 2048,
       system: systemPrompt,
-      tools: [tool],
-      tool_choice: { type: 'tool', name: tool.name },
+      output_config: { format: { type: 'json_schema', schema } },
       messages: [{ role: 'user', content: userMessage }],
     });
 
-    const toolUse = response.content.find((b) => b.type === 'tool_use');
-    if (!toolUse || toolUse.type !== 'tool_use') {
-      throw new Error('Reply generator did not return a tool_use block');
+    if (response.stop_reason === 'refusal' || response.stop_reason === 'max_tokens') {
+      throw new Error(`Reply generator stopped with stop_reason=${response.stop_reason}`);
     }
 
-    const input = toolUse.input as Record<string, unknown>;
+    const textBlock = response.content.find((b) => b.type === 'text');
+    if (!textBlock || textBlock.type !== 'text') {
+      throw new Error('Reply generator did not return a text block');
+    }
+
+    const input = JSON.parse(textBlock.text) as Record<string, unknown>;
 
     if (useCorrectionTool) {
       return {
