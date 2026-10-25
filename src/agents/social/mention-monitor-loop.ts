@@ -75,15 +75,39 @@ async function isMentionProcessed(platform: string, mentionId: string): Promise<
 
 // ── Twitter fetching ─────────────────────────────────────────────────
 
-interface TwitterMentionRaw {
+export interface TwitterMentionRaw {
   id: string;
   text: string;
   authorId: string;
   authorUsername: string;
   authorFollowerCount?: number;
   conversationId: string;
+  /** The AUTHOR of the post replied to — a user id, never a post id. */
   inReplyToUserId?: string;
+  /** The POST replied to. Older mcp deploys do not send it. */
+  inReplyToTweetId?: string;
   createdAt: string;
+}
+
+/**
+ * parentPostId is the post the mention replies to: the reply agent looks our
+ * post up by it (web_get_post_by_social_id). It used to be inReplyToUserId,
+ * which is the replied-to author, so that lookup never matched and no reply
+ * was drafted with the original post's context. Absent → undefined, never the
+ * user id.
+ */
+export function toTwitterSocialMention(m: TwitterMentionRaw): SocialMention {
+  return {
+    platform: 'twitter',
+    mentionId: m.id,
+    text: m.text,
+    authorHandle: m.authorUsername,
+    authorFollowerCount: m.authorFollowerCount,
+    conversationId: m.conversationId,
+    parentPostId: m.inReplyToTweetId,
+    createdAt: m.createdAt,
+    rawPayload: m as unknown as Record<string, unknown>,
+  };
 }
 
 interface GetMentionsRawResult {
@@ -123,17 +147,7 @@ async function fetchTwitterMentions(): Promise<SocialMention[]> {
     });
 
     const result = parseGetMentionsResult(raw);
-    const mentions: SocialMention[] = (result.mentions ?? []).map((m) => ({
-      platform: 'twitter' as const,
-      mentionId: m.id,
-      text: m.text,
-      authorHandle: m.authorUsername,
-      authorFollowerCount: m.authorFollowerCount,
-      conversationId: m.conversationId,
-      parentPostId: m.inReplyToUserId,
-      createdAt: m.createdAt,
-      rawPayload: m as unknown as Record<string, unknown>,
-    }));
+    const mentions: SocialMention[] = (result.mentions ?? []).map(toTwitterSocialMention);
 
     if (result.newestId) {
       await setSocialState('twitter_mentions_since_id', result.newestId);
