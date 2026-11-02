@@ -12,6 +12,7 @@
  *   npx tsx src/scripts/classifier-ab-dryrun.ts [--sport NFL|NBA|PREMIER_LEAGUE]
  *       [--baseline claude-haiku-4-5-20251001] [--candidate claude-haiku-5-5]
  *       [--limit N] [--repeat-baseline] [--repeat-candidate] [--export path.csv]
+ *       [--baseline-rationales on|off] [--candidate-rationales on|off]
  *
  * Needs ANTHROPIC_API_KEY. Makes 2 model calls per event (3 with
  * --repeat-baseline) and nothing else: no MCP, no database, no writes. Events go
@@ -48,6 +49,7 @@ import { writeFileSync } from 'node:fs';
 import { SPORT_SOURCES } from '../monitoring/sports/index.js';
 import { isObviousNonInjury } from '../monitoring/poller.js';
 import { classifyEvent } from '../agents/injury-intelligence/classifier.js';
+import type { ClassifierRationales } from '../config/models.js';
 import {
   loadSignificanceData,
   lookupAthleteTier,
@@ -211,6 +213,8 @@ async function main(): Promise<void> {
   const sport = (arg('--sport') ?? 'NFL').toUpperCase() as SportKey;
   const baseline = arg('--baseline') ?? DEFAULT_BASELINE;
   const candidate = arg('--candidate') ?? DEFAULT_CANDIDATE;
+  const baselineRationales = (arg('--baseline-rationales') ?? undefined) as ClassifierRationales | undefined;
+  const candidateRationales = (arg('--candidate-rationales') ?? undefined) as ClassifierRationales | undefined;
   const limit = Number(arg('--limit') ?? '0') || Infinity;
   const repeat = has('--repeat-baseline');
   const repeatCand = has('--repeat-candidate');
@@ -229,17 +233,18 @@ async function main(): Promise<void> {
   const events = fetched.events.filter((e) => !isObviousNonInjury(e)).slice(0, limit);
   console.log(
     `[ab] ${sport}: fetched=${fetched.events.length} after pre-filter=${events.length}  ` +
-      `baseline=${baseline} candidate=${candidate} repeat_baseline=${repeat}`,
+      `baseline=${baseline}/rationales=${baselineRationales ?? 'env'} ` +
+        `candidate=${candidate}/rationales=${candidateRationales ?? 'env'} repeat_baseline=${repeat}`,
   );
 
   const pairs = await mapLimit(events, CONCURRENCY, async (event): Promise<Pair> => {
     const tier = lookupAthleteTier(event.athlete_name, event.sport);
     const ctx = { athleteTier: tier.tier, athleteTierSource: tier.source };
     const [a, b, a2, b2] = await Promise.all([
-      classifyEvent(event, ctx, baseline),
-      classifyEvent(event, ctx, candidate),
-      repeat ? classifyEvent(event, ctx, baseline) : Promise.resolve(undefined),
-      repeatCand ? classifyEvent(event, ctx, candidate) : Promise.resolve(undefined),
+      classifyEvent(event, ctx, baseline, baselineRationales),
+      classifyEvent(event, ctx, candidate, candidateRationales),
+      repeat ? classifyEvent(event, ctx, baseline, baselineRationales) : Promise.resolve(undefined),
+      repeatCand ? classifyEvent(event, ctx, candidate, candidateRationales) : Promise.resolve(undefined),
     ]);
     return { event, a, b, a2, b2 };
   });

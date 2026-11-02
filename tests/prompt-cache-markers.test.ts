@@ -97,6 +97,33 @@ describe('prompt cache markers', () => {
     ]);
   });
 
+  it('CLASSIFIER_RATIONALES=off removes both fields and the sentence asking for them, and nothing else', async () => {
+    create.mockResolvedValue({
+      content: [{ type: 'tool_use', id: 't', name: 'classify_injury_event', input: { is_injury_event: false } }],
+      usage: { input_tokens: 90, output_tokens: 40 },
+    });
+    const tier = { athleteTier: 3, athleteTierSource: 'default' } as never;
+
+    await classifyEvent(rawEvent('Lamar Jackson', 'Ankle'), tier, undefined, 'on');
+    await classifyEvent(rawEvent('Lamar Jackson', 'Ankle'), tier, undefined, 'off');
+
+    const [on, off] = create.mock.calls.map((c) => c[0]);
+    const onSchema = on.tools[0].input_schema;
+    const offSchema = off.tools[0].input_schema;
+    expect(Object.keys(onSchema.properties)).toEqual(
+      expect.arrayContaining(['specificity_rationale', 'recency_rationale']),
+    );
+    expect(Object.keys(offSchema.properties)).toEqual(
+      Object.keys(onSchema.properties).filter((key) => !key.endsWith('_rationale')),
+    );
+    expect(offSchema.required).toEqual(onSchema.required.filter((key: string) => !key.endsWith('_rationale')));
+    expect(on.system[0].text).toContain('one-line rationale');
+    // A prompt edit that stops matching would silently keep asking for fields the tool no longer has.
+    expect(off.system[0].text).not.toContain('rationale');
+    expect(on.system[0].text.length - off.system[0].text.length).toBeLessThan(120);
+    expect(off.tool_choice).toEqual(on.tool_choice);
+  });
+
   it('post generation caches the skill context, with the date and event outside it', async () => {
     create.mockResolvedValue({
       content: [{ type: 'tool_use', id: 't', name: 'emit_injury_post', input: POST }],
