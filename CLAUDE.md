@@ -1286,6 +1286,40 @@ must be zero are promotions at one family, events from a registered source with
 no resolvable family, cross-family merges whose second publisher was lost, and
 any decision that changes at discount 0 or gets worse under one.
 
+### Do not pay for a post the cadence will discard
+
+`CADENCE_PRECHECK_MODE=off|shadow|on`, default **shadow**. The agent call runs before
+`checkFollowUpCadence`, so across 69h of logs in Oct 2026, 22 of 23 entity pass-throughs
+paid for a full Sonnet post and threw it away, about 229 calls a month.
+`src/monitoring/cadence-precheck.ts` asks that same function about the post the model would
+have to emit. It adds no cooldown rule and does not merge the two questions.
+
+The throttle reads athlete, sport, thread, content type and `team_timeline_weeks`. Severity
+and confidence are read only after it. With a parent, the type is TRACKING unless a timeline
+is set, so the prediction is one claim: **the model will emit no timeline.** Every gate
+protects that claim, and any doubt runs the model:
+- `raw.team_timeline` is parseable. `agent.ts` falls back to it with no model involved, and
+  it reads `longComment`, which `injury_description` drops.
+- The source text has duration language. **Identical text is not a safe signal**: Darnold's
+  "about a four-week return" passed four times with no post, then published with `4` on the fifth.
+- The thread has any stored team number, including 0. The prompt prints them, and Caleb
+  Williams (2026-10-01) and Lamar Jackson (2026-10-15) look like echoes from silent text,
+  though an unstored `team_timeline` could also explain both.
+
+So it catches only about a third of the waste (7 of 22, ~$5 of ~$15 a month). Ingram's
+"at least one more week" keeps paying, deliberately.
+
+`raw.team_timeline` is not persisted, so history cannot prove the must-be-zero number. Brian
+Burns (2026-09-22) is the one row the replay would skip: silent text, published with
+`team_timeline_weeks=6` and "Team Holds 6-Week Timeline". It is a `longComment` number or an
+invention, and nothing stored can say which. **Do not move to `on` until `precheck_miss=`
+has stayed 0**; a miss logs `[CadencePrecheck] SHADOW MISS` with the timeline it saw.
+
+A skip also skips `assessAnchorDivergence`, so a year-wrong thread is caught when the
+cooldown ends rather than now. Re-verify with `src/scripts/cadence-precheck-dryrun.ts --log
+<railway jsonl>`; the numbers that must be zero are follow-up rows it would skip and logged
+events that reached publish or review and would be skipped. `--since 2026-08-01` shows Burns.
+
 ### Two dedups, and the crude one must not outrank the good one
 
 Publishing runs the entity-aware dedup in the poller (`deduplicator.ts`, keyed on
