@@ -20,6 +20,7 @@ import type { RawInjuryEvent } from '../../types.js';
 import type { ResolvedPlayerInfo, ExtractedInjuryMetadata } from './fact-validator.js';
 import { buildCalendarBlock } from './season-calendar.js';
 import { validateResolvedDates, type DateViolationCode } from './date-validation.js';
+import { recordLlmUsage, type LlmUsageLike } from '../../utils/llm-usage.js';
 
 const MODEL = 'claude-sonnet-4-6';
 
@@ -140,6 +141,7 @@ interface AnthropicBlock {
 interface AnthropicMessage {
   content: AnthropicBlock[];
   stop_reason?: string | null;
+  usage?: LlmUsageLike | null;
 }
 
 let client: AnthropicLike | null = null;
@@ -327,6 +329,7 @@ export async function resolveInjuryDate(
     tool_choice: { type: 'tool', name: 'emit_date_resolution' },
     messages: [{ role: 'user', content: buildUserMessage(input, false) }],
   });
+  recordLlmUsage(input.event.sport, 'resolver', pass1.usage);
 
   const pass1Emit = extractEmit(pass1.content ?? []);
   const pass1Result = toResult(pass1Emit, apiSource, false, input.today);
@@ -354,12 +357,14 @@ export async function resolveInjuryDate(
 
   const allBlocks: AnthropicBlock[] = [];
   let response = await anthropic.messages.create({ ...pass2Params, messages });
+  recordLlmUsage(input.event.sport, 'resolver', response.usage);
   allBlocks.push(...(response.content ?? []));
 
   let continuations = 0;
   while (response.stop_reason === 'pause_turn' && continuations < 3) {
     messages.push({ role: 'assistant', content: response.content });
     response = await anthropic.messages.create({ ...pass2Params, messages });
+    recordLlmUsage(input.event.sport, 'resolver', response.usage);
     allBlocks.push(...(response.content ?? []));
     continuations += 1;
   }
