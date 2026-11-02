@@ -44,9 +44,30 @@ describe('llm usage totals', () => {
   });
 
   it('counts a call whose response carried no usage', () => {
-    recordLlmUsage('NFL', 'resolver', undefined);
+    recordLlmUsage('NFL', 'resolver_pass1', undefined);
     expect(drainLlmUsageLines('NFL')).toEqual([
-      '[Usage] NFL route=resolver calls=1 input=0 cache_write=0 cache_read=0 output=0',
+      '[Usage] NFL route=resolver_pass1 calls=1 input=0 cache_write=0 cache_read=0 output=0',
+    ]);
+  });
+
+  it('sums searches on the search pass, and shows zero when none ran', () => {
+    recordLlmUsage('NFL', 'resolver_search', {
+      input_tokens: 30000,
+      output_tokens: 800,
+      server_tool_use: { web_search_requests: 3 },
+    });
+    recordLlmUsage('NFL', 'resolver_search', {
+      input_tokens: 5000,
+      output_tokens: 100,
+      server_tool_use: { web_search_requests: 1 },
+    });
+    recordLlmUsage('NBA', 'resolver_search', { input_tokens: 2000, server_tool_use: null });
+
+    expect(drainLlmUsageLines('NFL')).toEqual([
+      '[Usage] NFL route=resolver_search calls=2 input=35000 cache_write=0 cache_read=0 output=900 searches=4',
+    ]);
+    expect(drainLlmUsageLines('NBA')).toEqual([
+      '[Usage] NBA route=resolver_search calls=1 input=2000 cache_write=0 cache_read=0 output=0 searches=0',
     ]);
   });
 });
