@@ -36,3 +36,15 @@ export function classifierModel(): string {
   }
   return CLASSIFIER_DEFAULT_MODEL;
 }
+
+/**
+ * Whether the injury classifier asks for its two rationale fields. `on` is the
+ * default; `off` saves about a quarter of the route's output tokens. A Railway
+ * switch for the same reason as the model: a different request can move which
+ * events publish, even though nothing reads the fields. Anything but `off` means `on`.
+ */
+export type ClassifierRationales = 'on' | 'off';
+
+export function classifierRationales(): ClassifierRationales {
+  return process.env.CLASSIFIER_RATIONALES?.trim() === 'off' ? 'off' : 'on';
+}

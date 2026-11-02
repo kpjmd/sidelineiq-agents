@@ -8,7 +8,7 @@ import type {
   AthleteTierSource,
 } from '../../types.js';
 import { computeSignificance } from './significance.js';
-import { classifierModel } from '../../config/models.js';
+import { classifierModel, classifierRationales, type ClassifierRationales } from '../../config/models.js';
 import { recordLlmUsage } from '../../utils/llm-usage.js';
 
 
@@ -167,6 +167,32 @@ Score HIGH:
 
 Return your classification via the classify_injury_event tool.`;
 
+/**
+ * The classifier without its two rationale fields (CLASSIFIER_RATIONALES=off).
+ *
+ * Nothing reads them: `classifyEvent` never touches them and they are not stored.
+ * On Haiku 5.5 they are about 100 of the roughly 400 output tokens per call, because
+ * each parameter also bills about 16 tokens of tool-call framing.
+ */
+const RATIONALE_SENTENCE = `For each signal, provide a one-line rationale (120 chars max) so the platform can audit
+calibration.
+
+`;
+
+const { specificity_rationale: _specificity, recency_rationale: _recency, ...SCORED_PROPERTIES } =
+  CLASSIFIER_TOOL.input_schema.properties;
+
+export const CLASSIFIER_TOOL_NO_RATIONALES = {
+  ...CLASSIFIER_TOOL,
+  input_schema: {
+    ...CLASSIFIER_TOOL.input_schema,
+    properties: SCORED_PROPERTIES,
+    required: CLASSIFIER_TOOL.input_schema.required.filter((key) => !key.endsWith('_rationale')),
+  },
+};
+
+export const SYSTEM_PROMPT_NO_RATIONALES = SYSTEM_PROMPT.replace(RATIONALE_SENTENCE, '');
+
 let client: Anthropic | null = null;
 
 function getClient(): Anthropic {
@@ -218,6 +244,8 @@ export async function classifyEvent(
   tierContext: TierContext,
   /** Dry-run A/B only. Production never passes it, so classifierModel() stays the one source. */
   modelOverride?: string,
+  /** Dry-run A/B only, like modelOverride. */
+  rationalesOverride?: ClassifierRationales,
 ): Promise<ClassificationResult> {
   const anthropic = getClient();
 
@@ -232,12 +260,20 @@ Source: ${raw.source_url}
 Reported: ${raw.reported_at.toISOString()}
 ${raw.is_update ? 'Marker: source flagged this as a status update.' : ''}`;
 
+  const withRationales = (rationalesOverride ?? classifierRationales()) === 'on';
+
   try {
     const response = await anthropic.messages.create({
       model: modelOverride ?? classifierModel(),
       max_tokens: 768,
-      system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
-      tools: [CLASSIFIER_TOOL],
+      system: [
+        {
+          type: 'text',
+          text: withRationales ? SYSTEM_PROMPT : SYSTEM_PROMPT_NO_RATIONALES,
+          cache_control: { type: 'ephemeral' },
+        },
+      ],
+      tools: [withRationales ? CLASSIFIER_TOOL : CLASSIFIER_TOOL_NO_RATIONALES],
       tool_choice: { type: 'tool', name: 'classify_injury_event' },
       messages: [{ role: 'user', content: userMessage }],
     });

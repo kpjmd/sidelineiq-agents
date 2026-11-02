@@ -1774,6 +1774,23 @@ after flipping it. Rollback is unsetting the variable, and only works while 4.5
 is still served. Re-verify with the dry run; the gate is the noise-floor bar, not
 zero, because 4.5 disagrees with itself.
 
+### CLASSIFIER_RATIONALES
+
+On Haiku 5.5 a classifier call emits about 400 output tokens and **none are
+thinking**: a forced `tool_choice` skips it (`thinking_tokens: 0` on every call
+measured, 2026-11-01). About 200 are tool-call framing, a steady 16 per parameter
+plus 9, and the rest are the arguments. `specificity_rationale` and
+`recency_rationale` cost about 100 of those and nothing reads them.
+`CLASSIFIER_RATIONALES=off` drops them; unset keeps them. The saving is about $2.40
+a month. Passed the noise-floor gate on NBA (69 events) and 280 NFL events, with mean
+composite drift +0.2 and +0.4.
+
+**Do not move this route to `output_config.format` to save the framing.** It halves
+output and input tokens (about $5.65 a month), but it failed the gate on both sports:
+triage downgrades 20 against a bar of 11 on NFL and 6 against 4 on NBA, mean composite
+about 3 lower, and real PROCESS events (DeVonta Smith, Christian McCaffrey, Jalen
+Suggs) fell to DEFER.
+
 ## Relationship to Other Repos
 
 - `sidelineiq-mcp-servers` — Provides MCP tools this agent uses.
