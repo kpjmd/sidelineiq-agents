@@ -38,6 +38,7 @@ import {
   parseListPostsResponse,
   type DedupResult,
 } from './deduplicator.js';
+import { cadencePrecheckMode, runCadencePrecheck } from './cadence-precheck.js';
 import {
   publishInjuryPost,
   getMDReviewThreshold,
@@ -403,6 +404,12 @@ interface PollSummary {
   dropped_fact_validation: number;
   /** Unresolved athletes dropped as not professional sport, both layers (coverage-scope.ts). */
   dropped_out_of_coverage: number;
+  /** Sonnet calls not made because the cadence throttle would discard the post. */
+  precheck_skipped: number;
+  /** Shadow: the same decision, with the call still made. */
+  precheck_would_skip: number;
+  /** Shadow: would-skips that reached publish or review. MUST stay 0 before `on`. */
+  precheck_miss: number;
   soft_failed_fact_validation: number;
   deferred: number;
   promoted_from_defer: number;
@@ -1288,6 +1295,9 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
     content_type_drift: 0,
     dropped_fact_validation: 0,
     dropped_out_of_coverage: 0,
+    precheck_skipped: 0,
+    precheck_would_skip: 0,
+    precheck_miss: 0,
     soft_failed_fact_validation: 0,
     deferred: 0,
     promoted_from_defer: 0,
@@ -1804,6 +1814,31 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
         }
       }
 
+      // Before the agent call and after the thread manager, so date writes and
+      // the timeline append are unchanged. See cadence-precheck.ts.
+      const precheckMode = cadencePrecheckMode();
+      let precheckWouldSkip = false;
+      if (precheckMode !== 'off' && dedup.existingPostId) {
+        const precheck = await runCadencePrecheck(
+          classified,
+          dedup.existingPostId,
+          thread?.prior_timelines.map((t) => t.reported_weeks),
+        );
+        if (precheck.skip && precheckMode === 'on') {
+          summary.precheck_skipped++;
+          summary.skipped++;
+          console.log(`[CadencePrecheck] skip ${context} — ${precheck.reason}`);
+          continue;
+        }
+        if (precheck.skip) {
+          precheckWouldSkip = true;
+          summary.precheck_would_skip++;
+        }
+        console.log(
+          `[CadencePrecheck] ${precheck.skip ? 'SHADOW would skip' : 'run'} ${context} — ${precheck.reason}`,
+        );
+      }
+
       budget.agentCalls++;
       const post = await processInjuryEvent(classified, dedup.existingPostId, thread);
       if (!post) {
@@ -1997,6 +2032,14 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
       else summary.skipped++;
       summary.superseded += result.superseded_post_ids?.length ?? 0;
       if (result.review_flag_failed) summary.review_unfiled++;
+      if (precheckWouldSkip && (result.status === 'published' || result.status === 'pending_review')) {
+        summary.precheck_miss++;
+        console.warn(
+          `[CadencePrecheck] SHADOW MISS ${context} at ${new Date().toISOString()}: would have skipped, ` +
+            `but it reached ${result.status} (${post.content_type}, team_timeline_weeks=${post.team_timeline_weeks ?? 'none'}, ` +
+            `team_timeline=${event.team_timeline ?? 'none'})`,
+        );
+      }
 
       // Each outcome spends its OWN lane. A review-queue row is real output and
       // is still budgeted, but it is not audience-facing and must not consume a
@@ -2046,7 +2089,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
   }
 
   console.log(
-    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} date_carry_review=${summary.date_carryover_review} date_carry_annot=${summary.date_carryover_annotated} date_settled=${summary.date_resolution_skipped} date_write_fail=${summary.thread_date_write_failed} date_yr_diverge=${summary.date_year_divergence} tl_anchor_review=${summary.timeline_anchor_review} tl_anchor_annot=${summary.timeline_anchor_annotated} dropped_concussion=${summary.dropped_concussion} name_drift=${summary.athlete_name_drift} reanchored=${summary.athlete_reanchored} drift_spelling=${summary.athlete_drift_spelling} surname_ref=${summary.athlete_surname_ref} ct_drift=${summary.content_type_drift} dropped_fact=${summary.dropped_fact_validation} out_of_scope=${summary.dropped_out_of_coverage} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} would_promote=${summary.would_promote_from_defer} expired=${summary.expired_from_defer} defer_q=${summary.defer_queue_size} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} review_unfiled=${summary.review_unfiled} review_supp=${summary.review_suppressed} reject_supp=${summary.rejection_suppressed} superseded=${summary.superseded} skipped=${summary.skipped} capped=${summary.capped} source_err=${summary.source_errors} classifier_err=${summary.classifier_errors} errors=${summary.errors}`
+    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} date_carry_review=${summary.date_carryover_review} date_carry_annot=${summary.date_carryover_annotated} date_settled=${summary.date_resolution_skipped} date_write_fail=${summary.thread_date_write_failed} date_yr_diverge=${summary.date_year_divergence} tl_anchor_review=${summary.timeline_anchor_review} tl_anchor_annot=${summary.timeline_anchor_annotated} dropped_concussion=${summary.dropped_concussion} name_drift=${summary.athlete_name_drift} reanchored=${summary.athlete_reanchored} drift_spelling=${summary.athlete_drift_spelling} surname_ref=${summary.athlete_surname_ref} ct_drift=${summary.content_type_drift} dropped_fact=${summary.dropped_fact_validation} out_of_scope=${summary.dropped_out_of_coverage} precheck_skip=${summary.precheck_skipped} precheck_would=${summary.precheck_would_skip} precheck_miss=${summary.precheck_miss} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} would_promote=${summary.would_promote_from_defer} expired=${summary.expired_from_defer} defer_q=${summary.defer_queue_size} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} review_unfiled=${summary.review_unfiled} review_supp=${summary.review_suppressed} reject_supp=${summary.rejection_suppressed} superseded=${summary.superseded} skipped=${summary.skipped} capped=${summary.capped} source_err=${summary.source_errors} classifier_err=${summary.classifier_errors} errors=${summary.errors}`
   );
   for (const line of drainLlmUsageLines(sport)) console.log(line);
   return summary;

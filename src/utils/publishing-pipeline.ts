@@ -166,9 +166,16 @@ function isDuplicate(content: InjuryPostContent, existingPosts: ExistingPost[]):
 // A genuine new disclosure (team_timeline_weeks changes) always bypasses the
 // cooldown; only the original/first post for a thread (no parent_post_id) is
 // exempt entirely, since that's never a "follow-up."
-function checkFollowUpCadence(
-  content: InjuryPostContent,
+//
+// Exported for cadence-precheck.ts, which asks it about the post the model would
+// have to emit. `now` lets that caller ask about the moment the model returns.
+export function checkFollowUpCadence(
+  content: Pick<
+    InjuryPostContent,
+    'athlete_name' | 'sport' | 'content_type' | 'parent_post_id' | 'team_timeline_weeks'
+  >,
   existingPosts: ExistingPost[],
+  now: number = Date.now(),
 ): { throttled: boolean; reason?: string } {
   if (content.content_type !== 'TRACKING' && content.content_type !== 'CONFLICT_FLAG') {
     return { throttled: false };
@@ -213,7 +220,7 @@ function checkFollowUpCadence(
       ? getCooldownMs('CONFLICT_FLAG_COOLDOWN_MS', DEFAULT_CONFLICT_FLAG_COOLDOWN_MS)
       : getCooldownMs('TRACKING_COOLDOWN_MS', DEFAULT_TRACKING_COOLDOWN_MS);
 
-  const age = Date.now() - new Date(lastFollowUp.created_at).getTime();
+  const age = now - new Date(lastFollowUp.created_at).getTime();
   if (age < cooldownMs) {
     const ageDays = Math.round(age / 86_400_000);
     const cooldownDays = Math.round(cooldownMs / 86_400_000);
