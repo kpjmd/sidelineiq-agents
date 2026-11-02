@@ -9,6 +9,7 @@ import type {
 } from '../../types.js';
 import { computeSignificance } from './significance.js';
 import { classifierModel } from '../../config/models.js';
+import { recordLlmUsage } from '../../utils/llm-usage.js';
 
 
 const CLASSIFIER_TOOL = {
@@ -235,11 +236,12 @@ ${raw.is_update ? 'Marker: source flagged this as a status update.' : ''}`;
     const response = await anthropic.messages.create({
       model: modelOverride ?? classifierModel(),
       max_tokens: 768,
-      system: SYSTEM_PROMPT,
+      system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
       tools: [CLASSIFIER_TOOL],
       tool_choice: { type: 'tool', name: 'classify_injury_event' },
       messages: [{ role: 'user', content: userMessage }],
     });
+    recordLlmUsage(raw.sport, 'classifier', response.usage);
 
     const toolUse = response.content.find((block) => block.type === 'tool_use');
     if (!toolUse || toolUse.type !== 'tool_use') {

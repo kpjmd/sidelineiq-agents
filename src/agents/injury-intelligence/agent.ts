@@ -6,6 +6,7 @@ import {
   type ConflictGap,
 } from '../../utils/conflict-gap.js';
 import { loadSkillContext } from '../../utils/skill-loader.js';
+import { recordLlmUsage } from '../../utils/llm-usage.js';
 import { validateRTPEstimate } from './rtp-estimator.js';
 import type {
   ClassificationResult,
@@ -487,11 +488,13 @@ Follow SKILL.md exactly. Emit your final answer via the emit_injury_post tool.`;
     const response = await anthropic.messages.create({
       model: MODEL,
       max_tokens: 2048,
-      system,
+      // The prefix is stable per sport: `today` and the event sit in the user message.
+      system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
       tools: [AGENT_TOOL],
       tool_choice: { type: 'tool', name: 'emit_injury_post' },
       messages: [{ role: 'user', content: userMessage }],
     });
+    recordLlmUsage(classified.sport, 'otm', response.usage);
 
     const toolUse = response.content.find((block) => block.type === 'tool_use');
     if (!toolUse || toolUse.type !== 'tool_use') {
