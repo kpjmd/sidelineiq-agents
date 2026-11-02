@@ -4,6 +4,7 @@ import {
   _setClientForTesting,
   type DateResolutionInput,
 } from '../src/agents/injury-intelligence/date-resolution.js';
+import { drainLlmUsageLines } from '../src/utils/llm-usage.js';
 import type { RawInjuryEvent } from '../src/types.js';
 import type { ResolvedPlayerInfo, ExtractedInjuryMetadata } from '../src/agents/injury-intelligence/fact-validator.js';
 
@@ -59,6 +60,47 @@ beforeEach(() => {
 afterEach(() => {
   _setClientForTesting(null);
   vi.restoreAllMocks();
+});
+
+describe('resolver usage by pass', () => {
+  beforeEach(() => drainLlmUsageLines('NBA'));
+
+  it('a fast-path lookup reports Pass 1 only', async () => {
+    createMock.mockResolvedValueOnce({
+      ...emitMessage({ injury_date: '2026-05-04', injury_date_confidence: 'confirmed', surgery_confirmed: false }),
+      usage: { input_tokens: 3300, output_tokens: 280 },
+    });
+
+    await resolveInjuryDate(makeInput());
+
+    expect(drainLlmUsageLines('NBA')).toEqual([
+      '[Usage] NBA route=resolver_pass1 calls=1 input=3300 cache_write=0 cache_read=0 output=280',
+    ]);
+  });
+
+  it('a weak Pass 1 reports both passes, counting searches across a pause_turn', async () => {
+    createMock
+      .mockResolvedValueOnce({
+        ...emitMessage({ injury_date_confidence: 'unknown', surgery_confirmed: false }),
+        usage: { input_tokens: 3300, output_tokens: 280 },
+      })
+      .mockResolvedValueOnce({
+        stop_reason: 'pause_turn',
+        content: [],
+        usage: { input_tokens: 20000, output_tokens: 300, server_tool_use: { web_search_requests: 2 } },
+      })
+      .mockResolvedValueOnce({
+        ...emitMessage({ injury_date: '2026-05-04', injury_date_confidence: 'probable', surgery_confirmed: false }),
+        usage: { input_tokens: 15000, output_tokens: 500, server_tool_use: { web_search_requests: 1 } },
+      });
+
+    await resolveInjuryDate(makeInput());
+
+    expect(drainLlmUsageLines('NBA')).toEqual([
+      '[Usage] NBA route=resolver_pass1 calls=1 input=3300 cache_write=0 cache_read=0 output=280',
+      '[Usage] NBA route=resolver_search calls=2 input=35000 cache_write=0 cache_read=0 output=800 searches=3',
+    ]);
+  });
 });
 
 describe('resolveInjuryDate', () => {

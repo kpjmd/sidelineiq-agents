@@ -329,7 +329,7 @@ export async function resolveInjuryDate(
     tool_choice: { type: 'tool', name: 'emit_date_resolution' },
     messages: [{ role: 'user', content: buildUserMessage(input, false) }],
   });
-  recordLlmUsage(input.event.sport, 'resolver', pass1.usage);
+  recordLlmUsage(input.event.sport, 'resolver_pass1', pass1.usage);
 
   const pass1Emit = extractEmit(pass1.content ?? []);
   const pass1Result = toResult(pass1Emit, apiSource, false, input.today);
@@ -357,14 +357,14 @@ export async function resolveInjuryDate(
 
   const allBlocks: AnthropicBlock[] = [];
   let response = await anthropic.messages.create({ ...pass2Params, messages });
-  recordLlmUsage(input.event.sport, 'resolver', response.usage);
+  recordLlmUsage(input.event.sport, 'resolver_search', response.usage);
   allBlocks.push(...(response.content ?? []));
 
   let continuations = 0;
   while (response.stop_reason === 'pause_turn' && continuations < 3) {
     messages.push({ role: 'assistant', content: response.content });
     response = await anthropic.messages.create({ ...pass2Params, messages });
-    recordLlmUsage(input.event.sport, 'resolver', response.usage);
+    recordLlmUsage(input.event.sport, 'resolver_search', response.usage);
     allBlocks.push(...(response.content ?? []));
     continuations += 1;
   }
