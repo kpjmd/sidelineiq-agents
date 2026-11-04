@@ -176,6 +176,28 @@ const FRESH_EVENT_RE =
   /\b(?:had|underwent|received)\s+(?:successful\s+)?[\w\s]{0,20}?(?:surgery|procedure)\s+(?:on\s+)?(?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day\b|\bwill\s+(?:have|undergo|need)\s+[\w\s]{0,20}?(?:surgery|procedure)\b|\bplaced\s+(?:\w+\s+){0,4}on\s+(?:the\s+)?(?:reserve\/)?injured\s+reserve\b|\bwill\s+miss\s+[^.]{0,60}\bwith\s+a\b|\b(?:suffered|sustained|tore|broke|fractured|dislocated)\s+[^.]{0,50}\b(?:on\s+)?(?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day(?:'s)?\b/i;
 
 /**
+ * Wording that says something new happened to an athlete who has already played
+ * since the anchored injury. Deliberately separate from FRESH_EVENT_RE so that
+ * every isGatingCarryover decision stays exactly as it was. Bare "suffered" and
+ * "sustained" are left out: ESPN's longComment recounts old injuries in those
+ * words. A match sends the event to a physician, so this errs toward matching.
+ */
+const REINJURY_RE =
+  /\bre-?(?:injur|aggravat|tear|tore)\w*|\baggravat\w+|\bsetback\b|\bflare[-\s]?up\b|\bleft\s+(?:[\w']+\s+){0,3}(?:game|contest|practice|workout)\b|\bexited\b|\bcarted\s+off\b|\bhelped\s+off\b|\b(?:did\s+not|didn't|won't|will\s+not)\s+return\b|\bnew\s+injury\b|\bswelling\b|\bMRI\b/i;
+
+function reportText(event: RawInjuryEvent): string {
+  return event.injury_description_long
+    ? `${event.injury_description} ${event.injury_description_long}`
+    : event.injury_description;
+}
+
+/** Does this report describe something new rather than restate a known injury? */
+export function reportsFreshEvent(event: RawInjuryEvent): boolean {
+  const text = reportText(event);
+  return FRESH_EVENT_RE.test(text) || REINJURY_RE.test(text);
+}
+
+/**
  * The narrower predicate that gates MD review, as distinct from the broader one
  * that shapes the resolver prompt.
  *
@@ -194,10 +216,7 @@ export function isGatingCarryover(
   // A fresh-event announcement vetoes a prose-only inference: the report date
   // really is the anchor, and gating it would route a genuine breaking injury
   // to MD review for no reason.
-  const haystack = event.injury_description_long
-    ? `${event.injury_description} ${event.injury_description_long}`
-    : event.injury_description;
-  if (FRESH_EVENT_RE.test(haystack)) return false;
+  if (FRESH_EVENT_RE.test(reportText(event))) return false;
   const details = event.injury_details;
   return (
     details?.detail === 'Surgery' ||
