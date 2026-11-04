@@ -1,5 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { DATE_ANCHORING_SHARED, chooseDateAnchor } from './date-anchoring.js';
+import { buildElapsedLine } from './elapsed-claims.js';
+import { localCalendarDate } from './season-calendar.js';
 import {
   computeConflictGap,
   isConflict,
@@ -387,6 +389,9 @@ export interface InjuryThreadContext {
   // later report (each event is otherwise independently re-read from raw text).
   body_part: string | null;
   laterality: 'LEFT' | 'RIGHT' | 'BILATERAL' | 'UNSPECIFIED' | null;
+  // Set only when the returned-precheck found games played since injury_date and
+  // the report still describes something new. See returned-precheck.ts.
+  returned_since?: { games: number; last_game_date: string };
   // Oldest→newest reported timelines for this injury (includes the current event).
   prior_timelines: Array<{
     reported_weeks: number | null;
@@ -437,11 +442,19 @@ export async function processInjuryEvent(
         ? `${thread.laterality} ${thread.body_part ?? 'side'}`.trim()
         : null;
 
+    const elapsedLine = thread
+      ? buildElapsedLine(thread, localCalendarDate(new Date(), classified.sport).date)
+      : '';
+
     const threadBlock = thread
       ? `[INJURY THREAD CONTEXT]
 This athlete has an existing tracked injury thread for this injury.
 Resolved injury date: ${thread.injury_date ?? 'not yet resolved'} (confidence: ${thread.injury_date_confidence})
-${establishedSide ? `Established injury: ${establishedSide} (from prior reporting on this thread). Do not contradict this side without an explicit correction signal in the new source (e.g., "corrected to left wrist", "previously misreported").\n` : ''}${thread.surgery_date ? `Surgery date: ${thread.surgery_date}${thread.surgery_confirmed ? ' (confirmed)' : ' (unconfirmed)'}\n` : ''}${
+${establishedSide ? `Established injury: ${establishedSide} (from prior reporting on this thread). Do not contradict this side without an explicit correction signal in the new source (e.g., "corrected to left wrist", "previously misreported").\n` : ''}${thread.surgery_date ? `Surgery date: ${thread.surgery_date}${thread.surgery_confirmed ? ' (confirmed)' : ' (unconfirmed)'}\n` : ''}${elapsedLine ? `${elapsedLine}\n` : ''}${
+          thread.returned_since
+            ? `Has played ${thread.returned_since.games} regular-season game(s) since this date; most recent ${thread.returned_since.last_game_date}. The athlete is not out recovering from it, so treat this report as a new development.\n`
+            : ''
+        }${
           thread.prior_timelines.length
             ? `Prior reported timelines (oldest→newest): ${thread.prior_timelines
                 .map(
@@ -474,7 +487,7 @@ ${DATE_ANCHORING_SHARED}
 - min_weeks and max_weeks in return_to_play are TOTAL recovery time measured FROM the injury/surgery date — the value you set in "injury_date" — NOT remaining time from today. They are the literature range for this injury per SKILL.md Section 2.4 and rtp-probability-tables.md, and they do NOT shrink as the athlete rehabs. Example: an ACL reconstruction performed 9 months ago with a 9-12 month literature window is min_weeks 39, max_weeks 52 — not 0-12. Remaining time is derived downstream from injury_date plus these weeks; never pre-subtract elapsed time here.
 - team_timeline_weeks is on the OPPOSITE clock from min_weeks/max_weeks: it is the weeks the team says REMAIN, counted from "Reported at", never total time since the injury. Downstream code adds elapsed time to it, so a number that already includes elapsed time is counted twice and manufactures a conflict that does not exist. For an athlete 33 weeks post-op whose team expects him back in about 6 weeks, this field is 6 — not 33, not 39. Omit it entirely for game-status designations (Questionable/Probable/Doubtful/Out/day-to-day with no week count) and for season-ending, PUP or IR statements: those are availability labels and administrative floors, not timelines.
 - Do NOT state a week-gap number in conflict_reason. Give the clinical reasoning for why the timelines diverge; the arithmetic is computed and printed downstream from injury_date, and a number written here will contradict it.
-- clinical_summary MUST state the elapsed time since injury/surgery whenever injury_date is known (e.g., "now 10 months post-op, inside a 9-12 month window"), so a reader can see WHERE in the window the athlete sits. It must never present the report date or the current date as if it were the injury/surgery date.
+- clinical_summary MUST state the elapsed time since injury/surgery whenever injury_date is known (e.g., "now 10 months post-op, inside a 9-12 month window"), using the computed Elapsed figures in the thread context whenever they are present, so a reader can see WHERE in the window the athlete sits. It must never present the report date or the current date as if it were the injury/surgery date.
 - If no rule above resolves a date, omit "injury_date". min_weeks and max_weeks remain the TOTAL range from injury regardless; state explicitly in clinical_summary that the start date is unconfirmed.
 
 SURGICAL PROCEDURE UNCERTAINTY:

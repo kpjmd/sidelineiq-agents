@@ -620,6 +620,73 @@ projection is frozen and the post is formatted, preferring the resolver at
 probable/confirmed. Without that, the elapsed time a reader sees and
 `projected_return_date` are measured from different dates.
 
+### Elapsed time in prose is computed, then checked
+
+The prompt required a statement of elapsed time and supplied no number, so the model
+did the arithmetic and dropped the year. Kyrie Irving's surgery of 2025-03-26 read as
+"approximately 31 weeks post-op" on 2026-11-02, exactly the distance from 2026-03-26;
+the truth was 83. The thread held the right dates at `confirmed`. Sewell was the same
+error, and every post it hit was rejected by the MD, which is the only reason none
+reached an audience.
+
+`buildElapsedLine` (`elapsed-claims.ts`) puts computed figures in the thread block at
+`probable`/`confirmed`. That is a request. `checkElapsedClaims` is the guarantee: it
+runs after the final `dateAnchor` and forces `elapsed_claim_mismatch(prose 31w vs
+computed 83w)`, downgradable through `MD_REVIEW_ANNOTATE_ONLY_CODES`. A claim passes
+within max(2 weeks, 10%) of EITHER the injury or the surgery date.
+
+**The regex is narrow on purpose.** Forward-looking windows outnumber real claims: "39
+weeks from surgery", "3-5 months post-op", "Week 5 is ~39 weeks post-op". A post-op
+phrase counts only with a present-tense word before it, a named subject and verb after
+it, or a date frame after it. "since" and "removed from" count alone. This costs
+recall (the dry run's "not read" list has real claims in it) and that is the accepted
+price of not routing every RTP window to review.
+
+Observable: `elapsed_mismatch=`. Re-verify with `src/scripts/elapsed-claims-dryrun.ts`.
+On 2026-11-03: 925 posts, 122 claims read, 3 posts flagged (Irving, Sewell, VanVleet),
+all REJECTED, and 0 PUBLISHED.
+
+### A status row is not evidence the athlete is still out
+
+Irving's thread did not fail to close. It was MINTED 13 days after he returned, from a
+day-to-day row for knee management, and the post said he "remains out". The detector
+could not have helped: the thread did not exist when he played, a game before the first
+report is a `predates_report` hold, and a closed thread only lets the next report mint
+another (Pierce: 4 threads in 3 days).
+
+`checkReturnedBeforeReport` (`src/monitoring/returned-precheck.ts`) runs after the
+Thread Manager and before OTM. It needs a date at `probable`/`confirmed` or `md_manual`,
+and fires on a regular-season game strictly after the anchor and strictly before the
+report's local date. It reuses the detector's `loadGames`, so both agree what a game is.
+- **No fresh-injury wording: no post.** A thread this cycle minted is VOIDed, so it does
+  not park as a hold. A thread that already existed is left alone.
+- **Fresh wording (`reportsFreshEvent`): `returned_since_anchor` forces review**, with the
+  games played in the prompt. A re-injury anchored to the old date looks identical from
+  here, so a physician decides. `REINJURY_RE` is separate from `FRESH_EVENT_RE` so that
+  every `isGatingCarryover` decision stays as it was.
+
+**Every way of not knowing passes the event through**, 404 and 503 alike. That inverts the
+detector's abort-on-failure, for the same reason: each takes the direction in which a read
+failure writes nothing irreversible.
+
+It reads `event.espn_athlete_id`, because `ResolvedPlayerInfo` carries no ESPN id. So it
+covers the status table, which is where the problem lives, and is `not_applicable` for
+an X or NewsAPI story with no id, and after a re-anchor drops the id.
+
+It runs after the resolver, so a repeating row still costs 2-4 Sonnet calls per cycle.
+Build a skip memo only if shadow's `already_back=` says it is worth it.
+
+`RETURNED_PRECHECK_MODE=off|shadow|on`, default **shadow**: decides and logs, changes
+nothing. Re-verify with `src/scripts/returned-precheck-dryrun.ts`; the numbers that must be
+zero are skips with fresh wording, skips with no game, and decisions under an injected 404
+or 503. A physician reads the list before it goes `on`: an athlete hurt Sunday who played
+Thursday counts as back.
+
+The detector's holds are now visible: `web_list_threads` `return_candidates: true` returns
+ACTIVE threads with `return_hold` (read from audit_log, because the md_manual guard can drop
+`needs_date_review`, and only for a hold made against the current `injury_date`), shown on
+the Threads tab under "Return candidates".
+
 ### A corrected date re-anchors its projection
 
 `otm_projection` is **NOT frozen at thread open**, whatever older comments say: every

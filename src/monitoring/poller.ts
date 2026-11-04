@@ -10,6 +10,14 @@ import type {
 import { SPORT_SOURCES } from './sports/index.js';
 import { formatSourceReports } from './sports/multi-source.js';
 import { classifyEvent } from '../agents/injury-intelligence/classifier.js';
+import { checkElapsedClaims } from '../agents/injury-intelligence/elapsed-claims.js';
+import {
+  checkReturnedBeforeReport,
+  returnedPrecheckMode,
+  voidUnneededThread,
+  RETURNED_SINCE_CODE,
+} from './returned-precheck.js';
+import { localCalendarDate } from '../agents/injury-intelligence/season-calendar.js';
 import { drainLlmUsageLines } from '../utils/llm-usage.js';
 import {
   processInjuryEvent,
@@ -381,6 +389,8 @@ interface PollSummary {
   dropped_significance: number;
   date_carryover_review: number;
   timeline_anchor_review: number;
+  elapsed_claim_mismatch: number;
+  already_back: number;
   timeline_anchor_annotated: number;
   date_carryover_annotated: number;
   /** Events whose thread already held a settled date, so the resolver was skipped. */
@@ -758,6 +768,36 @@ export function shouldForceTimelineAnchorReview(
       `team_timeline_weeks=${weeks} reads as remaining (total ${remaining.team_total_weeks}w, ` +
       `${remaining.status}) or as already-total (${total.status}) at ` +
       `${remaining.elapsed_weeks}w elapsed`,
+  };
+}
+
+/** The code recorded when the prose states an elapsed time the dates contradict. */
+export const ELAPSED_CLAIM_CODE = 'elapsed_claim_mismatch';
+
+/**
+ * Force MD review when clinical_summary or the headline states an elapsed time
+ * true of neither the injury date nor the surgery date. Downgradeable without a
+ * deploy via MD_REVIEW_ANNOTATE_ONLY_CODES. See elapsed-claims.ts.
+ */
+export function shouldForceElapsedClaimReview(
+  post: Pick<InjuryPostContent, 'headline' | 'clinical_summary'>,
+  anchors: Array<string | null | undefined>,
+  asOf: string | Date,
+  env: string | undefined = process.env.MD_REVIEW_ANNOTATE_ONLY_CODES,
+): { fires: boolean; force: boolean; annotate: boolean; detail?: string } {
+  const mismatches = checkElapsedClaims(
+    `${post.headline ?? ''}. ${post.clinical_summary ?? ''}`,
+    anchors,
+    asOf,
+  );
+  if (mismatches.length === 0) return { fires: false, force: false, annotate: false };
+  const annotateOnly = parseAnnotateOnlyCodes(env).has(ELAPSED_CLAIM_CODE);
+  const first = mismatches[0];
+  return {
+    fires: true,
+    force: !annotateOnly,
+    annotate: annotateOnly,
+    detail: `prose ${Math.round(first.weeks)}w vs computed ${first.computed_weeks}w`,
   };
 }
 
@@ -1282,6 +1322,8 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
     dropped_significance: 0,
     date_carryover_review: 0,
     timeline_anchor_review: 0,
+    elapsed_claim_mismatch: 0,
+    already_back: 0,
     timeline_anchor_annotated: 0,
     date_carryover_annotated: 0,
     date_resolution_skipped: 0,
@@ -1811,6 +1853,36 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
           if (dateGate.fires) {
             await auditCarryover(event, resolved.entityId, resolved, dateGate);
           }
+
+          // Has this athlete already played since the date this report is being
+          // anchored to? A closed thread cannot answer that: the next report
+          // would only mint a new one. See returned-precheck.ts.
+          const returned = await checkReturnedBeforeReport(event, thread, resolved.skipReason);
+          if (returned.kind === 'skip' || returned.kind === 'review') {
+            summary.already_back++;
+            const mode = returnedPrecheckMode();
+            console.log(
+              `[ReturnedPrecheck] ${returned.kind} mode=${mode} ${context} anchor=${returned.anchor} ` +
+                `games=${returned.games} first=${returned.first_game_date} last=${returned.last_game_date} ` +
+                `report=${returned.report_date}`,
+            );
+            if (mode === 'on' && returned.kind === 'skip') {
+              // A thread this cycle minted has no coverage, and leaving it ACTIVE
+              // only parks it as a predates_report hold. One that already existed
+              // is left for the detector and the MD.
+              if (!dedup.entityId) await voidUnneededThread(resolved.entityId, event, returned);
+              continue;
+            }
+            if (mode === 'on' && returned.kind === 'review') {
+              thread = {
+                ...thread,
+                returned_since: { games: returned.games, last_game_date: returned.last_game_date },
+              };
+              if (!forceMDReviewReason) forceMDReviewReason = RETURNED_SINCE_CODE;
+              else if (!forceMDReviewReason.includes(RETURNED_SINCE_CODE))
+                forceMDReviewReason = `${forceMDReviewReason},${RETURNED_SINCE_CODE}`;
+            }
+          }
         }
       }
 
@@ -1922,6 +1994,29 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
         console.log(
           `[Poller] ${sport} — team timeline anchor ambiguous (annotate-only) — ${context} — ` +
             `${timelineGate.detail} (publishing; recorded in the audit trail)`,
+        );
+      }
+
+      // The prose must agree with the dates the post is about to carry.
+      const elapsedGate = shouldForceElapsedClaimReview(
+        post,
+        [dateAnchor, thread?.surgery_date],
+        localCalendarDate(new Date(), sport).date,
+      );
+      if (elapsedGate.force) {
+        summary.elapsed_claim_mismatch++;
+        console.warn(
+          `[Poller] ${sport} — elapsed time in prose contradicts the dates for ${context}: ` +
+            `${elapsedGate.detail} — routing to MD review`,
+        );
+        const code = `${ELAPSED_CLAIM_CODE}(${elapsedGate.detail})`;
+        if (!forceMDReviewReason) forceMDReviewReason = code;
+        else if (!forceMDReviewReason.includes(ELAPSED_CLAIM_CODE))
+          forceMDReviewReason = `${forceMDReviewReason},${code}`;
+      } else if (elapsedGate.annotate) {
+        summary.elapsed_claim_mismatch++;
+        console.log(
+          `[Poller] ${sport} — elapsed time mismatch (annotate-only) — ${context} — ${elapsedGate.detail}`,
         );
       }
 
@@ -2089,7 +2184,7 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
   }
 
   console.log(
-    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} date_carry_review=${summary.date_carryover_review} date_carry_annot=${summary.date_carryover_annotated} date_settled=${summary.date_resolution_skipped} date_write_fail=${summary.thread_date_write_failed} date_yr_diverge=${summary.date_year_divergence} tl_anchor_review=${summary.timeline_anchor_review} tl_anchor_annot=${summary.timeline_anchor_annotated} dropped_concussion=${summary.dropped_concussion} name_drift=${summary.athlete_name_drift} reanchored=${summary.athlete_reanchored} drift_spelling=${summary.athlete_drift_spelling} surname_ref=${summary.athlete_surname_ref} ct_drift=${summary.content_type_drift} dropped_fact=${summary.dropped_fact_validation} out_of_scope=${summary.dropped_out_of_coverage} precheck_skip=${summary.precheck_skipped} precheck_would=${summary.precheck_would_skip} precheck_miss=${summary.precheck_miss} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} would_promote=${summary.would_promote_from_defer} expired=${summary.expired_from_defer} defer_q=${summary.defer_queue_size} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} review_unfiled=${summary.review_unfiled} review_supp=${summary.review_suppressed} reject_supp=${summary.rejection_suppressed} superseded=${summary.superseded} skipped=${summary.skipped} capped=${summary.capped} source_err=${summary.source_errors} classifier_err=${summary.classifier_errors} errors=${summary.errors}`
+    `[Poller] ${sport} — summary: fetched=${summary.fetched} pre_filtered=${summary.pre_filtered} classified+=${summary.classified_positive} dropped_sig=${summary.dropped_significance} date_carry_review=${summary.date_carryover_review} date_carry_annot=${summary.date_carryover_annotated} date_settled=${summary.date_resolution_skipped} date_write_fail=${summary.thread_date_write_failed} date_yr_diverge=${summary.date_year_divergence} tl_anchor_review=${summary.timeline_anchor_review} tl_anchor_annot=${summary.timeline_anchor_annotated} elapsed_mismatch=${summary.elapsed_claim_mismatch} already_back=${summary.already_back} dropped_concussion=${summary.dropped_concussion} name_drift=${summary.athlete_name_drift} reanchored=${summary.athlete_reanchored} drift_spelling=${summary.athlete_drift_spelling} surname_ref=${summary.athlete_surname_ref} ct_drift=${summary.content_type_drift} dropped_fact=${summary.dropped_fact_validation} out_of_scope=${summary.dropped_out_of_coverage} precheck_skip=${summary.precheck_skipped} precheck_would=${summary.precheck_would_skip} precheck_miss=${summary.precheck_miss} soft_fact=${summary.soft_failed_fact_validation} deferred=${summary.deferred} promoted=${summary.promoted_from_defer} would_promote=${summary.would_promote_from_defer} expired=${summary.expired_from_defer} defer_q=${summary.defer_queue_size} dupes=${summary.duplicates} published=${summary.published} review=${summary.pending_review} review_unfiled=${summary.review_unfiled} review_supp=${summary.review_suppressed} reject_supp=${summary.rejection_suppressed} superseded=${summary.superseded} skipped=${summary.skipped} capped=${summary.capped} source_err=${summary.source_errors} classifier_err=${summary.classifier_errors} errors=${summary.errors}`
   );
   for (const line of drainLlmUsageLines(sport)) console.log(line);
   return summary;
