@@ -17,15 +17,15 @@ describe('classifierModel', () => {
     vi.restoreAllMocks();
   });
 
-  it('defaults to Haiku 4.5 when unset or blank', () => {
-    expect(classifierModel()).toBe('claude-haiku-4-5-20251001');
+  it('defaults to Haiku 5.5 when unset or blank', () => {
+    expect(classifierModel()).toBe('claude-haiku-5-5');
     process.env.CLASSIFIER_MODEL = '   ';
     expect(classifierModel()).toBe(CLASSIFIER_DEFAULT_MODEL);
   });
 
-  it('accepts claude-haiku-5-5, trimmed', () => {
-    process.env.CLASSIFIER_MODEL = ' claude-haiku-5-5 ';
-    expect(classifierModel()).toBe('claude-haiku-5-5');
+  it('still accepts Haiku 4.5, trimmed, for a rollback', () => {
+    process.env.CLASSIFIER_MODEL = ' claude-haiku-4-5-20251001 ';
+    expect(classifierModel()).toBe('claude-haiku-4-5-20251001');
   });
 
   it('falls back to the default on an unrecognized value, with a warning', () => {

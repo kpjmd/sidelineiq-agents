@@ -55,7 +55,7 @@ UFC/MMA. For each injury event it:
 - Framework: Express.js
 - Language: TypeScript (ES modules)
 - AI: Anthropic Claude API (claude-sonnet-4-6 for agent and date-resolution
-  calls, claude-sonnet-5-5 for reply generation, claude-haiku-4-5 for
+  calls, claude-sonnet-5-5 for reply generation, claude-haiku-5-5 for
   classification tasks)
 - Database: Neon Serverless PostgreSQL
 - Database pattern: Tagged template literals ONLY — no ORM
@@ -1859,10 +1859,11 @@ Never commit .env files.
 
 `src/config/models.ts` is the one place the Haiku-class model is chosen, for the
 injury classifier and the mention-intent classifier alike. Default
-`claude-haiku-4-5-20251001` (retirement not before 2026-10-15); `claude-haiku-5-5`
-is the allowed alternative and an unrecognized value falls back to the default
-with a `[Config]` warning, never to the raw string. It is a Railway switch because
-the move changes WHICH events publish, not just the bill.
+`claude-haiku-5-5` (live in production since 2026-10-10, the code default since
+2026-11-05); `claude-haiku-4-5-20251001` is still accepted for a rollback while it
+is served, and an unrecognized value falls back to the default with a `[Config]`
+warning, never to the raw string. It is a Railway switch because a model change
+alters WHICH events publish, not just the bill.
 
 Measured 2026-10-09 on a live NFL cycle (`src/scripts/classifier-ab-dryrun.ts
 --repeat-baseline --repeat-candidate`, ~685 events): Haiku 5.5 is far steadier
@@ -1871,8 +1872,8 @@ fewer healthy `Active` rows an injury (31 vs a noise floor of 9), and says
 `is_new=true` far more often on ESPN "ruled out" rows (60 flips vs 23 noise), so
 about 60 more events cross a threshold, 7 of them to PROCESS. The composite score
 runs about 4.5 points higher. Watch `deferred=`, `review=` and `[ReturnWatch]`
-after flipping it. Rollback is unsetting the variable, and only works while 4.5
-is still served. Re-verify with the dry run; the gate is the noise-floor bar, not
+after changing it. Rolling back means setting the variable to the 4.5 ID, and only
+works while 4.5 is still served. Re-verify with the dry run; the gate is the noise-floor bar, not
 zero, because 4.5 disagrees with itself.
 
 ### CLASSIFIER_RATIONALES

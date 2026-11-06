@@ -3,23 +3,26 @@
  * (classifier.ts) and the mention-intent classifier (reply-agent.ts).
  *
  * One setting, because the two must not drift apart, and an environment
- * variable, because Haiku 4.5 is scheduled for retirement (not before
- * 2026-10-15) and the move to Haiku 5.5 changes WHICH events publish — a
- * classifier A/B (src/scripts/classifier-ab-dryrun.ts, NFL, 2026-10-09) showed
- * 5.5 more willing to call an ESPN "ruled out" row new, so the switch is made
- * and unmade in Railway rather than in a deploy. Rollback only works while 4.5
- * is still served.
+ * variable, so the model can be changed in Railway rather than in a deploy.
+ *
+ * The default is Haiku 5.5 (production has run it since 2026-10-10). The move
+ * from 4.5 changed WHICH events publish — a classifier A/B
+ * (src/scripts/classifier-ab-dryrun.ts, NFL, 2026-10-09) showed 5.5 more willing
+ * to call an ESPN "ruled out" row new — so do not change the default casually;
+ * re-run that dry run first. Haiku 4.5 stays in the allowed list only so a
+ * rollback by env var works while it is still served (retirement was "not
+ * before 2026-10-15"); once it is retired, remove it.
  *
  * Unset or unrecognized falls back to the DEFAULT with a warning. Not to the
  * raw value: a typo here would fail every classifier call, and a classifier
  * error is indistinguishable from "nothing was newsworthy" in the poll summary
  * except for `classifier_errors=`.
  */
-export const CLASSIFIER_DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
+export const CLASSIFIER_DEFAULT_MODEL = 'claude-haiku-5-5';
 
 export const CLASSIFIER_MODELS: readonly string[] = [
   CLASSIFIER_DEFAULT_MODEL,
-  'claude-haiku-5-5',
+  'claude-haiku-4-5-20251001',
 ];
 
 let warned = false;
