@@ -1791,6 +1791,47 @@ Code lives under `src/ledger/`; the tables and tools are mcp migration 026 and
   a first Tuesday equals `/ledger/scoreboard?as_of=<that day>`. Post the monthly card
   with `as_of` set. Note the first lock landed 2026-10-14T03:01Z = **10-13** ET.
 
+### The 8-week review gate (2026-11-06)
+
+The spec's gate table is recorded by `src/scripts/ledger-gate-report.ts` (read-only)
+from the definitions in `src/ledger/gate.ts`, which the report prints. The review is
+**Tue 2026-12-01**.
+
+- **Weeks run Sun–Sat, New York**, because the spec's week is Sunday intake → Monday
+  cards → Tuesday pass. Week 1 is 2026-10-04, the week PT-2026-001 published in.
+- **A Tuesday pass is DONE** when every proposal due at Tue 00:00 ET is decided before
+  Wed 06:00 ET, with ≥1 decision in [Mon 18:00, Wed 06:00). A week with nothing due is
+  `nothing_due`, not a miss. Whether the resolution CARD was posted is recorded nowhere.
+- **`web_export_ledger` carries no proposals.** Use `web_list_ledger_proposals`, which
+  defaults to `pending`, so call it once per decision.
+- **Impressions are cumulative**, so each Tier 1 card is read ONCE at ≥7 days old and
+  frozen in social_state `ledger_card_impressions_7d` by `captureCardImpressions`
+  (`src/ledger/card-impressions.ts`). It rides the daily metrics loop, so it does not
+  run when `METRICS_SNAPSHOT_ENABLED=false`. `LEDGER_CARD_IMPRESSIONS_MODE=off` stops
+  it alone. It follows the defer-queue rules: an unreadable store writes nothing, a
+  missing count is skipped (never stored as 0), and a reading is never overwritten.
+  Weeks 1–4 were frozen late (`age_days` says how late), which biases them UP, against
+  "rising".
+- **Read X through `x_api get_posts_by_ids`, with `ids` as a COMMA-JOINED STRING.** A
+  JSON array is a 400. `non_public_metrics` is refused on the app token. Do not use our
+  `twitter_get_tweet`: it substitutes zeros for missing metrics.
+- **`reply_count` includes our own self-reply** (every card reads 1 today, and that one
+  is ours). Third-party replies subtract our direct replies to the post.
+- **Open-question posts are a hand-kept list**, `data/ledger-open-question-posts.json`.
+  Nothing else marks them. Until it has entries the reply row is not measurable, and it
+  prints the baseline it will be judged against.
+- **Loop time is an active span**: gaps of ≤20 min between the draft's audit rows
+  (`entity_type: 'ledger_forecast'`), through the X post, summed, with wall-clock time
+  beside it. It misses film or research before the draft is opened and any stretch of
+  more than 20 min without a save. An exact figure would need an explicit field
+  (migration + form). That was considered and not built.
+
+Re-run it with `railway run --service sidelineiq-agents -- env
+WEB_MCP_URL=https://sidelineiq-mcp-servers-production.up.railway.app/mcp
+FARCASTER_MCP_URL= TWITTER_MCP_URL= npx tsx src/scripts/ledger-gate-report.ts`
+(`--json`, `--as-of=`, `--record-fixtures` → `tests/fixtures/ledger-gate/<date>/`,
+append-only, user ids redacted).
+
 ## MCP Server Connections
 
 This repo connects to sidelineiq-mcp-servers via HTTP:
