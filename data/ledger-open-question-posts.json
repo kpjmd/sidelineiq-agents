@@ -1,0 +1,4 @@
+{
+  "_note": "Open-question posts (\"Cleared or held out?\") for the 8-week review gate's reply-rate measure (src/ledger/gate.ts). Append one object per post when you post it: { \"x_post_id\": \"<id>\", \"entry_id\": \"PT-YYYY-NNN\", \"posted_at\": \"<ISO>\" }. Every open-question post is an F2 forecast with a ledger row before it is posted (spec 'No prediction without an entry ID'). Read by src/scripts/ledger-gate-report.ts only.",
+  "posts": []
+}

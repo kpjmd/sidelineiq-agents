@@ -1,6 +1,7 @@
 import { callTool } from '../utils/mcp-client-manager.js';
 import { isMCPError, extractMCPErrorMessage } from '../utils/publishing-pipeline.js';
 import type { MCPServerName } from '../types.js';
+import { captureCardImpressions } from '../ledger/card-impressions.js';
 
 /**
  * Daily baseline snapshot of the accounts' own follower counts
@@ -186,6 +187,14 @@ async function runAndReschedule(intervalMs: number): Promise<void> {
     await takeMetricsSnapshot();
   } catch (err) {
     console.error(`[Metrics] cycle crashed: ${errorMessage(err)}`);
+  }
+  // The ledger gate's frozen 7-day card readings ride the same daily cadence.
+  // Its own try/catch: a failure here must never cost the follower snapshot,
+  // and the follower snapshot failing must not skip this.
+  try {
+    await captureCardImpressions();
+  } catch (err) {
+    console.error(`[CardImpressions] cycle crashed: ${errorMessage(err)}`);
   } finally {
     scheduleNext(intervalMs);
   }
