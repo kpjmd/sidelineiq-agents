@@ -18,7 +18,13 @@
  *   decision landed in [Monday 18:00, Wednesday 06:00) ET — the window admits the
  *   pass that runs late Monday night or past midnight. Nothing due and no decision
  *   is NOTHING_DUE (week 1: PT-2026-001 published that Tuesday evening), not a
- *   miss. Whether the resolution CARD was posted is not recorded anywhere.
+ *   miss.
+ * - **Resolution card.** Checked beside the pass, never folded into it, so the
+ *   weeks before the card was tracked keep the status they were recorded under.
+ *   A card is POSTED when `data/ledger-resolution-cards.json` lists an X post for
+ *   that Tuesday and X returns it created in [Monday 18:00 ET, the week's end). A
+ *   card is expected for every pass that is done or missed; a NOTHING_DUE week
+ *   expects none.
  * - **Entries / resolved.** Cumulative v1 `published_at` and resolution
  *   `confirmed_at` before the week ends. Voids are counted beside, not inside.
  * - **Impressions.** Each Tier 1 card's `impression_count` frozen once at ≥7 days
@@ -134,6 +140,44 @@ export function tuesdayPass(
     due_undecided: undecided,
     decisions_in_window: inWindow,
   };
+}
+
+// ── Resolution card ───────────────────────────────────────────────────
+
+export interface ResolutionCardPost {
+  tuesday: IsoDate;
+  x_post_id: string;
+  /** The post's created_at on X; null = X returned no such post. */
+  created_at: string | null;
+}
+
+export type ResolutionCardStatus =
+  | 'posted'
+  | 'not_listed'
+  | 'not_on_x'
+  | 'outside_window'
+  | 'not_expected'
+  | 'list_unreadable';
+
+export interface ResolutionCardCheck {
+  status: ResolutionCardStatus;
+  x_post_id?: string;
+  posted_at?: string;
+}
+
+/** Whether the week's resolution card was posted. `listed` null = the list file was unreadable. */
+export function resolutionCardCheck(tp: TuesdayPass, listed: readonly ResolutionCardPost[] | null): ResolutionCardCheck {
+  const expected = tp.status === 'done' || tp.status === 'missed';
+  if (listed === null) return { status: expected ? 'list_unreadable' : 'not_expected' };
+  const mine = listed.filter((c) => c.tuesday === tp.tuesday);
+  if (mine.length === 0) return { status: expected ? 'not_listed' : 'not_expected' };
+  const start = etToUtcIso(addDays(tp.tuesday, -1), '18:00');
+  const end = gateWeekBounds(gateWeekOf(start)).end;
+  const hit = mine.find((c) => c.created_at && !before(c.created_at, start) && before(c.created_at, end));
+  if (hit) return { status: 'posted', x_post_id: hit.x_post_id, posted_at: hit.created_at! };
+  const onX = mine.find((c) => c.created_at);
+  if (onX) return { status: 'outside_window', x_post_id: onX.x_post_id, posted_at: onX.created_at! };
+  return { status: 'not_on_x', x_post_id: mine[0].x_post_id };
 }
 
 // ── Entries and resolved fields ───────────────────────────────────────
@@ -298,12 +342,15 @@ export interface GateInput {
   /** null = the open-question list could not be read, or is empty. */
   open_question: { posts: readonly TimelinePost[]; reason?: string };
   baseline: { posts: readonly TimelinePost[]; own: readonly TimelinePost[]; reason?: string };
+  /** posts null = data/ledger-resolution-cards.json could not be read. */
+  resolution_cards: { posts: readonly ResolutionCardPost[] | null; reason?: string };
 }
 
 export interface GateWeekRow {
   week: number;
   start: IsoDate;
   tuesday: TuesdayPass;
+  card: ResolutionCardCheck;
   passes_done: number;
   passes_counted: number;
   entries: number;
@@ -324,6 +371,7 @@ export interface GateReport {
   weeks: GateWeekRow[];
   gate: {
     tuesday_passes: Cell<{ done: number; counted: number; nothing_due: number }>;
+    resolution_cards: Cell<{ posted: number; expected: number }>;
     entries: Cell<number>;
     resolved: Cell<number>;
     impressions: Cell<ImpressionComparison>;
@@ -338,6 +386,8 @@ export function buildGateReport(input: GateInput): GateReport {
   let done = 0;
   let counted = 0;
   let nothingDue = 0;
+  let cardsPosted = 0;
+  let cardsExpected = 0;
   const asOfMs = ms(input.as_of);
 
   for (let w = 1; w <= current; w++) {
@@ -347,6 +397,12 @@ export function buildGateReport(input: GateInput): GateReport {
     if (tp.status === 'done') { done++; counted++; }
     else if (tp.status === 'missed') counted++;
     else if (tp.status === 'nothing_due') nothingDue++;
+    const card = resolutionCardCheck(tp, input.resolution_cards.posts);
+    // Counted only once the pass itself is counted, so posted ≤ expected.
+    if (tp.status === 'done' || tp.status === 'missed') {
+      cardsExpected++;
+      if (card.status === 'posted') cardsPosted++;
+    }
     const res = resolvedBefore(input.resolutions, bound);
     const weekCards = input.cards.filter((c) => gateWeekOf(c.posted_at) === w);
     const frozen = weekCards.filter((c) => c.frozen);
@@ -355,6 +411,7 @@ export function buildGateReport(input: GateInput): GateReport {
       week: w,
       start: gateWeekStart(w),
       tuesday: tp,
+      card,
       passes_done: done,
       passes_counted: counted,
       entries: entriesBefore(input.forecasts, bound),
@@ -400,6 +457,9 @@ export function buildGateReport(input: GateInput): GateReport {
     weeks,
     gate: {
       tuesday_passes: { value: { done, counted, nothing_due: nothingDue } },
+      resolution_cards: input.resolution_cards.posts === null
+        ? { not_measurable: input.resolution_cards.reason ?? 'data/ledger-resolution-cards.json unreadable' }
+        : { value: { posted: cardsPosted, expected: cardsExpected } },
       entries: { value: last.entries },
       resolved: { value: last.resolved },
       impressions: imp.verdict === 'not_measurable' ? { not_measurable: imp.reason! } : { value: imp },

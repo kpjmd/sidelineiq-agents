@@ -8,11 +8,12 @@ import {
   gateWeekBounds,
   gateWeekOf,
   gateWeekStart,
+  resolutionCardCheck,
   thirdPartyReplies,
   tuesdayPass,
   type CardReading,
 } from '../src/ledger/gate.js';
-import { assembleGate, type GateRawResponses } from '../src/ledger/gate-assemble.js';
+import { assembleGate, listedResolutionCards, type GateRawResponses } from '../src/ledger/gate-assemble.js';
 
 // Recorded from prod by `ledger-gate-report.ts --record-fixtures` (user ids redacted).
 const RECORDED = JSON.parse(
@@ -127,5 +128,70 @@ describe('against the 2026-11-06 recording', () => {
     expect(early.current_week).toBe(3);
     expect(early.gate.entries).toEqual({ value: 14 }); // PT-015 published 10-24
     expect(early.weeks[2].tuesday.status).toBe('done');
+  });
+
+  it('before any card is listed, every counted pass reads not_listed and week 1 expects none', () => {
+    expect(report.weeks.map((w) => w.card.status)).toEqual(['not_expected', 'not_listed', 'not_listed', 'not_listed', 'not_listed']);
+    expect(report.gate.resolution_cards).toEqual({ value: { posted: 0, expected: 4 } });
+    // The card is beside the pass, never inside it.
+    expect(report.gate.tuesday_passes).toEqual({ value: { done: 4, counted: 4, nothing_due: 1 } });
+  });
+});
+
+describe('resolution cards against recorded X posts', () => {
+  // Real posts from the recorded timeline stand in for cards; only the hand-kept
+  // list is written here, which is what the list file is by design.
+  const withList = (cards: unknown[]) =>
+    buildGateReport(assembleGate({ ...RECORDED, resolution_card_file: { cards } as GateRawResponses['resolution_card_file'] }, AS_OF).input);
+
+  it('posted when X has the post inside [Mon 18:00 ET, week end)', () => {
+    // 2115175152602202190: Tue 2026-10-27 16:13 ET, week 4.
+    const r = withList([{ tuesday: '2026-10-27', x_post_id: '2115175152602202190' }]);
+    expect(r.weeks[3].card).toEqual({ status: 'posted', x_post_id: '2115175152602202190', posted_at: '2026-10-27T20:13:49.000Z' });
+    expect(r.gate.resolution_cards).toEqual({ value: { posted: 1, expected: 4 } });
+  });
+
+  it('outside_window when the listed post predates that Monday 18:00', () => {
+    // 2113008146096509334: Wed 2026-10-21, the week before.
+    const r = withList([{ tuesday: '2026-10-27', x_post_id: '2113008146096509334' }]);
+    expect(r.weeks[3].card.status).toBe('outside_window');
+    expect(r.gate.resolution_cards).toEqual({ value: { posted: 0, expected: 4 } });
+  });
+
+  it('not_on_x when X never returned the id', () => {
+    expect(withList([{ tuesday: '2026-10-27', x_post_id: '1' }]).weeks[3].card.status).toBe('not_on_x');
+  });
+
+  it('a card listed for a nothing-due week is shown but not counted', () => {
+    const r = withList([{ tuesday: '2026-10-06', x_post_id: '2115175152602202190' }]);
+    expect(r.weeks[0].card.status).toBe('outside_window');
+    expect(r.gate.resolution_cards).toEqual({ value: { posted: 0, expected: 4 } });
+  });
+
+  it('an unreadable list is not measurable, never zero', () => {
+    const r = buildGateReport(assembleGate({ ...RECORDED, resolution_card_file: null }, AS_OF).input);
+    expect(r.gate.resolution_cards).toEqual({ not_measurable: 'data/ledger-resolution-cards.json unreadable' });
+    expect(r.weeks[1].card.status).toBe('list_unreadable');
+  });
+
+  it('skips a malformed entry and says why', () => {
+    const { cards, ignored } = listedResolutionCards({ cards: [
+      { tuesday: '2026-10-28', x_post_id: '2115175152602202190' },
+      { tuesday: '2026-10-27', x_post_id: 'https://x.com/Paratrosinjury/status/2115175152602202190' },
+      { tuesday: '2026-10-27', x_post_id: '2115175152602202190' },
+    ] });
+    expect(cards).toEqual([{ tuesday: '2026-10-27', x_post_id: '2115175152602202190' }]);
+    expect(ignored).toHaveLength(2);
+  });
+
+  it('the shipped list file parses with no ignored entries', () => {
+    const file = JSON.parse(readFileSync(resolve(__dirname, '../data/ledger-resolution-cards.json'), 'utf8'));
+    expect(listedResolutionCards(file).ignored).toEqual([]);
+  });
+
+  it('a card posted after midnight still counts for its Tuesday', () => {
+    const tp = tuesdayPass(4, [], [{ entry_id: 'X', field: 'F1', status: 'resolved', confirmed_at: '2026-10-27T15:00:00Z' }], '2026-10-28T11:00:00Z');
+    expect(tp.status).toBe('done');
+    expect(resolutionCardCheck(tp, [{ tuesday: '2026-10-27', x_post_id: '9', created_at: '2026-10-28T03:30:00Z' }]).status).toBe('posted');
   });
 });

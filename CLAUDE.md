@@ -1801,7 +1801,12 @@ from the definitions in `src/ledger/gate.ts`, which the report prints. The revie
   cards → Tuesday pass. Week 1 is 2026-10-04, the week PT-2026-001 published in.
 - **A Tuesday pass is DONE** when every proposal due at Tue 00:00 ET is decided before
   Wed 06:00 ET, with ≥1 decision in [Mon 18:00, Wed 06:00). A week with nothing due is
-  `nothing_due`, not a miss. Whether the resolution CARD was posted is recorded nowhere.
+  `nothing_due`, not a miss.
+- **The resolution card is a hand-kept list**, `data/ledger-resolution-cards.json`
+  (`{tuesday, x_post_id}`, appended when the card posts by hand). It is checked BESIDE
+  the pass and never folded into it, so weeks 2–5 (no card posted, none tracked) keep
+  the `done` they were recorded under and read `not_listed`. A card counts when X
+  returns the id created in [Mon 18:00 ET, week end). Only counted passes expect one.
 - **`web_export_ledger` carries no proposals.** Use `web_list_ledger_proposals`, which
   defaults to `pending`, so call it once per decision.
 - **Impressions are cumulative**, so each Tier 1 card is read ONCE at ≥7 days old and
