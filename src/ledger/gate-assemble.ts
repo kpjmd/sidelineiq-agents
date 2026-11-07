@@ -5,6 +5,7 @@
  * gate table runs in tests against `tests/fixtures/ledger-gate/<date>/`, which
  * `src/scripts/ledger-gate-report.ts --record-fixtures` writes from prod.
  */
+import { isIsoDate } from './dates.js';
 import { parseStore, parseXPost, type CardImpressionStore, type XPostMetrics } from './card-impressions.js';
 import {
   gateWeekBounds,
@@ -16,6 +17,7 @@ import {
   type GateProposal,
   type GateResolution,
   type LoopReading,
+  type ResolutionCardPost,
   type TimelinePost,
 } from './gate.js';
 
@@ -35,6 +37,29 @@ export interface GateRawResponses {
   store: unknown;
   /** Contents of data/ledger-open-question-posts.json, or null when unreadable. */
   open_question_file: { posts?: Array<{ x_post_id?: string; entry_id?: string }> } | null;
+  /**
+   * Contents of data/ledger-resolution-cards.json, or null when unreadable.
+   * Absent in fixtures recorded before the file existed: read as an empty list.
+   */
+  resolution_card_file?: { cards?: Array<{ tuesday?: string; x_post_id?: string }> } | null;
+}
+
+/** A listed card's Tuesday must be a real Tuesday on the calendar (UTC noon avoids any DST edge). */
+const isTuesday = (d: string) => isIsoDate(d) && new Date(`${d}T12:00:00Z`).getUTCDay() === 2;
+
+export function listedResolutionCards(file: GateRawResponses['resolution_card_file']): {
+  cards: Array<{ tuesday: string; x_post_id: string }> | null;
+  ignored: string[];
+} {
+  if (file === null) return { cards: null, ignored: [] };
+  const cards: Array<{ tuesday: string; x_post_id: string }> = [];
+  const ignored: string[] = [];
+  for (const [i, c] of (file?.cards ?? []).entries()) {
+    if (!c || typeof c.tuesday !== 'string' || !isTuesday(c.tuesday)) ignored.push(`cards[${i}]: tuesday must be a YYYY-MM-DD Tuesday`);
+    else if (typeof c.x_post_id !== 'string' || !/^\d+$/.test(c.x_post_id)) ignored.push(`cards[${i}]: x_post_id must be the numeric id from the post URL`);
+    else cards.push({ tuesday: c.tuesday, x_post_id: c.x_post_id });
+  }
+  return { cards, ignored };
 }
 
 export interface AssembledGate {
@@ -44,6 +69,8 @@ export interface AssembledGate {
   card_rows: Array<CardReading & { live_impressions: number | null }>;
   loop_rows: LoopReading[];
   unmeasured_cards: string[];
+  /** Entries in data/ledger-resolution-cards.json that were malformed and skipped. */
+  resolution_card_ignored: string[];
 }
 
 function postsFrom(texts: readonly string[]): Map<string, XPostMetrics> {
@@ -141,6 +168,15 @@ export function assembleGate(raw: GateRawResponses, asOf: string): AssembledGate
     baseline = { posts, own };
   }
 
+  // Resolution cards: the hand-kept list, each id checked against X (the batch
+  // read first, the account timeline as a second source).
+  const timelinePosts = raw.timeline === null ? new Map<string, XPostMetrics>() : postsFrom(raw.timeline);
+  const rc = listedResolutionCards(raw.resolution_card_file);
+  const rcPosts: ResolutionCardPost[] | null = rc.cards === null ? null : rc.cards.map((c) => {
+    const p = xPosts.get(c.x_post_id) ?? timelinePosts.get(c.x_post_id) ?? null;
+    return { tuesday: c.tuesday, x_post_id: c.x_post_id, created_at: p && Date.parse(p.created_at) <= asOfMs ? p.created_at : null };
+  });
+
   return {
     input: {
       as_of: asOf,
@@ -157,11 +193,16 @@ export function assembleGate(raw: GateRawResponses, asOf: string): AssembledGate
           : oqPosts.length === 0 ? `none of the ${listed.length} listed open-question posts could be read on X` : undefined,
       },
       baseline,
+      resolution_cards: {
+        posts: rcPosts,
+        reason: rcPosts === null ? 'data/ledger-resolution-cards.json unreadable' : undefined,
+      },
     },
     store_status: storeRead.status,
     store_reason: storeRead.status === 'unreadable' ? storeRead.reason : undefined,
     card_rows: cardRows,
     loop_rows: loopRows,
     unmeasured_cards: unmeasured,
+    resolution_card_ignored: rc.ignored,
   };
 }

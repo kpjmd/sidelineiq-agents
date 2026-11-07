@@ -20,12 +20,13 @@ import { resolve } from 'node:path';
 import { initializeMCPClients, callTool, isServerAvailable, disconnectAll } from '../utils/mcp-client-manager.js';
 import { isMCPError, extractMCPErrorMessage } from '../utils/publishing-pipeline.js';
 import { CARD_IMPRESSIONS_KEY } from '../ledger/card-impressions.js';
-import { assembleGate, type AssembledGate, type GateRawResponses } from '../ledger/gate-assemble.js';
+import { assembleGate, listedResolutionCards, type AssembledGate, type GateRawResponses } from '../ledger/gate-assemble.js';
 import { buildGateReport, gateWeekBounds, GATE_THRESHOLDS, GATE_WEEKS, LOOP_GAP_CAP_MIN, type Cell, type GateReport } from '../ledger/gate.js';
 import { endOfEtDayIso, etCalendarDate, isIsoDate } from '../ledger/dates.js';
 
 const ACCOUNT_ID = '2039126663263387648'; // @Paratrosinjury, numeric id (handles change; the id does not)
 const OPEN_QUESTION_FILE = resolve(process.cwd(), 'data/ledger-open-question-posts.json');
+const RESOLUTION_CARD_FILE = resolve(process.cwd(), 'data/ledger-resolution-cards.json');
 const MAX_TIMELINE_PAGES = 40;
 
 const argv = process.argv.slice(2);
@@ -96,9 +97,16 @@ async function readAll(): Promise<GateRawResponses> {
     openQuestionFile = null;
   }
   const oqIds = (openQuestionFile?.posts ?? []).map((p) => p.x_post_id).filter((x): x is string => !!x);
+  let resolutionCardFile: GateRawResponses['resolution_card_file'] = null;
+  try {
+    resolutionCardFile = JSON.parse(readFileSync(RESOLUTION_CARD_FILE, 'utf8'));
+  } catch {
+    resolutionCardFile = null;
+  }
+  const rcIds = (listedResolutionCards(resolutionCardFile).cards ?? []).map((c) => c.x_post_id);
 
   if (!isServerAvailable('x_api')) throw new Error('x_api MCP unavailable — set X_API_MCP_URL and X_API_MCP_BEARER_TOKEN');
-  const xPosts = await xPostsTexts([...new Set([...cards.map((f) => f.x_post_id!), ...oqIds])]);
+  const xPosts = await xPostsTexts([...new Set([...cards.map((f) => f.x_post_id!), ...oqIds, ...rcIds])]);
 
   let timeline: string[] | null = null;
   let timelineError: string | undefined;
@@ -109,7 +117,7 @@ async function readAll(): Promise<GateRawResponses> {
   }
 
   const store = await callTool('web', 'web_get_social_state', { key: CARD_IMPRESSIONS_KEY });
-  return { export: exportText, proposals, audit, x_posts: xPosts, timeline, timeline_error: timelineError, store, open_question_file: openQuestionFile };
+  return { export: exportText, proposals, audit, x_posts: xPosts, timeline, timeline_error: timelineError, store, open_question_file: openQuestionFile, resolution_card_file: resolutionCardFile };
 }
 
 // ── Fixtures ──────────────────────────────────────────────────────────
@@ -143,6 +151,7 @@ function recordFixtures(raw: GateRawResponses, asOfDate: string): string {
     timeline_error: raw.timeline_error,
     store: raw.store,
     open_question_file: raw.open_question_file,
+    resolution_card_file: raw.resolution_card_file,
   };
   const file = resolve(dir, 'responses.json');
   writeFileSync(file, JSON.stringify({ recorded_at: new Date().toISOString(), source: 'src/scripts/ledger-gate-report.ts --record-fixtures', ...recorded }, null, 1) + '\n');
@@ -168,12 +177,13 @@ function render(report: GateReport, a: AssembledGate): string {
     L.push('note: a past --as-of reads X counts as they are NOW; only frozen readings stored before as_of are as-of values');
   }
   if (a.store_status === 'unreadable') L.push(`!! frozen card store unreadable (${a.store_reason}); impressions use live reads only`);
+  for (const w of a.resolution_card_ignored) L.push(`!! data/ledger-resolution-cards.json ${w} — skipped`);
   L.push('');
-  L.push('Wk  Start       Tue pass (due/in-window)   Passes  Entries  Resolved(+void)  Cards fz/live  Impr med  Loop active/wall min (n)');
+  L.push(`Wk  Start       ${pad('Tue pass (due/in-window)', 29)} Card            Passes  Entries  Resolved(+void)  Cards fz/live  Impr med  Loop active/wall min (n)`);
   for (const w of report.weeks) {
     const tp = `${w.tuesday.tuesday} ${w.tuesday.status} (${w.tuesday.due}/${w.tuesday.decisions_in_window})`;
     L.push(
-      `${pad(String(w.week), 3)} ${w.start}  ${pad(tp, 26)} ${pad(`${w.passes_done}/${w.passes_counted}`, 7)} ${pad(String(w.entries), 8)} ${pad(`${w.resolved} (+${w.void})`, 16)} ${pad(`${w.cards_frozen}/${w.cards_live}`, 14)} ${pad(fmt(w.impressions_median), 9)} ${fmt(w.loop_median_active)}/${fmt(w.loop_median_wall)} (${w.loop_n})`,
+      `${pad(String(w.week), 3)} ${w.start}  ${pad(tp, 29)} ${pad(w.card.status, 15)} ${pad(`${w.passes_done}/${w.passes_counted}`, 7)} ${pad(String(w.entries), 8)} ${pad(`${w.resolved} (+${w.void})`, 16)} ${pad(`${w.cards_frozen}/${w.cards_live}`, 14)} ${pad(fmt(w.impressions_median), 9)} ${fmt(w.loop_median_active)}/${fmt(w.loop_median_wall)} (${w.loop_n})`,
     );
   }
   L.push('');
@@ -182,6 +192,10 @@ function render(report: GateReport, a: AssembledGate): string {
   L.push(cellLine('Tuesday passes completed', `${GATE_THRESHOLDS.tuesday_passes} of 8`, g.tuesday_passes, (v) => [
     `${v.done} done of ${v.counted} due (+${v.nothing_due} nothing due)`,
     v.done === v.counted ? 'on track' : 'BELOW: reduce intake scope before adding anything',
+  ]));
+  L.push(cellLine('Resolution card posted', 'every counted pass', g.resolution_cards, (v) => [
+    `${v.posted} posted of ${v.expected} expected`,
+    v.posted === v.expected ? 'on track' : 'BELOW: post the card with each pass',
   ]));
   L.push(cellLine('Entries logged', `≥ ${GATE_THRESHOLDS.entries}`, g.entries, (v) => [String(v), v >= GATE_THRESHOLDS.entries ? 'pass' : 'below (loosen Tier 2 criteria)']));
   L.push(cellLine('Resolved fields', `≥ ${GATE_THRESHOLDS.resolved}`, g.resolved, (v) => [String(v), v >= GATE_THRESHOLDS.resolved ? 'pass' : 'below (timing-dependent)']));
@@ -211,7 +225,8 @@ function render(report: GateReport, a: AssembledGate): string {
   L.push('');
   L.push('Definitions (src/ledger/gate.ts):');
   L.push('  Weeks run Sun–Sat, New York. Tuesday pass = every proposal due at Tue 00:00 ET decided before Wed 06:00 ET, with ≥1 decision');
-  L.push('  in [Mon 18:00, Wed 06:00). Whether the resolution CARD was posted is not recorded anywhere and is not checked.');
+  L.push('  in [Mon 18:00, Wed 06:00). Card = an X post listed for that Tuesday in data/ledger-resolution-cards.json, created on X');
+  L.push('  in [Mon 18:00 ET, week end). Checked beside the pass, never folded into it; a nothing-due week expects no card.');
   L.push('  Weeks 1–4 cards were frozen late (age shown); cumulative counts bias them UP, against "rising" — the conservative direction.');
   L.push(`  Reply rate = (reply_count − our own direct replies) per 1,000 impressions. Loop active = gaps ≤ ${LOOP_GAP_CAP_MIN} min between`);
   L.push('  the draft\'s audit rows through the X post, summed. It misses film/research before the draft is opened and any stretch');
