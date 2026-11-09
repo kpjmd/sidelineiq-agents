@@ -62,6 +62,41 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe('search-pass cache marker', () => {
+  it('marks only the search pass cacheable, with the same system text as Pass 1', async () => {
+    createMock
+      .mockResolvedValueOnce(emitMessage({ injury_date_confidence: 'unknown', surgery_confirmed: false }))
+      .mockResolvedValueOnce(
+        emitMessage({ injury_date: '2026-05-04', injury_date_confidence: 'probable', surgery_confirmed: false }),
+      );
+
+    await resolveInjuryDate(makeInput());
+
+    const [pass1, pass2] = createMock.mock.calls.map((c) => c[0]);
+    expect(typeof pass1.system).toBe('string');
+    expect(pass2.system).toEqual([
+      { type: 'text', text: pass1.system, cache_control: { type: 'ephemeral' } },
+    ]);
+    expect(pass2.tools.map((t: { name: string }) => t.name)).toContain('web_search');
+  });
+
+  it('keeps the marker on a pause_turn continuation', async () => {
+    createMock
+      .mockResolvedValueOnce(emitMessage({ injury_date_confidence: 'unknown', surgery_confirmed: false }))
+      .mockResolvedValueOnce({ stop_reason: 'pause_turn', content: [] })
+      .mockResolvedValueOnce(
+        emitMessage({ injury_date: '2026-05-04', injury_date_confidence: 'probable', surgery_confirmed: false }),
+      );
+
+    await resolveInjuryDate(makeInput());
+
+    const calls = createMock.mock.calls.map((c) => c[0]);
+    expect(calls).toHaveLength(3);
+    expect(calls[2].system).toEqual(calls[1].system);
+    expect(calls[2].system[0].cache_control).toEqual({ type: 'ephemeral' });
+  });
+});
+
 describe('resolver usage by pass', () => {
   beforeEach(() => drainLlmUsageLines('NBA'));
 
