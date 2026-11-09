@@ -347,7 +347,11 @@ export async function resolveInjuryDate(
     model: MODEL,
     max_tokens: 4096,
     temperature: TEMPERATURE,
-    system,
+    // Marking the request cacheable also lets the server cache inside it, so
+    // each search iteration re-reads the earlier ones at 0.1x. Measured on 4
+    // real lookups (2026-11-09): $0.138 -> $0.081. Pass 1 is one short call
+    // and stays a plain string.
+    system: [{ type: 'text' as const, text: system, cache_control: { type: 'ephemeral' as const } }],
     tools: [WEB_SEARCH_TOOL, EMIT_TOOL],
     tool_choice: { type: 'auto' as const },
   };
