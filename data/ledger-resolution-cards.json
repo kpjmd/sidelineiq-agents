@@ -1,4 +1,9 @@
 {
   "_note": "Tuesday resolution cards for the 8-week review gate (src/ledger/gate.ts). Append one object per card when you post it: { \"tuesday\": \"YYYY-MM-DD\", \"x_post_id\": \"<numeric id from the post URL, x.com/Paratrosinjury/status/<id>>\" }. tuesday is the Tuesday of the pass the card reports, even if the card posts after midnight. The report checks each id on X and counts it when the post was created between Monday 18:00 ET and the end of that gate week (Saturday). Never list a card for a week that did not post one: an unlisted week reads not_listed, which is the honest answer. Read by src/scripts/ledger-gate-report.ts only.",
-  "cards": []
+  "cards": [
+    {
+      "tuesday": "2026-11-10",
+      "x_post_id": "2120331493432037584"
+    }
+  ]
 }
