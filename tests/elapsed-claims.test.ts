@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildElapsedLine,
+  buildReturnedSinceLine,
   checkElapsedClaims,
   extractElapsedClaims,
 } from '../src/agents/injury-intelligence/elapsed-claims.js';
@@ -97,5 +98,22 @@ describe('extractElapsedClaims leaves forward-looking windows alone', () => {
     '8 to 12 weeks post-op, Slater is expected back.',
   ])('%s', (text) => {
     expect(extractElapsedClaims(text)).toEqual([]);
+  });
+});
+
+describe('buildReturnedSinceLine', () => {
+  const line = buildReturnedSinceLine({ games: 4, first_game_date: '2026-10-31', last_game_date: '2026-11-06' });
+
+  it('states the games from the log', () => {
+    expect(line).toContain('4 regular-season game(s)');
+    expect(line).toContain('first 2026-10-31');
+    expect(line).toContain('most recent 2026-11-06');
+  });
+
+  it('allows a recurrence or a new problem, and forbids a continuous recovery', () => {
+    expect(line).toMatch(/recurrence, a setback or a new problem/);
+    expect(line).toMatch(/not one continuous recovery/);
+    // The old wording told the model the athlete was not out, which is wrong for a flare.
+    expect(line).not.toMatch(/not out recovering/);
   });
 });

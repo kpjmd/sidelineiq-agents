@@ -1858,13 +1858,13 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
           // anchored to? A closed thread cannot answer that: the next report
           // would only mint a new one. See returned-precheck.ts.
           const returned = await checkReturnedBeforeReport(event, thread, resolved.skipReason);
-          if (returned.kind === 'skip' || returned.kind === 'review') {
+          if (returned.kind === 'skip' || returned.kind === 'review' || returned.kind === 'inform') {
             summary.already_back++;
             const mode = returnedPrecheckMode();
             console.log(
               `[ReturnedPrecheck] ${returned.kind} mode=${mode} ${context} anchor=${returned.anchor} ` +
-                `games=${returned.games} first=${returned.first_game_date} last=${returned.last_game_date} ` +
-                `report=${returned.report_date}`,
+                `age_days=${returned.anchor_age_days} games=${returned.games} first=${returned.first_game_date} ` +
+                `last=${returned.last_game_date} report=${returned.report_date}`,
             );
             if (mode === 'on' && returned.kind === 'skip') {
               // A thread this cycle minted has no coverage, and leaving it ACTIVE
@@ -1873,11 +1873,19 @@ export async function pollSport(sport: SportKey): Promise<PollSummary> {
               if (!dedup.entityId) await voidUnneededThread(resolved.entityId, event, returned);
               continue;
             }
-            if (mode === 'on' && returned.kind === 'review') {
+            if (mode === 'on' && (returned.kind === 'review' || returned.kind === 'inform')) {
+              // Both run the model, and both tell it the athlete played. Only a
+              // report with fresh-injury wording also goes to a physician.
               thread = {
                 ...thread,
-                returned_since: { games: returned.games, last_game_date: returned.last_game_date },
+                returned_since: {
+                  games: returned.games,
+                  first_game_date: returned.first_game_date,
+                  last_game_date: returned.last_game_date,
+                },
               };
+            }
+            if (mode === 'on' && returned.kind === 'review') {
               if (!forceMDReviewReason) forceMDReviewReason = RETURNED_SINCE_CODE;
               else if (!forceMDReviewReason.includes(RETURNED_SINCE_CODE))
                 forceMDReviewReason = `${forceMDReviewReason},${RETURNED_SINCE_CODE}`;
