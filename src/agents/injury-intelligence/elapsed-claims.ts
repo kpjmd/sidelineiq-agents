@@ -32,6 +32,30 @@ function describeElapsed(weeks: number, label: string): string {
   return `${weeks} weeks (about ${months} months) since ${label}`;
 }
 
+export interface ReturnedSince {
+  games: number;
+  first_game_date: string;
+  last_game_date: string;
+}
+
+/**
+ * The thread-block line for an athlete who has played since the anchored date
+ * (returned-precheck.ts, `inform` and `review`). It says what the game log shows
+ * and what that rules out, and leaves the reading of the current absence to the
+ * model: Markkanen's was a new fracture, Trey Murphy III's a flare of the same
+ * tendinopathy. The line it replaced told the model he was "not out recovering",
+ * which is wrong for a flare.
+ */
+export function buildReturnedSinceLine(r: ReturnedSince): string {
+  return (
+    `Returned to play after this date: ${r.games} regular-season game(s), first ${r.first_game_date}, ` +
+    `most recent ${r.last_game_date} (from the game log, authoritative). Any absence now is a recurrence, ` +
+    `a setback or a new problem, not one continuous recovery from this date. Do not describe the athlete ` +
+    `as still out or still recovering from it, and do not infer severity from the length of an ` +
+    `uninterrupted absence.`
+  );
+}
+
 /**
  * The computed line for the thread block, or '' when the date is not one the
  * prompt treats as authoritative. It adds no date the block does not already

@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { DATE_ANCHORING_SHARED, chooseDateAnchor } from './date-anchoring.js';
-import { buildElapsedLine } from './elapsed-claims.js';
+import { buildElapsedLine, buildReturnedSinceLine, type ReturnedSince } from './elapsed-claims.js';
 import { localCalendarDate } from './season-calendar.js';
 import {
   computeConflictGap,
@@ -391,7 +391,7 @@ export interface InjuryThreadContext {
   laterality: 'LEFT' | 'RIGHT' | 'BILATERAL' | 'UNSPECIFIED' | null;
   // Set only when the returned-precheck found games played since injury_date and
   // the report still describes something new. See returned-precheck.ts.
-  returned_since?: { games: number; last_game_date: string };
+  returned_since?: ReturnedSince;
   // Oldest→newest reported timelines for this injury (includes the current event).
   prior_timelines: Array<{
     reported_weeks: number | null;
@@ -452,7 +452,7 @@ This athlete has an existing tracked injury thread for this injury.
 Resolved injury date: ${thread.injury_date ?? 'not yet resolved'} (confidence: ${thread.injury_date_confidence})
 ${establishedSide ? `Established injury: ${establishedSide} (from prior reporting on this thread). Do not contradict this side without an explicit correction signal in the new source (e.g., "corrected to left wrist", "previously misreported").\n` : ''}${thread.surgery_date ? `Surgery date: ${thread.surgery_date}${thread.surgery_confirmed ? ' (confirmed)' : ' (unconfirmed)'}\n` : ''}${elapsedLine ? `${elapsedLine}\n` : ''}${
           thread.returned_since
-            ? `Has played ${thread.returned_since.games} regular-season game(s) since this date; most recent ${thread.returned_since.last_game_date}. The athlete is not out recovering from it, so treat this report as a new development.\n`
+            ? `${buildReturnedSinceLine(thread.returned_since)}\n`
             : ''
         }${
           thread.prior_timelines.length
