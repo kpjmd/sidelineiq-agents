@@ -658,12 +658,32 @@ another (Pierce: 4 threads in 3 days).
 Thread Manager and before OTM. It needs a date at `probable`/`confirmed` or `md_manual`,
 and fires on a regular-season game strictly after the anchor and strictly before the
 report's local date. It reuses the detector's `loadGames`, so both agree what a game is.
-- **No fresh-injury wording: no post.** A thread this cycle minted is VOIDed, so it does
-  not park as a hold. A thread that already existed is left alone.
-- **Fresh wording (`reportsFreshEvent`): `returned_since_anchor` forces review**, with the
-  games played in the prompt. A re-injury anchored to the old date looks identical from
-  here, so a physician decides. `REINJURY_RE` is separate from `FRESH_EVENT_RE` so that
-  every `isGatingCarryover` decision stays as it was.
+- **Fresh wording (`reportsFreshEvent`): `review`.** The post runs with the games in the
+  prompt and `returned_since_anchor` forces review. A re-injury anchored to the old date
+  looks identical from here, so a physician decides. `REINJURY_RE` is separate from
+  `FRESH_EVENT_RE` so that every `isGatingCarryover` decision stays as it was.
+- **Old anchor, no fresh wording: `skip`, no post.** Old means at least
+  `RETURNED_PRECHECK_SKIP_MIN_WEEKS` (default 26). A thread this cycle minted is VOIDed, so
+  it does not park as a hold. A thread that already existed is left alone.
+- **Young anchor, no fresh wording: `inform`.** The post runs and `buildReturnedSinceLine`
+  tells the model the games. No forced review.
+
+**A young anchor is not skipped, because "back, then out again" is news.** The first
+shadow week (2026-11-09..13) logged two skips that would have been wrong. Lauri Markkanen
+(sprain 10-26, four games, out 11-09) had fractured his hand in his last game. Trey Murphy
+III (tendinopathy 11-04, played 11-06 and 11-08, then out) had flared. Both published
+before the rework. Markkanen's post reasoned "still out at two weeks, so Grade 2", which
+the model wrote only because it did not know he had played. The prompt line therefore says
+the absence is a recurrence, a setback or a new problem; the old line said he was "not out
+recovering", which is wrong for a flare. It is a request, with no check behind it.
+
+The cutoff was set from the original dry run's 33 hits. Five prior-season anchors were
+290-350 days old (Irving's ~590). Every other anchor was 91 days old or younger, so any
+cutoff from 14 to 41 weeks splits them the same way.
+
+`REINJURY_RE` no longer counts minimised swelling ("limited swelling", "no swelling") or an
+MRI with a clean result in the same sentence. Mahomes (2026-11-13) went to review as a
+re-injury on "limited swelling" and "an MRI that checked out fine".
 
 **Every way of not knowing passes the event through**, 404 and 503 alike. That inverts the
 detector's abort-on-failure, for the same reason: each takes the direction in which a read
@@ -678,9 +698,9 @@ Build a skip memo only if shadow's `already_back=` says it is worth it.
 
 `RETURNED_PRECHECK_MODE=off|shadow|on`, default **shadow**: decides and logs, changes
 nothing. Re-verify with `src/scripts/returned-precheck-dryrun.ts`; the numbers that must be
-zero are skips with fresh wording, skips with no game, and decisions under an injected 404
-or 503. A physician reads the list before it goes `on`: an athlete hurt Sunday who played
-Thursday counts as back.
+zero are skips with fresh wording, skips with no game, skips under the cutoff, and
+decisions under an injected 404 or 503. A physician reads the list before it goes `on`.
+The log line carries `age_days=`, and `already_back=` counts all three outcomes.
 
 The detector's holds are now visible: `web_list_threads` `return_candidates: true` returns
 ACTIVE threads with `return_hold` (read from audit_log, because the md_manual guard can drop

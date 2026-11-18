@@ -181,9 +181,15 @@ const FRESH_EVENT_RE =
  * every isGatingCarryover decision stays exactly as it was. Bare "suffered" and
  * "sustained" are left out: ESPN's longComment recounts old injuries in those
  * words. A match sends the event to a physician, so this errs toward matching.
+ *
+ * Except where the wording says the opposite. Patrick Mahomes' row (2026-11-13)
+ * reported "limited swelling" and "an MRI that checked out fine" and was sent to
+ * review as a re-injury. Swelling that is negated or minimised, and an MRI with a
+ * clean result in the same sentence, no longer count. Anything else about
+ * swelling or an MRI still does.
  */
 const REINJURY_RE =
-  /\bre-?(?:injur|aggravat|tear|tore)\w*|\baggravat\w+|\bsetback\b|\bflare[-\s]?up\b|\bleft\s+(?:[\w']+\s+){0,3}(?:game|contest|practice|workout)\b|\bexited\b|\bcarted\s+off\b|\bhelped\s+off\b|\b(?:did\s+not|didn't|won't|will\s+not)\s+return\b|\bnew\s+injury\b|\bswelling\b|\bMRI\b/i;
+  /\bre-?(?:injur|aggravat|tear|tore)\w*|\baggravat\w+|\bsetback\b|\bflare[-\s]?up\b|\bleft\s+(?:[\w']+\s+){0,3}(?:game|contest|practice|workout)\b|\bexited\b|\bcarted\s+off\b|\bhelped\s+off\b|\b(?:did\s+not|didn't|won't|will\s+not)\s+return\b|\bnew\s+injury\b|(?<!\b(?:no|limited|minimal|little|without|less)\s)\bswelling\b|\bMRI\b(?![^.]{0,50}?\b(?:checked\s+out|came\s+back\s+(?:clean|negative|fine|normal)|clean|negative|normal|fine|no\s+(?:structural|significant|serious|major|new)|nothing)\b)/i;
 
 function reportText(event: RawInjuryEvent): string {
   return event.injury_description_long

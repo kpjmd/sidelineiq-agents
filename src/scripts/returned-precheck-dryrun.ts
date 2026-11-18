@@ -3,9 +3,10 @@
  * against every thread already holding a usable date. Read-only: it reads the game
  * log and writes nothing, and it ignores RETURNED_PRECHECK_MODE=off.
  *
- * A physician reads this list before the mode goes `on`. Short-term cases are the
- * judgment call: an athlete hurt on Sunday who played on Thursday is "back" by this
- * rule, and a later status row about him is skipped.
+ * A physician reads this list before the mode goes `on`. SKIP drops the report;
+ * INFORM runs the post with the games in the prompt; REVIEW does that and forces
+ * review. Only an anchor at least RETURNED_PRECHECK_SKIP_MIN_WEEKS old (default 26)
+ * can SKIP, so the short-term cases (hurt Sunday, played Thursday, out again) INFORM.
  *
  * RESOLVED threads stand in for the thread the resolver would mint, so this list
  * overstates what a live cycle sees: the classifier and gate run first in production.
@@ -13,6 +14,7 @@
  * Numbers that must be zero (exits 1 otherwise):
  *   - skips whose report has fresh-injury language
  *   - skips with no game in the window
+ *   - skips whose anchor is younger than the cutoff
  *   - decisions other than not_applicable under an injected 404 or 503
  *
  *   railway run --service sidelineiq-agents -- env \
@@ -23,7 +25,7 @@ import 'dotenv/config';
 import { initializeMCPClients, callTool, disconnectAll } from '../utils/mcp-client-manager.js';
 import { ESPNNFLSource } from '../monitoring/sports/espn-nfl.js';
 import { ESPNNBASource } from '../monitoring/sports/espn-nba.js';
-import { checkReturnedBeforeReport } from '../monitoring/returned-precheck.js';
+import { checkReturnedBeforeReport, returnedSkipMinWeeks } from '../monitoring/returned-precheck.js';
 import { reportsFreshEvent } from '../agents/injury-intelligence/carryover.js';
 import type { RawInjuryEvent } from '../types.js';
 
@@ -85,16 +87,20 @@ async function main(): Promise<void> {
 
   let badFresh = 0;
   let badNoGame = 0;
+  let badYoung = 0;
+  const cutoffDays = returnedSkipMinWeeks() * 7;
+  console.log(`skip cutoff=${cutoffDays}d`);
   const counts: Record<string, number> = {};
   for (const [e, t] of pairs) {
     const d = await checkReturnedBeforeReport(e, t, null);
     counts[d.kind] = (counts[d.kind] ?? 0) + 1;
-    if (d.kind === 'skip' || d.kind === 'review') {
+    if (d.kind === 'skip' || d.kind === 'review' || d.kind === 'inform') {
       if (d.kind === 'skip' && reportsFreshEvent(e)) badFresh++;
+      if (d.kind === 'skip' && d.anchor_age_days < cutoffDays) badYoung++;
       if (d.games < 1) badNoGame++;
       console.log(
         `${d.kind.toUpperCase().padEnd(6)} ${e.sport} ${e.athlete_name} [${t.status}] anchor=${d.anchor} ` +
-          `(${t.injury_date_confidence}) games=${d.games} first=${d.first_game_date} last=${d.last_game_date} ` +
+          `(${t.injury_date_confidence}) age=${d.anchor_age_days}d games=${d.games} first=${d.first_game_date} last=${d.last_game_date} ` +
           `report=${d.report_date} :: ${e.injury_description.slice(0, 90)}`,
       );
     }
@@ -112,8 +118,8 @@ async function main(): Promise<void> {
   }
   globalThis.fetch = realFetch;
 
-  console.log(`\nmust be zero: skips_with_fresh_language=${badFresh} skips_with_no_game=${badNoGame} decisions_under_failure=${injected}`);
-  if (badFresh || badNoGame || injected) process.exitCode = 1;
+  console.log(`\nmust be zero: skips_with_fresh_language=${badFresh} skips_with_no_game=${badNoGame} skips_under_cutoff=${badYoung} decisions_under_failure=${injected}`);
+  if (badFresh || badNoGame || badYoung || injected) process.exitCode = 1;
 }
 
 main()
