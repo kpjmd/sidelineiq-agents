@@ -327,10 +327,19 @@ function wordHit(text: string, phrase: string): boolean {
   return re.test(text);
 }
 
+/**
+ * "head" is a body site on the official report ("Head" = concussion) and also
+ * an English word in a job title. PT-2026-029's reported_injury quoted "head
+ * coach Andy Reid" beside a fractured ankle and F5 was proposed void by the
+ * concussion rule. A title is removed before matching; bare "head", "head
+ * injury" and "head trauma" still match.
+ */
+const HEAD_TITLE_RE = /\bhead[\s-]+(coach(es|ing)?|trainer|referee|official|of|athletic|team|physician|doctor)\b/g;
+
 /** The body-site keys a free-text injury description names, in lexicon order. */
 export function bodySitesOf(text: string | null | undefined): string[] {
   if (!text) return [];
-  const t = text.toLowerCase();
+  const t = text.toLowerCase().replace(HEAD_TITLE_RE, ' ');
   return Object.entries(BODY_SITE_LEXICON)
     .filter(([, phrases]) => phrases.some((p) => wordHit(t, p)))
     .map(([site]) => site);

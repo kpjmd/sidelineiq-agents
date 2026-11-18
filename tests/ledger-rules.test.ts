@@ -325,6 +325,14 @@ describe('body sites', () => {
     expect(bodySitesOf(null)).toEqual([]);
   });
 
+  it('does not read "head coach" as a head injury (PT-2026-029)', () => {
+    const wiley = 'fractured ankle (head coach Andy Reid: "it looks like he fractured his ankle")';
+    expect(bodySitesOf(wiley)).toEqual(['ankle']);
+    expect(bodySitesOf('Head')).toEqual(['concussion']);
+    expect(bodySitesOf('head injury, ankle')).toEqual(['ankle', 'concussion']);
+    expect(bodySitesOf('Head Coach Reid said the head trainer checked his head')).toEqual(['concussion']);
+  });
+
   it('does not match inside other words', () => {
     expect(bodySitesOf('handling')).toEqual([]);
     expect(bodySitesOf('backup')).toEqual([]);
