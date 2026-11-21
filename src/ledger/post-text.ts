@@ -129,6 +129,21 @@ interface FarcasterVariant {
   mechanism: boolean;
   injuryDate: boolean;
   injuryMaxChars: number | null;
+  /** A revision's trigger line: kept whole, shrunk to the room left, or left off. Defaults to whole. */
+  trigger?: 'whole' | 'fit' | 'none';
+}
+
+/** A trigger shrunk to fewer characters than this says too little to be worth the room. */
+const FARCASTER_TRIGGER_MIN_CHARS = 24;
+
+function truncateToBytes(text: string, maxBytes: number): string | null {
+  // Truncate by code points so a multi-byte character is never split.
+  const chars = [...text];
+  for (let n = chars.length; n >= FARCASTER_TRIGGER_MIN_CHARS; n--) {
+    const candidate = n === chars.length ? text : `${chars.slice(0, n - 3).join('').trimEnd()}...`;
+    if (utf8Bytes(candidate) <= maxBytes) return candidate;
+  }
+  return null;
 }
 
 function farcasterCandidate(row: PublishedLedgerRow, v: FarcasterVariant): string {
@@ -143,15 +158,29 @@ function farcasterCandidate(row: PublishedLedgerRow, v: FarcasterVariant): strin
   lines.push(
     `IR ${pct(row.f1_ir)} | Next game ${pct(row.f2_next)} | 4 wk ${pct(row.f3_4wk)} | Games missed ${f4Label(row.f4_point, row.f4_low, row.f4_high, '-')} | ${f5}`,
   );
-  if (row.version > 1 && row.trigger) lines.push(`v${row.version} trigger: ${row.trigger}`);
-  lines.push(provenanceLine(row, ' '));
-  lines.push(LEDGER_COPY.credit);
+  const tail = [provenanceLine(row, ' '), LEDGER_COPY.credit];
+  const mode = v.trigger ?? 'whole';
+  if (row.version > 1 && row.trigger && mode !== 'none') {
+    const prefix = `v${row.version} trigger: `;
+    if (mode === 'whole') {
+      lines.push(`${prefix}${row.trigger}`);
+    } else {
+      // Room left once everything else is placed (each line costs a newline).
+      const used = utf8Bytes([...lines, ...tail].join('\n')) + 1;
+      const fitted = truncateToBytes(row.trigger, FARCASTER_MAX_BYTES - used - utf8Bytes(prefix));
+      if (fitted) lines.push(`${prefix}${fitted}`);
+    }
+  }
+  lines.push(...tail);
   return lines.join('\n');
 }
 
 /**
  * The Farcaster mirror, within 320 bytes. Drop order when over: the mechanism
- * line, then the injury date, then the reported-injury wording is truncated.
+ * line, then the injury date, then a revision's trigger is shrunk to the room
+ * left (or omitted when under FARCASTER_TRIGGER_MIN_CHARS fits), then the
+ * reported-injury wording is truncated. The trigger always stays whole on the
+ * X card and the entry page; the mirror still carries the version and hash8.
  * The five fields, the id, the version, the hash8 and the physician credit are
  * never shortened (spec: the human signature survives an AI-flagged post). If
  * it still does not fit, throw: a mirror that drops a field is not a mirror.
@@ -161,8 +190,10 @@ export function buildFarcasterText(row: PublishedLedgerRow): string {
     { mechanism: true, injuryDate: true, injuryMaxChars: null },
     { mechanism: false, injuryDate: true, injuryMaxChars: null },
     { mechanism: false, injuryDate: false, injuryMaxChars: null },
-    { mechanism: false, injuryDate: false, injuryMaxChars: 40 },
-    { mechanism: false, injuryDate: false, injuryMaxChars: 20 },
+    { mechanism: false, injuryDate: false, injuryMaxChars: null, trigger: 'fit' },
+    { mechanism: false, injuryDate: false, injuryMaxChars: 40, trigger: 'fit' },
+    { mechanism: false, injuryDate: false, injuryMaxChars: 20, trigger: 'fit' },
+    { mechanism: false, injuryDate: false, injuryMaxChars: 20, trigger: 'none' },
   ];
   for (const v of variants) {
     const text = farcasterCandidate(row, v);
