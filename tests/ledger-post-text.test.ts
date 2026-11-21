@@ -126,6 +126,40 @@ describe('self-reply (S2-1: ledger index + the commit URL + the reliance line)',
 });
 
 describe('Farcaster mirror (320 BYTES, not characters)', () => {
+  it('a revision with a long trigger shrinks the trigger instead of failing (PT-2026-027 v2 was 355 bytes)', () => {
+    const row = publishedRow({
+      version: 2,
+      player: 'Drake Maye',
+      position: 'Quarterback',
+      team: 'New England Patriots',
+      reported_injury: 'fractured right fibula, non-operative (per Schefter/Reiss)',
+      trigger: 'New reporting: right fibula fracture confirmed, no surgery needed, out deep into the regular season (Schefter/Reiss, 2026-11-20)',
+    });
+    assertPublishable(row);
+    const t = buildFarcasterText(row);
+    expect(utf8Bytes(t)).toBeLessThanOrEqual(FARCASTER_MAX_BYTES);
+    expect(t).toContain(`${row.entry_id} v2 ${shortHash(row.row_hash)}`);
+    expect(t).toContain(LEDGER_COPY.credit);
+    expect(t).toContain('IR ');
+    // The X card still carries the trigger whole.
+    expect(buildXCardText(row)).toContain(row.trigger as string);
+  });
+
+  it('an unusable amount of room drops the trigger line, never a field', () => {
+    const row = publishedRow({
+      version: 2,
+      player: 'Christian McCaffrey-Longname Jr.',
+      position: 'Quarterback',
+      team: 'New England Patriots of Massachusetts',
+      reported_injury: 'a very long reported injury wording that cannot fit anywhere near the budget',
+      trigger: 'New reporting: right fibula fracture confirmed, no surgery needed, out deep into the regular season',
+    });
+    assertPublishable(row);
+    const t = buildFarcasterText(row);
+    expect(utf8Bytes(t)).toBeLessThanOrEqual(FARCASTER_MAX_BYTES);
+    expect(t).toContain(`${row.entry_id} v2 ${shortHash(row.row_hash)}`);
+  });
+
   it('fits the budget with ASCII separators and keeps fields, id, version, hash8 and credit', () => {
     const row = published();
     const t = buildFarcasterText(row);
